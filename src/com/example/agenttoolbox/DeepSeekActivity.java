@@ -31,7 +31,7 @@ import com.example.agenttoolbox.mcp.McpServer;
 public class DeepSeekActivity extends Activity {
 
     private WebView webView;
-    private android.widget.FrameLayout webViewContainer;
+    private android.widget.FrameLayout webViewContainer;  // 容器 FrameLayout（id=R.id.webView）
     private TextView tvLoginStatus;
     private TextView tvStatus;
     private TextView tvMcpStatus;
@@ -70,7 +70,7 @@ public class DeepSeekActivity extends Activity {
      * 初始化视图
      */
     private void initViews() {
-        webViewContainer = (android.widget.FrameLayout) findViewById(R.id.webViewContainer);
+        webViewContainer = (android.widget.FrameLayout) findViewById(R.id.webView);
         tvLoginStatus = (TextView) findViewById(R.id.tvLoginStatus);
         tvStatus = (TextView) findViewById(R.id.tvStatus);
         tvMcpStatus = (TextView) findViewById(R.id.tvMcpStatus);
