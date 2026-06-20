@@ -626,10 +626,15 @@ public class DeepSeekActivity extends Activity {
             }, 10000);
 
         } catch (Exception e) {
-            String errorMsg = "【调用异常】\n" + e.getClass().getName() + ": " + e.getMessage() + "\n\n" + getStackTraceString(e);
-            copyToClipboard(errorMsg);
-            setStatus("调用异常，错误信息已复制");
-            Toast.makeText(this, "调用异常，错误信息已复制到剪贴板", Toast.LENGTH_SHORT).show();
+            String fullTrace = "【extractPageHtml 调用异常 - 完整堆栈】\n" +
+                "时间: " + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()) + "\n" +
+                "异常类型: " + e.getClass().getName() + "\n" +
+                "异常信息: " + e.getMessage() + "\n\n堆栈跟踪:\n" +
+                getStackTraceString(e) +
+                "\n\n--- 原始错误 ---\n" + e.getClass().getName() + ": " + e.getMessage();
+            copyToClipboard(fullTrace);
+            setStatus("调用异常，详情已复制");
+            Toast.makeText(this, "调用异常，完整堆栈已复制到剪贴板", Toast.LENGTH_LONG).show();
         }
     }
 
@@ -716,23 +721,72 @@ public class DeepSeekActivity extends Activity {
             }
 
         } catch (Exception e) {
-            String errorMsg = "【处理结果异常】\n" + e.getMessage() + "\n\n原始返回：\n" + (value != null ? value : "null");
-            copyToClipboard(errorMsg);
-            setStatus("处理异常，错误信息已复制");
-            Toast.makeText(this, "处理异常，错误信息已复制", Toast.LENGTH_SHORT).show();
+            String fullTrace = buildFullStackTrace(e, value);
+            copyToClipboard(fullTrace);
+            setStatus("处理异常，详情已复制");
+            Toast.makeText(this, "处理异常，完整堆栈已复制到剪贴板", Toast.LENGTH_LONG).show();
         }
     }
 
     /**
-     * 获取异常的堆栈信息
+     * 构建完整的异常堆栈信息，包含所有层级的 cause 和堆栈帧
+     */
+    private String buildFullStackTrace(Throwable t, String rawValue) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("【处理结果异常 - 完整堆栈】\n");
+        sb.append("时间: ").append(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())).append("\n");
+        sb.append("\n");
+
+        // 遍历异常链（包含所有 cause）
+        int depth = 0;
+        Throwable current = t;
+        while (current != null && depth < 10) {
+            if (depth > 0) {
+                sb.append("\n--- Caused by: ").append(current.getClass().getName()).append(" ---\n");
+            } else {
+                sb.append("异常类型: ").append(t.getClass().getName()).append("\n");
+            }
+
+            // 异常消息
+            sb.append("异常信息: ").append(current.getMessage() != null ? current.getMessage() : "(null)").append("\n");
+
+            // 完整堆栈帧
+            StackTraceElement[] stack = current.getStackTrace();
+            if (stack != null && stack.length > 0) {
+                sb.append("堆栈跟踪:\n");
+                for (int i = 0; i < stack.length; i++) {
+                    StackTraceElement frame = stack[i];
+                    String className = frame.getClassName();
+                    String methodName = frame.getMethodName();
+                    String fileName = frame.getFileName();
+                    int lineNumber = frame.getLineNumber();
+
+                    // 高亮项目相关帧
+                    String marker = className.contains("agenttoolbox") ? " >>>" : "";
+                    sb.append(String.format("  at %s.%s(%s:%d)%s\n",
+                        className.substring(className.lastIndexOf('.') + 1),
+                        methodName,
+                        fileName != null ? fileName : "Unknown",
+                        lineNumber >= 0 ? lineNumber : 0,
+                        marker));
+                }
+            }
+
+            current = current.getCause();
+            depth++;
+        }
+
+        sb.append("\n--- 原始返回值 ---\n");
+        sb.append(rawValue != null ? rawValue : "(null)");
+
+        return sb.toString();
+    }
+
+    /**
+     * 获取异常的堆栈信息（简化版，保留向后兼容）
      */
     private String getStackTraceString(Exception e) {
-        StringBuilder sb = new StringBuilder();
-        StackTraceElement[] stackTrace = e.getStackTrace();
-        for (int i = 0; i < Math.min(stackTrace.length, 10); i++) {
-            sb.append("  at ").append(stackTrace[i].toString()).append("\n");
-        }
-        return sb.toString();
+        return buildFullStackTrace(e, null);
     }
 
     /**
