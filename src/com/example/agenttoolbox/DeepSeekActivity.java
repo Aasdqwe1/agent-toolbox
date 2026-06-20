@@ -42,6 +42,7 @@ public class DeepSeekActivity extends Activity {
     private Handler handler;
     private boolean isLoggedIn = false;
     private JavaScriptBridge jsBridge;
+    private boolean isPageLoaded = false; // 页面是否已加载完成
 
     // DeepSeek 网址
     private static final String DEEPSEEK_URL = "https://chat.deepseek.com";
@@ -182,6 +183,7 @@ public class DeepSeekActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
+                isPageLoaded = true;
                 setStatus("加载完成");
 
                 // 延迟检测登录状态（等页面完全渲染）
@@ -202,6 +204,12 @@ public class DeepSeekActivity extends Activity {
                         }
                     }
                 }, 2000);
+            }
+
+            @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                super.onPageStarted(view, url, favicon);
+                isPageLoaded = false; // 页面开始加载时重置标志
             }
 
             @Override
@@ -489,6 +497,21 @@ public class DeepSeekActivity extends Activity {
      * 使用 evaluateJavascript 直接返回结果（异步）
      */
     private void extractPageHtml() {
+        // 检查 WebView 状态
+        if (webView == null) {
+            setStatus("错误：WebView 未初始化");
+            copyToClipboard("【提取失败】\nWebView 未初始化，请重启应用");
+            Toast.makeText(this, "WebView 异常，请重启应用", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // 检查页面是否已加载
+        if (!isPageLoaded) {
+            setStatus("页面正在加载中，请稍候...");
+            Toast.makeText(this, "页面尚未加载完成，请等待状态变为「加载完成」后再试", Toast.LENGTH_LONG).show();
+            return;
+        }
+
         setStatus("正在提取页面源码...");
 
         try {
@@ -547,10 +570,18 @@ public class DeepSeekActivity extends Activity {
      */
     private void handleExtractResult(String value) {
         try {
-            if (value == null || value.isEmpty() || value.equals("null")) {
-                setStatus("提取失败：返回为空");
-                copyToClipboard("【提取失败】\n返回值为空，请刷新页面后再试");
-                Toast.makeText(this, "提取失败，请刷新页面重试", Toast.LENGTH_SHORT).show();
+            // 区分不同情况：null 表示 WebView 执行上下文无效，"" 表示返回值本身为空
+            if (value == null) {
+                setStatus("提取失败：WebView 执行上下文无效");
+                copyToClipboard("【提取失败】\nWebView 执行上下文无效\n\n可能原因：\n1. 页面正在加载中\n2. 页面加载出错\n3. WebView 被销毁\n\n建议：\n1. 点击「刷新」按钮\n2. 等待状态显示「加载完成」后再提取");
+                Toast.makeText(this, "提取失败，请刷新页面后重试", Toast.LENGTH_LONG).show();
+                return;
+            }
+
+            if (value.isEmpty() || value.equals("null") || value.trim().isEmpty()) {
+                setStatus("提取失败：返回值为空");
+                copyToClipboard("【提取失败】\n返回值为空\n\n可能原因：\n1. 页面尚未完全加载\n2. 页面内容为空\n\n建议：\n1. 点击「刷新」按钮\n2. 等待状态显示「加载完成」后再提取\n3. 如持续失败，请检查网络连接");
+                Toast.makeText(this, "提取失败，请刷新页面后重试", Toast.LENGTH_LONG).show();
                 return;
             }
 
