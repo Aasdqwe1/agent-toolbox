@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <!-- 顶部工具栏 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:background="#f8fafc"
+        android:gravity="center_vertical">
+
+        <Button
+            android:id="@+id/btnBack"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="返回"
+            android:textSize="13sp"
+            android:background="@android:drawable/btn_default" />
+
+        <TextView
+            android:id="@+id/tvLoginStatus"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="检测中..."
+            android:textSize="13sp"
+            android:textColor="#6b7a8f"
+            android:gravity="center" />
+
+        <Button
+            android:id="@+id/btnNewChat"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="新会话"
+            android:textSize="13sp"
+            android:background="@android:drawable/btn_default" />
+
+        <Button
+            android:id="@+id/btnRefresh"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="刷新"
+            android:textSize="13sp"
+            android:background="@android:drawable/btn_default" />
+
+        <Button
+            android:id="@+id/btnExtractHtml"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="提取源码"
+            android:textSize="13sp"
+            android:background="@android:drawable/btn_default" />
+    </LinearLayout>
+
+    <!-- 分隔线 -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#e2e8f0" />
+
+    <!-- WebView -->
+    <WebView
+        android:id="@+id/webView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <!-- 底部状态栏 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:paddingLeft="12dp"
+        android:paddingRight="12dp"
+        android:background="#f1f5f9"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="就绪"
+            android:textSize="12sp"
+            android:textColor="#6b7a8f" />
+
+        <TextView
+            android:id="@+id/tvMcpStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="MCP: 未连接"
+            android:textSize="12sp"
+            android:textColor="#b33a34" />
+    </LinearLayout>
+
+</LinearLayout>

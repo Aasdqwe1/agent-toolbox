@@ -1,0 +1,42 @@
+# 构建产物
+bin/
+gen/
+out/
+build/
+*.apk
+*.ap_
+*.aab
+*.dex
+*.class
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+local.properties
+
+# Gradle
+.gradle/
+build.gradle~
+*.gradle.kts~
+
+# 编译缓存
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+
+# 日志
+*.log
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# AIDE
+.aide/
+
+# 压缩包（测试用 zip 不提交）
+*.zip

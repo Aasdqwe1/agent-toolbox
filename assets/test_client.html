@@ -1,0 +1,1284 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>MCP 工具箱</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #f5f7fa;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            padding: 16px;
+            min-height: 100vh;
+            color: #1e293b;
+            display: flex;
+            justify-content: center;
+        }
+
+        .app {
+            max-width: 600px;
+            width: 100%;
+            background: #ffffff;
+            border-radius: 24px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.04);
+            padding: 20px 18px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        /* 头部 */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 8px 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #e9edf2;
+        }
+
+        .title {
+            font-size: 20px;
+            font-weight: 600;
+            letter-spacing: -0.3px;
+            color: #0b1e33;
+        }
+
+        .title small {
+            font-size: 13px;
+            font-weight: 400;
+            color: #6b7a8f;
+            margin-left: 6px;
+        }
+
+        .status-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 30px;
+            font-size: 12px;
+            font-weight: 500;
+            background: #eef2f6;
+            color: #3d4e62;
+            border: 1px solid #dce1e8;
+            transition: all 0.15s;
+        }
+
+        .status-badge.connected {
+            background: #e3f5ec;
+            border-color: #a8d5c0;
+            color: #0e6b4c;
+        }
+
+        .status-badge.disconnected {
+            background: #fee9e7;
+            border-color: #fbcbc4;
+            color: #b33a34;
+        }
+
+        .status-badge.thinking {
+            background: #fff3d9;
+            border-color: #f7dba0;
+            color: #926d1f;
+        }
+
+        /* 连接栏 */
+        .connect-bar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px;
+            background: #f8fafc;
+            padding: 10px 14px;
+            border-radius: 18px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .connect-bar label {
+            font-size: 13px;
+            font-weight: 500;
+            color: #334155;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .connect-bar input {
+            flex: 1;
+            min-width: 140px;
+            padding: 8px 12px;
+            border: 1px solid #d1d9e6;
+            border-radius: 40px;
+            font-size: 14px;
+            background: white;
+            color: #1e293b;
+            transition: 0.2s;
+            font-family: inherit;
+        }
+
+        .connect-bar input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
+        }
+
+        .btn {
+            border: none;
+            border-radius: 40px;
+            padding: 8px 18px;
+            font-size: 14px;
+            font-weight: 500;
+            background: white;
+            color: #1e293b;
+            border: 1px solid #d1d9e6;
+            cursor: pointer;
+            transition: 0.15s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            background: #f1f4f9;
+        }
+
+        .btn-primary {
+            background: #1e293b;
+            border: 1px solid #1e293b;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #0f1a2e;
+        }
+
+        .btn-secondary {
+            background: white;
+            border: 1px solid #d1d9e6;
+        }
+
+        .btn-secondary:hover {
+            background: #f1f4f9;
+        }
+
+        .btn:active {
+            transform: scale(0.96);
+        }
+
+        .btn-icon {
+            padding: 8px 12px;
+            font-size: 15px;
+        }
+
+        /* 双栏布局 (移动端自适应) */
+        .dashboard {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .panel {
+            background: #fafcff;
+            border-radius: 20px;
+            border: 1px solid #e9edf2;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 12px 16px;
+            background: #ffffff;
+            border-bottom: 1px solid #eef2f6;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-weight: 500;
+            font-size: 14px;
+            color: #1e293b;
+        }
+
+        .panel-header .count {
+            background: #eef2f6;
+            padding: 2px 10px;
+            border-radius: 30px;
+            font-size: 12px;
+            color: #475569;
+        }
+
+        .panel-body {
+            padding: 12px 14px;
+            max-height: 180px;
+            overflow-y: auto;
+        }
+
+        .tools-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .tool-item {
+            background: white;
+            border: 1px solid #e9edf2;
+            border-radius: 14px;
+            padding: 12px 14px;
+            cursor: pointer;
+            transition: 0.1s;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+        }
+
+        .tool-item:active {
+            background: #f1f5f9;
+            border-color: #b9c4d4;
+        }
+
+        .tool-name {
+            font-weight: 600;
+            font-size: 14px;
+            color: #0b1e33;
+            font-family: ui-monospace, SFMono-Regular, monospace;
+        }
+
+        .tool-desc {
+            font-size: 13px;
+            color: #4b5b6e;
+            margin-top: 4px;
+            line-height: 1.4;
+        }
+
+        .help-box {
+            font-size: 13px;
+            color: #2d3a4c;
+            line-height: 1.6;
+        }
+
+        .help-box code {
+            background: #eef2f6;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            color: #1e293b;
+            font-family: ui-monospace, monospace;
+        }
+
+        .help-box ul {
+            margin: 6px 0 6px 18px;
+        }
+
+        .help-box li {
+            margin-bottom: 2px;
+        }
+
+        .help-box pre {
+            background: #f1f5f9;
+            padding: 10px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            overflow-x: auto;
+            margin-top: 6px;
+            color: #1e293b;
+            border: 1px solid #e2e8f0;
+        }
+
+        /* 聊天区域 */
+        .chat-panel {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-height: 380px;
+        }
+
+        .chat-panel .panel-body {
+            flex: 1;
+            max-height: 420px;
+            overflow-y: auto;
+            padding: 16px 14px;
+            background: #fafcff;
+        }
+
+        .message {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 18px;
+            align-items: flex-start;
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 12px;
+            background: #eef2f6;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            flex-shrink: 0;
+            color: #1e293b;
+            font-weight: 500;
+        }
+
+        .message.user .message-avatar {
+            background: #1e293b;
+            color: white;
+        }
+
+        .message.system .message-avatar {
+            background: #eef2f6;
+            color: #6b7a8f;
+        }
+
+        .message-content {
+            max-width: 80%;
+        }
+
+        .message.user .message-content {
+            text-align: right;
+        }
+
+        .message-label {
+            font-size: 11px;
+            color: #6b7a8f;
+            margin-bottom: 4px;
+            font-weight: 500;
+        }
+
+        .message-bubble {
+            padding: 10px 14px;
+            border-radius: 14px;
+            font-size: 14px;
+            line-height: 1.5;
+            word-break: break-word;
+            background: white;
+            border: 1px solid #e9edf2;
+            color: #1e293b;
+            display: inline-block;
+            text-align: left;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+        }
+
+        .message.user .message-bubble {
+            background: #1e293b;
+            border-color: #1e293b;
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.system .message-bubble {
+            background: #f1f5f9;
+            border: 1px dashed #d1d9e6;
+            color: #3d4e62;
+            font-size: 13px;
+        }
+
+        .message.server .message-bubble {
+            background: white;
+            border: 1px solid #e9edf2;
+            border-bottom-left-radius: 4px;
+            font-family: ui-monospace, monospace;
+            font-size: 13px;
+            padding: 10px 14px;
+        }
+
+        .json-block {
+            background: #f8fafc;
+            padding: 10px 12px;
+            border-radius: 12px;
+            font-family: ui-monospace, monospace;
+            font-size: 12px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            border: 1px solid #e2e8f0;
+            line-height: 1.5;
+            color: #1e293b;
+        }
+
+        .method-badge {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 40px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-right: 6px;
+            background: #eef2f6;
+            color: #475569;
+        }
+
+        .method-request {
+            background: #e2eaf5;
+            color: #1a4b7a;
+        }
+
+        .method-response {
+            background: #e2f0e8;
+            color: #1a6b4a;
+        }
+
+        .method-error {
+            background: #fde8e6;
+            color: #b33a34;
+        }
+
+        /* 快捷命令标签 */
+        .quick-commands {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 10px 14px;
+            background: #fafcff;
+            border-top: 1px solid #eef2f6;
+        }
+
+        .quick-cmd {
+            padding: 4px 12px;
+            background: white;
+            border: 1px solid #dce1e8;
+            border-radius: 30px;
+            font-size: 12px;
+            color: #2d3a4c;
+            cursor: pointer;
+            transition: 0.1s;
+            font-family: ui-monospace, monospace;
+        }
+
+        .quick-cmd:active {
+            background: #eef2f6;
+        }
+
+        /* 输入区 */
+        .input-area {
+            display: flex;
+            gap: 10px;
+            padding: 12px 14px 14px;
+            background: white;
+            border-top: 1px solid #eef2f6;
+            align-items: flex-end;
+        }
+
+        .input-area textarea {
+            flex: 1;
+            padding: 10px 14px;
+            border: 1px solid #d1d9e6;
+            border-radius: 24px;
+            font-size: 14px;
+            background: #fafcff;
+            color: #1e293b;
+            resize: none;
+            min-height: 44px;
+            max-height: 120px;
+            font-family: inherit;
+            line-height: 1.5;
+            transition: 0.15s;
+        }
+
+        .input-area textarea:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59,130,246,0.08);
+        }
+
+        .input-area .send-btn {
+            background: #1e293b;
+            border: none;
+            border-radius: 40px;
+            padding: 10px 22px;
+            font-weight: 500;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+            transition: 0.15s;
+            height: 44px;
+            display: flex;
+            align-items: center;
+        }
+
+        .input-area .send-btn:active {
+            transform: scale(0.96);
+        }
+
+        .input-area .send-btn:disabled {
+            background: #b9c4d4;
+            cursor: not-allowed;
+        }
+
+        /* 日志 */
+        .log-panel .panel-body {
+            max-height: 100px;
+            overflow-y: auto;
+            padding: 8px 14px;
+            background: #fafcff;
+            font-size: 12px;
+            font-family: ui-monospace, monospace;
+            color: #3d4e62;
+        }
+
+        .log-item {
+            padding: 3px 0;
+            border-bottom: 1px solid #f1f4f9;
+            display: flex;
+            gap: 6px;
+        }
+
+        .log-item .time {
+            color: #6b7a8f;
+        }
+
+        .log-item .type-request { color: #1a4b7a; font-weight: 500; }
+        .log-item .type-response { color: #1a6b4a; font-weight: 500; }
+        .log-item .type-error { color: #b33a34; font-weight: 500; }
+
+        /* 移动优化 */
+        @media (max-width: 480px) {
+            .app { padding: 16px 12px; }
+            .connect-bar input { min-width: 100px; }
+            .header .title { font-size: 18px; }
+            .btn { padding: 6px 14px; font-size: 13px; }
+            .message-content { max-width: 88%; }
+        }
+
+        /* 隐藏滚动条 (但保留功能) */
+        .panel-body::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+        .panel-body::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        .panel-body::-webkit-scrollbar-thumb {
+            background: #d1d9e6;
+            border-radius: 12px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="app" id="app">
+    <!-- 头部 -->
+    <div class="header">
+        <div class="title">
+            MCP 工具箱
+            <small>交互终端</small>
+        </div>
+        <div class="status-group">
+            <span id="mcpStatus" class="status-badge disconnected">未连接</span>
+        </div>
+    </div>
+
+    <!-- 连接栏 -->
+    <div class="connect-bar">
+        <label>服务</label>
+        <input type="text" id="serverUrl" placeholder="http://192.168.1.100:8080" value="http://192.168.1.100:8080">
+        <button class="btn btn-primary" onclick="connectMcp()">连接</button>
+        <button class="btn btn-secondary" onclick="clearChat()">清空</button>
+    </div>
+
+    <!-- 主区域 -->
+    <div class="dashboard">
+        <!-- 侧边栏 (工具+快捷) -->
+        <div class="sidebar">
+            <div class="panel">
+                <div class="panel-header">
+                    工具列表
+                    <span class="count" id="toolCount">0</span>
+                </div>
+                <div class="panel-body" id="toolsPanel">
+                    <ul id="toolsList" class="tools-list">
+                        <li style="color: #6b7a8f; text-align: center; padding: 16px 0; font-size: 13px;">连接后自动加载</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">快捷命令</div>
+                <div class="panel-body" style="max-height: 140px;">
+                    <div class="help-box">
+                        <ul style="margin-top:0;">
+                            <li><code>/list</code> 列出工具</li>
+                            <li><code>/call 工具 参数</code> 调用</li>
+                            <li><code>/calc 1+1</code> 计算</li>
+                            <li><code>/get URL</code> GET请求</li>
+                            <li><code>/read 路径</code> 读文件</li>
+                            <li><code>/write 路径 内容</code> 写文件</li>
+                            <li><code>/help</code> 帮助</li>
+                        </ul>
+                        <div style="font-size:12px; color:#6b7a8f; margin-top:4px;">也可直接输入 JSON-RPC</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 聊天区域 -->
+        <div class="panel chat-panel">
+            <div class="panel-header">
+                会话
+                <span id="sessionStatus" style="font-weight:400; font-size:13px; color:#6b7a8f;">就绪</span>
+            </div>
+            <div class="panel-body" id="chatMessages">
+                <div class="message system">
+                    <div class="message-avatar">i</div>
+                    <div class="message-content">
+                        <div class="message-label">系统</div>
+                        <div class="message-bubble">
+                            输入 <code>/help</code> 查看命令，点击「连接」接入服务。
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="quick-commands">
+                <span class="quick-cmd" onclick="quickCommand('/list')">/list</span>
+                <span class="quick-cmd" onclick="quickCommand('/calc 1+1')">/calc</span>
+                <span class="quick-cmd" onclick="quickCommand('/get https://example.com')">/get</span>
+                <span class="quick-cmd" onclick="quickCommand('/read test.txt')">/read</span>
+                <span class="quick-cmd" onclick="quickCommand('/help')">/help</span>
+            </div>
+
+            <div class="input-area">
+                <textarea id="chatInput" placeholder="输入命令或 JSON..." rows="1" onkeydown="handleKeyDown(event)"></textarea>
+                <button class="send-btn" id="sendBtn" onclick="sendMessage()">发送</button>
+            </div>
+        </div>
+
+        <!-- 日志 -->
+        <div class="panel log-panel">
+            <div class="panel-header" style="font-size:13px; padding:6px 16px;">
+                传输日志
+                <button class="btn btn-secondary" style="padding:2px 14px; font-size:12px;" onclick="clearLog()">清空</button>
+            </div>
+            <div class="panel-body" id="logContent">
+                <div style="color:#6b7a8f;">等待连接...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ===== 全局状态 =====
+    let tools = [];
+    let requestId = 0;
+    let isProcessing = false;
+
+    // ===== DOM 引用 =====
+    const $ = (id) => document.getElementById(id);
+    const serverUrlInput = $('serverUrl');
+    const mcpStatus = $('mcpStatus');
+    const sessionStatus = $('sessionStatus');
+    const toolsList = $('toolsList');
+    const toolCount = $('toolCount');
+    const chatMessages = $('chatMessages');
+    const chatInput = $('chatInput');
+    const sendBtn = $('sendBtn');
+    const logContent = $('logContent');
+
+    // ===== 辅助 =====
+    function getServerUrl() { return serverUrlInput.value.trim(); }
+
+    function setMcpStatus(connected, text) {
+        mcpStatus.className = 'status-badge ' + (connected ? 'connected' : 'disconnected');
+        mcpStatus.textContent = text;
+    }
+
+    function setSessionStatus(text) {
+        sessionStatus.textContent = text;
+    }
+
+    function addLog(type, message) {
+        const time = new Date().toLocaleTimeString();
+        const item = document.createElement('div');
+        item.className = 'log-item';
+        const typeMap = { request: 'type-request', response: 'type-response', error: 'type-error' };
+        item.innerHTML = `<span class="time">[${time}]</span><span class="${typeMap[type] || ''}">${type.toUpperCase()}</span> ${message}`;
+        if (logContent.querySelector('div')?.style?.color === 'rgb(107, 122, 143)') logContent.innerHTML = '';
+        logContent.insertBefore(item, logContent.firstChild);
+    }
+
+    function clearLog() {
+        logContent.innerHTML = '<div style="color:#6b7a8f;">等待连接...</div>';
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // 简易 JSON 高亮 (仅用于展示)
+    function syntaxHighlight(json) {
+        if (typeof json !== 'string') json = JSON.stringify(json, null, 2);
+        return json.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function(m) {
+                let cls = 'json-number';
+                if (/^"/.test(m)) { cls = /:$/.test(m) ? 'json-key' : 'json-string'; }
+                else if (/true|false/.test(m)) cls = 'json-boolean';
+                else if (/null/.test(m)) cls = 'json-null';
+                return '<span class="' + cls + '">' + m + '</span>';
+            });
+    }
+
+    // ===== 消息渲染 =====
+    function addSystemMessage(text) {
+        const div = document.createElement('div');
+        div.className = 'message system';
+        div.innerHTML = `<div class="message-avatar">i</div><div class="message-content"><div class="message-label">系统</div><div class="message-bubble">${text}</div></div>`;
+        chatMessages.appendChild(div);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function addUserMessage(text) {
+        const div = document.createElement('div');
+        div.className = 'message user';
+        div.innerHTML = `<div class="message-avatar">U</div><div class="message-content"><div class="message-label">你</div><div class="message-bubble" style="white-space:pre-wrap;">${escapeHtml(text)}</div></div>`;
+        chatMessages.appendChild(div);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function addRequestMessage(method, data) {
+        const div = document.createElement('div');
+        div.className = 'message user';
+        div.innerHTML = `<div class="message-avatar">➜</div><div class="message-content"><div class="message-label"><span class="method-badge method-request">请求</span> ${method}</div><div class="message-bubble"><div class="json-block">${syntaxHighlight(data)}</div></div></div>`;
+        chatMessages.appendChild(div);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function addResponseMessage(data) {
+        const div = document.createElement('div');
+        div.className = 'message server';
+        const isError = data.error !== undefined;
+        const badge = isError ? 'method-error' : 'method-response';
+        const label = isError ? '错误' : '响应';
+        div.innerHTML = `<div class="message-avatar">⬅</div><div class="message-content"><div class="message-label"><span class="method-badge ${badge}">${label}</span> jsonrpc</div><div class="message-bubble"><div class="json-block">${syntaxHighlight(data)}</div></div></div>`;
+        chatMessages.appendChild(div);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function clearChat() {
+        chatMessages.innerHTML = `<div class="message system"><div class="message-avatar">i</div><div class="message-content"><div class="message-label">系统</div><div class="message-bubble">会话已清空</div></div></div>`;
+    }
+
+    // ===== 工具列表 =====
+    function renderToolsList() {
+        toolsList.innerHTML = '';
+        if (!tools.length) {
+            toolsList.innerHTML = '<li style="color:#6b7a8f; text-align:center; padding:12px 0; font-size:13px;">暂无工具</li>';
+            return;
+        }
+        tools.forEach(t => {
+            const li = document.createElement('li');
+            li.className = 'tool-item';
+            li.onclick = () => { chatInput.value = `/call ${t.name} {}`; chatInput.focus(); };
+            li.innerHTML = `<div class="tool-name">${t.name}</div><div class="tool-desc">${t.description || ''}</div>`;
+            toolsList.appendChild(li);
+        });
+    }
+
+    // ===== MCP 请求 =====
+    async function sendMcpRequest(method, params) {
+        const url = getServerUrl();
+        const id = 'req_' + (++requestId);
+        const request = { jsonrpc: '2.0', id, method, params: params || {} };
+        addLog('request', `${method} (id:${id})`);
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(request)
+        });
+        const data = await res.json();
+        addLog('response', `${method} 完成`);
+        return { request, response: data };
+    }
+
+    // ===== 连接 =====
+    async function connectMcp() {
+        if (isProcessing) return;
+        try {
+            setMcpStatus(false, '连接中...');
+            setSessionStatus('握手...');
+            addLog('request', '建立 MCP 连接');
+
+            const init = await sendMcpRequest('initialize', {
+                protocolVersion: '2024-11-05',
+                capabilities: { tools: {} },
+                clientInfo: { name: 'Web Terminal', version: '2.0' }
+            });
+            addRequestMessage('initialize', init.request);
+            addResponseMessage(init.response);
+
+            await sendMcpRequest('notifications/initialized', {});
+
+            const toolsRes = await sendMcpRequest('tools/list', {});
+            addRequestMessage('tools/list', toolsRes.request);
+            addResponseMessage(toolsRes.response);
+
+            if (toolsRes.response.result && toolsRes.response.result.tools) {
+                tools = toolsRes.response.result.tools;
+                renderToolsList();
+                toolCount.textContent = tools.length;
+                setMcpStatus(true, '已连接');
+                setSessionStatus('就绪');
+                addSystemMessage(`连接成功，加载 ${tools.length} 个工具。输入 /list 查看。`);
+            } else {
+                setMcpStatus(false, '工具获取失败');
+                setSessionStatus('失败');
+            }
+        } catch (e) {
+            setMcpStatus(false, '连接失败');
+            setSessionStatus('失败');
+            addLog('error', '连接失败: ' + e.message);
+            addSystemMessage('连接失败: ' + e.message);
+        }
+    }
+
+    // ===== 命令处理 =====
+    async function handleCommand(text) {
+        const parts = text.match(/^\/(\w+)\s*(.*)?/);
+        if (!parts) { addSystemMessage('无效命令，输入 /help'); return; }
+        const cmd = parts[1].toLowerCase();
+        const args = parts[2] || '';
+        addUserMessage(text);
+
+        isProcessing = true;
+        sendBtn.disabled = true;
+        setSessionStatus('处理中...');
+
+        try {
+            switch (cmd) {
+                case 'list':
+                case 'tools': {
+                    const r = await sendMcpRequest('tools/list', {});
+                    addRequestMessage('tools/list', r.request);
+                    addResponseMessage(r.response);
+                    break;
+                }
+                case 'call': {
+                    const m = args.match(/^(\w+)\s*(\{.*\})?/);
+                    if (!m) throw new Error('用法: /call 工具名 {"参数":"值"}');
+                    const toolName = m[1];
+                    let arguments = {};
+                    if (m[2]) try { arguments = JSON.parse(m[2]); } catch(e) { throw new Error('参数JSON格式错误'); }
+                    const req = { jsonrpc:'2.0', id:'call_'+Date.now(), method:'tools/call', params:{ name: toolName, arguments } };
+                    addRequestMessage('tools/call', req);
+                    const res = await fetch(getServerUrl(), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(req) });
+                    const data = await res.json();
+                    addResponseMessage(data);
+                    break;
+                }
+                case 'calc': {
+                    if (!args) throw new Error('用法: /calc 表达式');
+                    const req = { jsonrpc:'2.0', id:'calc_'+Date.now(), method:'tools/call', params:{ name:'math_calculator', arguments:{ expression: args } } };
+                    addRequestMessage('tools/call (math)', req);
+                    const res = await fetch(getServerUrl(), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(req) });
+                    const data = await res.json();
+                    addResponseMessage(data);
+                    break;
+                }
+                case 'get': {
+                    if (!args) throw new Error('用法: /get URL');
+                    const req = { jsonrpc:'2.0', id:'get_'+Date.now(), method:'tools/call', params:{ name:'http_request', arguments:{ method:'GET', url: args } } };
+                    addRequestMessage('tools/call (http)', req);
+                    const res = await fetch(getServerUrl(), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(req) });
+                    const data = await res.json();
+                    addResponseMessage(data);
+                    break;
+                }
+                case 'read': {
+                    if (!args) throw new Error('用法: /read 路径');
+                    const req = { jsonrpc:'2.0', id:'read_'+Date.now(), method:'tools/call', params:{ name:'file_read', arguments:{ path: args } } };
+                    addRequestMessage('tools/call (file_read)', req);
+                    const res = await fetch(getServerUrl(), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(req) });
+                    const data = await res.json();
+                    addResponseMessage(data);
+                    break;
+                }
+                case 'write': {
+                    const m = args.match(/^(\S+)\s+(.*)/);
+                    if (!m) throw new Error('用法: /write 路径 内容');
+                    const req = { jsonrpc:'2.0', id:'write_'+Date.now(), method:'tools/call', params:{ name:'file_write', arguments:{ path: m[1], content: m[2] } } };
+                    addRequestMessage('tools/call (file_write)', req);
+                    const res = await fetch(getServerUrl(), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(req) });
+                    const data = await res.json();
+                    addResponseMessage(data);
+                    break;
+                }
+                case 'help': {
+                    const helpText = `
+                        <strong>命令</strong><br>
+                        <code>/list</code> 列出工具<br>
+                        <code>/call 工具 {"k":"v"}</code> 调用<br>
+                        <code>/calc 1+1</code> 计算<br>
+                        <code>/get URL</code> GET请求<br>
+                        <code>/read 路径</code> 读文件<br>
+                        <code>/write 路径 内容</code> 写文件<br>
+                        <code>/help</code> 此帮助<br>
+                        也可直接输入 JSON-RPC 请求
+                    `;
+                    addSystemMessage(helpText);
+                    break;
+                }
+                case 'clear': {
+                    clearChat();
+                    break;
+                }
+                default: addSystemMessage('未知命令: /' + cmd + ' 输入 /help');
+            }
+        } catch(e) {
+            addLog('error', e.message);
+            addSystemMessage('错误: ' + e.message);
+        } finally {
+            isProcessing = false;
+            sendBtn.disabled = false;
+            setSessionStatus('就绪');
+        }
+    }
+
+    // ===== 原始 JSON =====
+    async function handleRawJson(text) {
+        addUserMessage(text);
+        isProcessing = true;
+        sendBtn.disabled = true;
+        setSessionStatus('发送...');
+        try {
+            const req = JSON.parse(text);
+            if (!req.jsonrpc || !req.method) throw new Error('缺少 jsonrpc 或 method');
+            addRequestMessage(req.method, req);
+            const res = await fetch(getServerUrl(), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(req) });
+            const data = await res.json();
+            addResponseMessage(data);
+            addLog('response', req.method + ' 完成');
+        } catch(e) {
+            addLog('error', e.message);
+            addResponseMessage({ jsonrpc:'2.0', id:null, error:{ code:-32700, message:'解析错误: '+e.message } });
+        } finally {
+            isProcessing = false;
+            sendBtn.disabled = false;
+            setSessionStatus('就绪');
+        }
+    }
+
+    // ===== 智能解析工具调用 =====
+    function extractJsonFromText(text) {
+        // 尝试从文本中提取 JSON 对象或数组
+        // 1. 先尝试直接解析整个文本
+        try {
+            const obj = JSON.parse(text);
+            return obj;
+        } catch(e) {}
+        
+        // 2. 尝试提取 markdown 代码块中的 JSON
+        const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+        if (codeBlockMatch) {
+            try {
+                const obj = JSON.parse(codeBlockMatch[1].trim());
+                return obj;
+            } catch(e) {}
+        }
+        
+        // 3. 尝试提取第一个 { 到最后一个 } 之间的内容
+        const firstBrace = text.indexOf('{');
+        const lastBrace = text.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+            try {
+                const jsonStr = text.substring(firstBrace, lastBrace + 1);
+                const obj = JSON.parse(jsonStr);
+                return obj;
+            } catch(e) {}
+        }
+        
+        // 4. 尝试提取第一个 [ 到最后一个 ] 之间的内容
+        const firstBracket = text.indexOf('[');
+        const lastBracket = text.lastIndexOf(']');
+        if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+            try {
+                const jsonStr = text.substring(firstBracket, lastBracket + 1);
+                const obj = JSON.parse(jsonStr);
+                return obj;
+            } catch(e) {}
+        }
+        
+        return null;
+    }
+
+    function parseToolCall(obj) {
+        // 解析多种格式的工具调用，转换成标准格式
+        if (!obj || typeof obj !== 'object') return null;
+        
+        // 格式1: 完整的 JSON-RPC 格式
+        if (obj.jsonrpc && obj.method === 'tools/call' && obj.params) {
+            return {
+                name: obj.params.name,
+                arguments: obj.params.arguments || {}
+            };
+        }
+        
+        // 格式2: { name: 'tool', arguments: {} }
+        if (obj.name && typeof obj.name === 'string') {
+            return {
+                name: obj.name,
+                arguments: obj.arguments || obj.parameters || obj.args || {}
+            };
+        }
+        
+        // 格式3: { tool: 'tool', args: {} }
+        if (obj.tool && typeof obj.tool === 'string') {
+            return {
+                name: obj.tool,
+                arguments: obj.args || obj.arguments || obj.parameters || {}
+            };
+        }
+        
+        // 格式4: { tool_name: 'tool', params: {} }
+        if (obj.tool_name && typeof obj.tool_name === 'string') {
+            return {
+                name: obj.tool_name,
+                arguments: obj.params || obj.arguments || obj.args || {}
+            };
+        }
+        
+        return null;
+    }
+
+    function extractToolResult(data) {
+        // 从 MCP 响应中提取工具执行结果文本
+        if (data.result && data.result.content && Array.isArray(data.result.content)) {
+            return data.result.content.map(item => item.text || '').join('\n');
+        }
+        if (data.result) {
+            return JSON.stringify(data.result, null, 2);
+        }
+        if (data.error) {
+            return '错误: ' + data.error.message;
+        }
+        return JSON.stringify(data, null, 2);
+    }
+
+    // ===== 主发送 =====
+    async function sendMessage() {
+        if (isProcessing) { addLog('error', '正在处理...'); return; }
+        const text = chatInput.value.trim();
+        if (!text) return;
+        chatInput.value = '';
+
+        if (text.startsWith('/')) {
+            await handleCommand(text);
+        } else if (text.startsWith('{')) {
+            await handleRawJson(text);
+        } else {
+            // 智能解析：从任意文本中提取工具调用
+            addUserMessage(text);
+            if (tools.length === 0) {
+                addSystemMessage('请先连接服务');
+                return;
+            }
+            
+            isProcessing = true;
+            sendBtn.disabled = true;
+            setSessionStatus('解析中...');
+            
+            try {
+                let toolCall = null;
+                let parseMode = '';
+                
+                // 1. 尝试从文本中提取 JSON 并解析为工具调用
+                const jsonObj = extractJsonFromText(text);
+                if (jsonObj) {
+                    toolCall = parseToolCall(jsonObj);
+                    if (toolCall) {
+                        parseMode = '智能解析';
+                    }
+                }
+                
+                // 2. 如果没解析到，尝试关键词匹配
+                if (!toolCall) {
+                    const lowerText = text.toLowerCase();
+                    let matchedTool = null;
+                    let toolArgs = {};
+                    
+                    // 2.1 数学计算识别
+                    if (lowerText.includes('计算') || lowerText.includes('等于') || lowerText.includes('算一下') || 
+                        lowerText.includes('多少') || /\d+[\+\-\*\/\(\)]/.test(text)) {
+                        const expr = text.replace(/[^0-9+\-*/().\s]/g, '').trim();
+                        if (expr && expr.length > 0) {
+                            matchedTool = 'math_calculator';
+                            toolArgs = { expression: expr };
+                        }
+                    }
+                    
+                    // 2.2 HTTP 请求识别
+                    if (!matchedTool) {
+                        const urlMatch = text.match(/https?:\/\/[^\s]+/i);
+                        if (urlMatch) {
+                            const url = urlMatch[0];
+                            let method = 'GET';
+                            if (lowerText.includes('post') || lowerText.includes('提交') || lowerText.includes('发送')) {
+                                method = 'POST';
+                            } else if (lowerText.includes('put') || lowerText.includes('更新')) {
+                                method = 'PUT';
+                            } else if (lowerText.includes('delete') || lowerText.includes('删除')) {
+                                method = 'DELETE';
+                            }
+                            matchedTool = 'http_request';
+                            toolArgs = { method: method, url: url };
+                        }
+                    }
+                    
+                    // 2.3 文件读取识别
+                    if (!matchedTool) {
+                        const readMatch = text.match(/(?:读取|读|查看|打开)\s*(?:文件\s*)?([^\s，。！？]+)/i);
+                        if (readMatch && (lowerText.includes('读取') || lowerText.includes('读文件') || lowerText.includes('查看文件') || lowerText.includes('打开文件'))) {
+                            matchedTool = 'file_read';
+                            toolArgs = { path: readMatch[1] };
+                        }
+                    }
+                    
+                    // 2.4 文件写入识别
+                    if (!matchedTool) {
+                        const writeMatch = text.match(/(?:写入|写|保存)\s*(?:文件\s*)?([^\s，。！？]+)\s+(.+)/i);
+                        if (writeMatch && (lowerText.includes('写入') || lowerText.includes('写文件') || lowerText.includes('保存文件'))) {
+                            matchedTool = 'file_write';
+                            toolArgs = { path: writeMatch[1], content: writeMatch[2] };
+                        }
+                    }
+                    
+                    if (matchedTool) {
+                        toolCall = { name: matchedTool, arguments: toolArgs };
+                        parseMode = '关键词匹配';
+                    }
+                }
+                
+                // 执行工具调用
+                if (toolCall) {
+                    const req = { 
+                        jsonrpc: '2.0', 
+                        id: 'auto_' + Date.now(), 
+                        method: 'tools/call', 
+                        params: { 
+                            name: toolCall.name, 
+                            arguments: toolCall.arguments 
+                        } 
+                    };
+                    addRequestMessage('tools/call (' + parseMode + ')', req);
+                    setSessionStatus('执行中...');
+                    
+                    const res = await fetch(getServerUrl(), { 
+                        method: 'POST', 
+                        headers: {'Content-Type': 'application/json'}, 
+                        body: JSON.stringify(req) 
+                    });
+                    const data = await res.json();
+                    addResponseMessage(data);
+                    
+                    // 提取结果文本，方便复制
+                    const resultText = extractToolResult(data);
+                    if (resultText) {
+                        addResultCard(toolCall.name, resultText);
+                    }
+                } else {
+                    // 未识别，给出友好提示
+                    addSystemMessage(`
+                        🤖 我可以帮你做这些：<br><br>
+                        <strong>🔧 智能解析工具调用</strong><br>
+                        直接粘贴 DeepSeek 输出的工具调用 JSON，自动识别执行<br><br>
+                        <strong>🔢 数学计算</strong><br>
+                        例如：计算 1+2*3、123+456等于多少<br><br>
+                        <strong>🌐 HTTP请求</strong><br>
+                        例如：访问 https://example.com、GET https://api.example.com<br><br>
+                        <strong>📂 文件操作</strong><br>
+                        例如：读取文件 test.txt、写入文件 test.txt 你好世界<br><br>
+                        <em>也可以输入 /help 查看所有命令</em>
+                    `);
+                }
+            } catch(e) { 
+                addSystemMessage('执行失败: ' + e.message); 
+            } finally {
+                isProcessing = false;
+                sendBtn.disabled = false;
+                setSessionStatus('就绪');
+            }
+        }
+    }
+    
+    // 添加结果卡片（方便复制）
+    function addResultCard(toolName, resultText) {
+        const div = document.createElement('div');
+        div.className = 'message server';
+        div.innerHTML = `
+            <div class="message-avatar">📋</div>
+            <div class="message-content">
+                <div class="message-label">
+                    <span class="method-badge method-response">结果</span> ${toolName}
+                    <button class="copy-btn" onclick="copyResult(this)" style="float:right; font-size:11px; padding:2px 10px; border-radius:20px; border:1px solid #d1d9e6; background:white; cursor:pointer;">复制</button>
+                </div>
+                <div class="message-bubble" style="width:100%;">
+                    <div class="result-text" style="white-space:pre-wrap; font-family:ui-monospace,monospace; font-size:13px;">${escapeHtml(resultText)}</div>
+                </div>
+            </div>
+        `;
+        chatMessages.appendChild(div);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+    
+    // 复制结果
+    function copyResult(btn) {
+        const resultText = btn.closest('.message-content').querySelector('.result-text').textContent;
+        navigator.clipboard.writeText(resultText).then(() => {
+            const originalText = btn.textContent;
+            btn.textContent = '已复制 ✓';
+            btn.style.background = '#e3f5ec';
+            btn.style.borderColor = '#a8d5c0';
+            btn.style.color = '#0e6b4c';
+            setTimeout(() => {
+                btn.textContent = originalText;
+                btn.style.background = 'white';
+                btn.style.borderColor = '#d1d9e6';
+                btn.style.color = 'inherit';
+            }, 1500);
+        }).catch(() => {
+            btn.textContent = '复制失败';
+            setTimeout(() => { btn.textContent = '复制'; }, 1500);
+        });
+    }
+
+    // ===== 事件 =====
+    function handleKeyDown(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    }
+
+    function quickCommand(cmd) {
+        chatInput.value = cmd;
+        sendMessage();
+    }
+
+    // ===== 初始化 =====
+    window.onload = function() {
+        if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+            serverUrlInput.value = window.location.protocol + '//' + window.location.host;
+            setTimeout(connectMcp, 400);
+        }
+        addLog('request', '终端已就绪');
+    };
+</script>
+</body>
+</html>
