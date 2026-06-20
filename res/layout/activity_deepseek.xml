@@ -62,9 +62,9 @@
         android:layout_height="1dp"
         android:background="#e2e8f0" />
 
-    <!-- WebView -->
-    <WebView
-        android:id="@+id/webView"
+    <!-- WebView 容器（WebView 由 Bridge 全局持有，动态 attach 到此） -->
+    <FrameLayout
+        android:id="@+id/webViewContainer"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1" />

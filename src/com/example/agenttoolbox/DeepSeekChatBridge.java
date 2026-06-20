@@ -42,6 +42,7 @@ public class DeepSeekChatBridge {
     // 当前绑定的 WebView 和上下文
     private WebView boundWebView;
     private Handler mainHandler;
+    private boolean webViewLoaded;  // 已加载过 DeepSeek 页面 → 跳过重新 loadUrl
 
     // 注册 / 注销
     public synchronized void register(WebView webView) {
@@ -50,15 +51,23 @@ public class DeepSeekChatBridge {
         android.util.Log.d("DeepSeekChatBridge", "已注册 WebView: " + (webView != null ? "有效" : "null"));
     }
 
+    // Activity 返回/销毁时调用：保持 WebView 存活，仅从视图树 detach
+    public synchronized void detach() {
+        // 不 unregister，不 destroy — boundWebView 和 mainHandler 保持不变
+        android.util.Log.d("DeepSeekChatBridge", "detach: WebView 保持存活，HTTP API 继续可用");
+    }
+
     public synchronized void unregister() {
         this.boundWebView = null;
         this.mainHandler = null;
+        this.webViewLoaded = false;
         android.util.Log.d("DeepSeekChatBridge", "已注销 WebView");
     }
 
-    public synchronized boolean isRegistered() {
-        return boundWebView != null;
-    }
+    public synchronized WebView getBoundWebView() { return boundWebView; }
+    public synchronized boolean isRegistered() { return boundWebView != null; }
+    public synchronized boolean isWebViewLoaded() { return webViewLoaded && boundWebView != null; }
+    public synchronized void markAsLoaded() { this.webViewLoaded = true; }
 
     /**
      * 发送聊天消息并等待回复（同步阻塞，最长 60 秒）

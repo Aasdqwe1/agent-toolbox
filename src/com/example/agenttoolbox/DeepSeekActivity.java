@@ -31,6 +31,7 @@ import com.example.agenttoolbox.mcp.McpServer;
 public class DeepSeekActivity extends Activity {
 
     private WebView webView;
+    private android.widget.FrameLayout webViewContainer;
     private TextView tvLoginStatus;
     private TextView tvStatus;
     private TextView tvMcpStatus;
@@ -55,16 +56,13 @@ public class DeepSeekActivity extends Activity {
 
         handler = new Handler(Looper.getMainLooper());
 
-        // 初始化视图
+        // 初始化视图（不含 WebView，WebView 从 Bridge 全局单例取）
         initViews();
 
-        // 初始化 WebView
-        initWebView();
+        // 初始化或复用 WebView
+        initOrReuseWebView();
 
-        // 注册 HTTP 聊天桥接（使 /api/chat/send 可用）
-        DeepSeekChatBridge.getInstance().register(webView);
-
-        // 加载 DeepSeek
+        // 加载 DeepSeek（第一次才会实际 loadUrl，复用时跳过）
         loadDeepSeek();
     }
 
@@ -72,7 +70,7 @@ public class DeepSeekActivity extends Activity {
      * 初始化视图
      */
     private void initViews() {
-        webView = (WebView) findViewById(R.id.webView);
+        webViewContainer = (android.widget.FrameLayout) findViewById(R.id.webViewContainer);
         tvLoginStatus = (TextView) findViewById(R.id.tvLoginStatus);
         tvStatus = (TextView) findViewById(R.id.tvStatus);
         tvMcpStatus = (TextView) findViewById(R.id.tvMcpStatus);
@@ -81,11 +79,11 @@ public class DeepSeekActivity extends Activity {
         btnRefresh = (Button) findViewById(R.id.btnRefresh);
         btnExtractHtml = (Button) findViewById(R.id.btnExtractHtml);
 
-        // 返回按钮 —— 仅退到后台，不结束进程（保持 HTTP 聊天端点可用）
+        // 返回按钮 —— 回到主页（保持 WebView 在后台存活，HTTP API 继续可用）
         btnBack.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                moveTaskToBack(true);
+                finish();
             }
         });
 
@@ -119,53 +117,84 @@ public class DeepSeekActivity extends Activity {
     }
 
     /**
-     * 初始化 WebView
+     * 初始化或复用 WebView
+     * - 第一次进入：创建新 WebView → 配置 → 注册到 Bridge
+     * - 再次进入：Bridge 已有 WebView → 从旧父容器 detach → attach 到新容器 → 跳过配置和加载（会话保持）
      */
-    private void initWebView() {
-        WebSettings settings = webView.getSettings();
+    private void initOrReuseWebView() {
+        DeepSeekChatBridge bridge = DeepSeekChatBridge.getInstance();
+        WebView existing = bridge.getBoundWebView();
 
-        // 启用 JavaScript
+        if (existing != null && bridge.isWebViewLoaded()) {
+            // 复用：WebView 已在后台保持登录状态，只需 attach 到新容器
+            android.util.Log.d("DeepSeekActivity", "复用已存在的 WebView（保持会话）");
+            webView = existing;
+
+            // 从旧父容器 detach（可能）
+            android.view.ViewParent oldParent = webView.getParent();
+            if (oldParent instanceof android.view.ViewGroup) {
+                ((android.view.ViewGroup) oldParent).removeView(webView);
+            }
+
+            // attach 到新容器
+            android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT);
+            webViewContainer.addView(webView, lp);
+
+            // 更新 WebViewClient 和 WebChromeClient 的引用到当前 Activity
+            setupWebViewCallbacks(webView);
+
+            setStatus("会话已恢复（保持登录状态）");
+            isPageLoaded = true;
+            // 立即刷新登录状态显示
+            checkLoginStatus();
+        } else {
+            // 第一次进入：新建 WebView 并完整配置
+            android.util.Log.d("DeepSeekActivity", "创建新 WebView");
+            webView = new WebView(getApplicationContext());
+
+            // 添加到容器
+            android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT);
+            webViewContainer.addView(webView, lp);
+
+            // 完整配置
+            configureWebView(webView);
+
+            // 注册到 Bridge
+            bridge.register(webView);
+        }
+    }
+
+    private void configureWebView(WebView wv) {
+        android.webkit.WebSettings settings = wv.getSettings();
         settings.setJavaScriptEnabled(true);
-
-        // 启用 DOM 存储
         settings.setDomStorageEnabled(true);
-
-        // 启用数据库
         settings.setDatabaseEnabled(true);
-
-        // 设置缓存模式
-        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
-
-        // 设置用户代理（模拟桌面浏览器，获得更好的体验）
+        settings.setCacheMode(android.webkit.WebSettings.LOAD_DEFAULT);
         String userAgent = settings.getUserAgentString();
         settings.setUserAgentString(userAgent + " AgentToolbox/1.0");
-
-        // 支持缩放
         settings.setSupportZoom(true);
         settings.setBuiltInZoomControls(true);
         settings.setDisplayZoomControls(false);
-
-        // 自适应屏幕
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(true);
+        settings.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
-        // 启用混合内容（HTTP 和 HTTPS 混合）
-        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-
-        // 初始化 JavaScriptBridge
-        jsBridge = new JavaScriptBridge(this, webView);
-        webView.addJavascriptInterface(jsBridge, "Android");
+        // JavaScriptBridge
+        jsBridge = new JavaScriptBridge(this, wv);
+        wv.addJavascriptInterface(jsBridge, "Android");
         jsBridge.setOnToolCallListener(new JavaScriptBridge.OnToolCallListener() {
             @Override
             public void onToolCallDetected(String toolName, String arguments) {
                 setStatus("检测到工具调用: " + toolName);
             }
-
             @Override
             public void onToolResult(String toolName, String result) {
                 setStatus("工具执行完成: " + toolName);
             }
-
             @Override
             public void onPageHtmlExtracted(String html, boolean success, String error) {
                 if (success) {
@@ -181,20 +210,28 @@ public class DeepSeekActivity extends Activity {
             }
         });
 
-        // 设置 WebViewClient
-        webView.setWebViewClient(new WebViewClient() {
+        setupWebViewCallbacks(wv);
+
+        android.webkit.CookieManager cookieManager = android.webkit.CookieManager.getInstance();
+        cookieManager.setAcceptCookie(true);
+        cookieManager.setAcceptThirdPartyCookies(wv, true);
+    }
+
+    private void setupWebViewCallbacks(final WebView wv) {
+        wv.setWebViewClient(new android.webkit.WebViewClient() {
             @Override
-            public void onPageFinished(WebView view, String url) {
+            public void onPageFinished(android.webkit.WebView view, String url) {
                 super.onPageFinished(view, url);
                 isPageLoaded = true;
                 setStatus("加载完成");
 
-                // 延迟检测登录状态（等页面完全渲染）
+                // 标记 Bridge 中 WebView 已加载
+                DeepSeekChatBridge.getInstance().markAsLoaded();
+
+                // 延迟检测登录状态
                 handler.postDelayed(new Runnable() {
                     @Override
-                    public void run() {
-                        checkLoginStatus();
-                    }
+                    public void run() { checkLoginStatus(); }
                 }, 1500);
 
                 // 注入 MCP 工具监听脚本
@@ -210,57 +247,50 @@ public class DeepSeekActivity extends Activity {
             }
 
             @Override
-            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+            public void onPageStarted(android.webkit.WebView view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
-                isPageLoaded = false; // 页面开始加载时重置标志
+                isPageLoaded = false;
             }
 
             @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                // 拦截特殊的 mcp:// 协议 URL，用于从 JS 传递数据到 Java
+            public boolean shouldOverrideUrlLoading(android.webkit.WebView view, String url) {
                 if (url != null && url.startsWith("mcp://")) {
                     handleMcpUrl(url);
-                    return true; // 拦截，不加载
+                    return true;
                 }
-
-                // 在 WebView 内部加载所有链接
                 view.loadUrl(url);
                 return true;
             }
         });
 
-        // 设置 WebChromeClient
-        webView.setWebChromeClient(new WebChromeClient() {
+        wv.setWebChromeClient(new android.webkit.WebChromeClient() {
             @Override
-            public void onProgressChanged(WebView view, int newProgress) {
+            public void onProgressChanged(android.webkit.WebView view, int newProgress) {
                 super.onProgressChanged(view, newProgress);
-                if (newProgress < 100) {
-                    setStatus("加载中... " + newProgress + "%");
-                }
+                if (newProgress < 100) setStatus("加载中... " + newProgress + "%");
             }
 
             @Override
-            public boolean onJsAlert(WebView view, String url, String message, android.webkit.JsResult result) {
-                // 拦截特殊格式的 alert，用于从 JS 传递数据到 Java
+            public boolean onJsAlert(android.webkit.WebView view, String url, String message, android.webkit.JsResult result) {
                 if (message != null && message.startsWith("MCP:")) {
                     handleMcpMessage(message.substring(4));
                     result.confirm();
-                    return true; // 拦截，不显示弹窗
+                    return true;
                 }
                 return super.onJsAlert(view, url, message, result);
             }
         });
-
-        // 启用 Cookie
-        CookieManager cookieManager = CookieManager.getInstance();
-        cookieManager.setAcceptCookie(true);
-        cookieManager.setAcceptThirdPartyCookies(webView, true);
     }
 
     /**
-     * 加载 DeepSeek
+     * 加载 DeepSeek（复用时跳过，保持原有会话）
      */
     private void loadDeepSeek() {
+        DeepSeekChatBridge bridge = DeepSeekChatBridge.getInstance();
+        if (bridge.isWebViewLoaded()) {
+            android.util.Log.d("DeepSeekActivity", "loadDeepSeek: 已加载过，跳过重新 loadUrl");
+            return;
+        }
         setStatus("正在加载 DeepSeek...");
         tvLoginStatus.setText("检测中...");
         webView.loadUrl(DEEPSEEK_URL);
@@ -888,8 +918,8 @@ public class DeepSeekActivity extends Activity {
         if (webView != null && webView.canGoBack()) {
             webView.goBack();
         } else {
-            // 退到后台，保持 WebView 和 HTTP 聊天端点存活
-            moveTaskToBack(true);
+            // 正常回到主页（WebView 由 Bridge 全局持有，保持存活）
+            finish();
         }
     }
 
@@ -908,15 +938,14 @@ public class DeepSeekActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        // 不在 onDestroy 中强制清理 WebView：保持 HTTP 聊天端点持续可用
-        // 仅在真正主动销毁时执行（isFinishing 会返回 true）
-        if (isFinishing() && webView != null) {
-            DeepSeekChatBridge.getInstance().unregister();
-            webView.stopLoading();
-            webView.clearHistory();
-            webView.removeAllViews();
-            webView.destroy();
-            webView = null;
+        // 关键改动：Activity 销毁时不销毁 WebView
+        // 仅从当前容器 detach，保持 WebView 存活 — HTTP API 继续可用，DeepSeek 会话保持登录
+        if (webView != null) {
+            android.view.ViewParent parent = webView.getParent();
+            if (parent instanceof android.view.ViewGroup) {
+                ((android.view.ViewGroup) parent).removeView(webView);
+            }
+            DeepSeekChatBridge.getInstance().detach();  // 仅记录，不释放
         }
         super.onDestroy();
     }
