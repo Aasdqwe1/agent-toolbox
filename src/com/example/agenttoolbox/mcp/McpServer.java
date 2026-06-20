@@ -207,7 +207,7 @@ public class McpServer {
                     char[] body = new char[contentLength];
                     in.read(body, 0, contentLength);
                     String requestBody = new String(body);
-                    handlePostRequest(requestBody, out);
+                    handlePostRequest(path, requestBody, out);
                 } else if ("OPTIONS".equalsIgnoreCase(method)) {
                     handleOptionsRequest(out);
                 } else {
@@ -276,16 +276,22 @@ public class McpServer {
         }
         
         /**
-         * 处理POST请求 - JSON-RPC
+         * 处理POST请求 - JSON-RPC + DeepSeek 聊天
          */
-        private void handlePostRequest(String requestBody, OutputStream out) throws IOException {
+        private void handlePostRequest(String path, String requestBody, OutputStream out) throws IOException {
             log("收到请求: " + requestBody);
-            
+
+            // DeepSeek 聊天接口
+            if (path.startsWith("/api/chat/")) {
+                handleChatRequest(path, requestBody, out);
+                return;
+            }
+
             // 处理JSON-RPC请求
             String responseBody = handleJsonRpcRequest(requestBody);
-            
+
             log("返回响应: " + responseBody);
-            
+
             // 发送HTTP响应
             String response = "HTTP/1.1 200 OK\r\n" +
                 "Content-Type: application/json\r\n" +
@@ -295,7 +301,82 @@ public class McpServer {
                 "Access-Control-Allow-Headers: Content-Type\r\n" +
                 "\r\n" +
                 responseBody;
-            
+
+            out.write(response.getBytes("UTF-8"));
+        }
+
+        /**
+         * 处理 DeepSeek 聊天请求
+         */
+        private void handleChatRequest(String path, String requestBody, OutputStream out) throws IOException {
+            String responseBody;
+            try {
+                org.json.JSONObject body = new org.json.JSONObject(requestBody);
+                String action = path;
+
+                if ("/api/chat/send".equals(action) || "/api/chat/send".equals(action + "/")) {
+                    // 发送消息并等待回复
+                    String message = body.optString("message", "").trim();
+                    if (message.isEmpty()) {
+                        responseBody = new org.json.JSONObject()
+                            .put("success", false)
+                            .put("error", "message 参数不能为空")
+                            .toString();
+                    } else {
+                        // 检查 DeepSeekActivity 是否已注册 WebView
+                        if (!com.example.agenttoolbox.DeepSeekChatBridge.getInstance().isRegistered()) {
+                            responseBody = new org.json.JSONObject()
+                                .put("success", false)
+                                .put("error", "DeepSeek 未连接，请先打开 DeepSeek 页面并确保已登录")
+                                .toString();
+                        } else {
+                            log("DeepSeek 聊天请求: " + message.substring(0, Math.min(50, message.length())));
+                            String reply = com.example.agenttoolbox.DeepSeekChatBridge.getInstance().sendMessage(message);
+                            if (reply != null) {
+                                responseBody = new org.json.JSONObject()
+                                    .put("success", true)
+                                    .put("reply", reply)
+                                    .toString();
+                            } else {
+                                responseBody = new org.json.JSONObject()
+                                    .put("success", false)
+                                    .put("error", "未收到回复（可能超时或页面未响应）")
+                                    .toString();
+                            }
+                        }
+                    }
+                } else if ("/api/chat/status".equals(action)) {
+                    boolean registered = com.example.agenttoolbox.DeepSeekChatBridge.getInstance().isRegistered();
+                    responseBody = new org.json.JSONObject()
+                        .put("success", true)
+                        .put("connected", registered)
+                        .put("message", registered ? "DeepSeek 已连接" : "DeepSeek 未连接")
+                        .toString();
+                } else {
+                    responseBody = new org.json.JSONObject()
+                        .put("success", false)
+                        .put("error", "未知聊天接口: " + action)
+                        .toString();
+                }
+            } catch (Exception e) {
+                log("聊天请求处理异常: " + e.getMessage());
+                responseBody = new org.json.JSONObject()
+                    .put("success", false)
+                    .put("error", e.getMessage())
+                    .toString();
+            }
+
+            log("聊天响应: " + (responseBody.length() > 100 ? responseBody.substring(0, 100) + "..." : responseBody));
+
+            String response = "HTTP/1.1 200 OK\r\n" +
+                "Content-Type: application/json\r\n" +
+                "Content-Length: " + responseBody.getBytes("UTF-8").length + "\r\n" +
+                "Access-Control-Allow-Origin: *\r\n" +
+                "Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n" +
+                "Access-Control-Allow-Headers: Content-Type\r\n" +
+                "\r\n" +
+                responseBody;
+
             out.write(response.getBytes("UTF-8"));
         }
         

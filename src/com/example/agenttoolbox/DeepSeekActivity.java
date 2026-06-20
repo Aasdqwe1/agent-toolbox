@@ -61,6 +61,9 @@ public class DeepSeekActivity extends Activity {
         // 初始化 WebView
         initWebView();
 
+        // 注册 HTTP 聊天桥接（使 /api/chat/send 可用）
+        DeepSeekChatBridge.getInstance().register(webView);
+
         // 加载 DeepSeek
         loadDeepSeek();
     }
@@ -904,6 +907,9 @@ public class DeepSeekActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        // 注销 HTTP 聊天桥接
+        DeepSeekChatBridge.getInstance().unregister();
+
         if (webView != null) {
             webView.stopLoading();
             webView.clearHistory();

@@ -59,6 +59,32 @@ public class JavaScriptBridge {
     }
     
     /**
+     * JS 调用：DeepSeek AI 回复已捕获（由 WebView 注入的 JS 调用）
+     */
+    @JavascriptInterface
+    public void onDeepSeekReply(final String reply) {
+        handler.post(new Runnable() {
+            @Override
+            public void run() {
+                DeepSeekChatBridge.getInstance().onDeepSeekReply(reply);
+            }
+        });
+    }
+
+    /**
+     * JS 调用：DeepSeek 聊天过程发生错误
+     */
+    @JavascriptInterface
+    public void onDeepSeekError(final String error) {
+        handler.post(new Runnable() {
+            @Override
+            public void run() {
+                DeepSeekChatBridge.getInstance().onDeepSeekError(error);
+            }
+        });
+    }
+
+    /**
      * JS 调用：日志输出
      */
     @JavascriptInterface
