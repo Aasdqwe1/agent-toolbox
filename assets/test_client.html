@@ -586,21 +586,6 @@
         </div>
     </div>
 
-    <!-- DeepSeek 面板 -->
-    <div class="panel" id="deepseekPanel" style="display:none;">
-        <div class="panel-header">
-            <span>DeepSeek 会话</span>
-            <span class="count" id="sessionCount">0</span>
-        </div>
-        <div class="panel-body" id="sessionsPanel" style="max-height:200px; overflow-y:auto;">
-            <div style="color:#6b7a8f; text-align:center; padding:16px 0; font-size:13px;">加载中...</div>
-        </div>
-        <div class="input-area" style="padding:8px 14px 12px; gap:8px;">
-            <input type="text" id="deepseekInput" placeholder="输入消息..." style="flex:1; padding:8px 14px; border:1px solid #d1d9e6; border-radius:40px; font-size:14px;" onkeydown="handleDeepSeekKeyDown(event)">
-            <button class="btn btn-primary" style="padding:8px 16px; font-size:13px;" onclick="sendDeepSeekMessage()">发送</button>
-        </div>
-    </div>
-
     <!-- 连接栏 -->
     <div class="connect-bar">
         <label>服务</label>
@@ -611,8 +596,19 @@
 
     <!-- 主区域 -->
     <div class="dashboard">
-        <!-- 侧边栏 (工具+快捷) -->
+        <!-- 侧边栏 (会话+工具+快捷) -->
         <div class="sidebar">
+            <!-- DeepSeek 会话面板 -->
+            <div class="panel" id="deepseekPanel" style="display:none;">
+                <div class="panel-header">
+                    会话
+                    <button class="btn btn-secondary" style="padding:4px 12px; font-size:12px;" onclick="newDeepSeekSession()">+ 新建</button>
+                </div>
+                <div class="panel-body" id="sessionsPanel" style="max-height: 240px; overflow-y: auto;">
+                    <div style="color: #6b7a8f; text-align: center; padding: 16px 0; font-size: 13px;">加载中...</div>
+                </div>
+            </div>
+
             <div class="panel">
                 <div class="panel-header">
                     工具列表
@@ -667,11 +663,12 @@
                 <span class="quick-cmd" onclick="quickCommand('/calc 1+1')">/calc</span>
                 <span class="quick-cmd" onclick="quickCommand('/get https://example.com')">/get</span>
                 <span class="quick-cmd" onclick="quickCommand('/read test.txt')">/read</span>
+                <span class="quick-cmd" onclick="newDeepSeekSession()">+ 新会话</span>
                 <span class="quick-cmd" onclick="quickCommand('/help')">/help</span>
             </div>
 
             <div class="input-area">
-                <textarea id="chatInput" placeholder="输入命令或 JSON..." rows="1" onkeydown="handleKeyDown(event)"></textarea>
+                <textarea id="chatInput" placeholder="输入消息发给 DeepSeek，或输入 /help 查看命令" rows="1" onkeydown="handleKeyDown(event)"></textarea>
                 <button class="send-btn" id="sendBtn" onclick="sendMessage()">发送</button>
             </div>
         </div>
@@ -1099,6 +1096,12 @@
         } else if (text.startsWith('{')) {
             await handleRawJson(text);
         } else {
+            // DeepSeek 已连接时，默认发送给 DeepSeek
+            if (deepseekConnected) {
+                await sendToDeepSeek(text);
+                return;
+            }
+
             // 智能解析：从任意文本中提取工具调用
             addUserMessage(text);
             if (tools.length === 0) {
@@ -1339,12 +1342,17 @@
             });
             const data = await res.json();
             const panel = document.getElementById('sessionsPanel');
-            const countEl = document.getElementById('sessionCount');
             if (!panel) return;
 
-            if (data.success && data.data && data.data.sessions) {
-                const sessions = data.data.sessions;
-                countEl.textContent = sessions.length;
+            // 兼容两种格式: data.sessions 或 data.data.sessions
+            let sessions = null;
+            if (data && data.sessions && Array.isArray(data.sessions)) {
+                sessions = data.sessions;
+            } else if (data && data.data && data.data.sessions && Array.isArray(data.data.sessions)) {
+                sessions = data.data.sessions;
+            }
+
+            if (sessions !== null) {
                 if (sessions.length === 0) {
                     panel.innerHTML = '<div style="color:#6b7a8f; text-align:center; padding:16px 0; font-size:13px;">暂无会话</div>';
                 } else {
@@ -1360,8 +1368,7 @@
                     panel.innerHTML = html;
                 }
             } else {
-                countEl.textContent = '0';
-                panel.innerHTML = '<div style="color:#6b7a8f; text-align:center; padding:16px 0; font-size:13px;">' + (data.error || '加载失败') + '</div>';
+                panel.innerHTML = '<div style="color:#b33a34; text-align:center; padding:16px 0; font-size:13px;">' + (data.error || '加载失败，无法解析') + '</div>';
             }
         } catch(e) {
             const panel = document.getElementById('sessionsPanel');
@@ -1379,7 +1386,7 @@
             });
             const data = await res.json();
             if (data.success) {
-                addSystemMessage('已切换到会话: ' + sessionId);
+                addSystemMessage('已切换会话');
                 loadDeepSeekSessions();
             } else {
                 addSystemMessage('切换失败: ' + (data.error || '未知错误'));
@@ -1389,13 +1396,27 @@
         }
     }
 
-    async function sendDeepSeekMessage() {
-        const input = document.getElementById('deepseekInput');
-        if (!input) return;
-        const text = input.value.trim();
-        if (!text) return;
-        input.value = '';
+    async function newDeepSeekSession() {
+        try {
+            const url = getServerUrl();
+            const res = await fetch(url + '/api/chat/new', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}'
+            });
+            const data = await res.json();
+            if (data.success) {
+                addSystemMessage('已创建新会话');
+                loadDeepSeekSessions();
+            } else {
+                addSystemMessage('创建失败: ' + (data.error || '未知错误'));
+            }
+        } catch(e) {
+            addSystemMessage('创建失败: ' + e.message);
+        }
+    }
 
+    async function sendToDeepSeek(text) {
         addUserMessage(text);
         setSessionStatus('等待回复...');
 
@@ -1420,13 +1441,6 @@
             addSystemMessage('发送失败: ' + e.message);
         } finally {
             setSessionStatus('就绪');
-        }
-    }
-
-    function handleDeepSeekKeyDown(e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            sendDeepSeekMessage();
         }
     }
 

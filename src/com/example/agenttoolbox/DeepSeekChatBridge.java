@@ -514,6 +514,37 @@ public class DeepSeekChatBridge {
     }
 
     /**
+     * 创建新会话：在 DeepSeek 页面点击"新建对话"
+     */
+    public boolean newSession() {
+        String js =
+            "(function() {\n" +
+            "  // 策略1: 查找含 '新建'/'new' 的按钮\n" +
+            "  var buttons = document.querySelectorAll('button');\n" +
+            "  for (var i = 0; i < buttons.length; i++) {\n" +
+            "    var txt = (buttons[i].innerText || buttons[i].textContent || '').trim();\n" +
+            "    if (txt.indexOf('新建') !== -1 || txt.toLowerCase().indexOf('new chat') !== -1 || txt.toLowerCase().indexOf('new') !== -1) {\n" +
+            "      buttons[i].click();\n" +
+            "      return 'ok';\n" +
+            "    }\n" +
+            "  }\n" +
+            "  // 策略2: 查找左侧栏含加号/加号图标的元素\n" +
+            "  var plusIcons = document.querySelectorAll('[class*=\"plus\"],[class*=\"Plus\"],[class*=\"add\"],[class*=\"Add\"]');\n" +
+            "  for (var j = 0; j < plusIcons.length; j++) {\n" +
+            "    var el = plusIcons[j];\n" +
+            "    if (el && el.click) { el.click(); return 'ok'; }\n" +
+            "  }\n" +
+            "  // 策略3: 查找 a 标签且 href 指向 /chat\n" +
+            "  var newChat = document.querySelector('a[href=\"/chat\"]');\n" +
+            "  if (newChat) { newChat.click(); return 'ok'; }\n" +
+            "  return 'not_found';\n" +
+            "})()";
+        String raw = evaluateJsSync(js, 10);
+        if (raw == null) return false;
+        return raw.contains("ok");
+    }
+
+    /**
      * 被 JavaScriptBridge 回调：AI 回复已捕获
      */
     public void onDeepSeekReply(String reply) {

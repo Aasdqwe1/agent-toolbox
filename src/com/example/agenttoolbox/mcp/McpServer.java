@@ -367,6 +367,21 @@ public class McpServer {
                             .put("session_id", sessionId)
                             .toString();
                     }
+                } else if ("/api/chat/new".equals(action)) {
+                    // 创建新会话
+                    if (!bridge.isRegistered()) {
+                        responseBody = new JSONObject()
+                            .put("success", false)
+                            .put("error", "DeepSeek 未连接")
+                            .toString();
+                    } else {
+                        log("DeepSeek 新建会话");
+                        boolean ok = bridge.newSession();
+                        responseBody = new JSONObject()
+                            .put("success", ok)
+                            .put("message", ok ? "已创建新会话" : "无法创建新会话")
+                            .toString();
+                    }
                 } else if ("/api/chat/send".equals(action)) {
                     // 发送消息并等待回复
                     String message = body.optString("message", "").trim();
