@@ -70,6 +70,18 @@ public class DeepSeekChatBridge {
     public synchronized void markAsLoaded() { this.webViewLoaded = true; }
 
     /**
+     * 流式回调接口（HTTP 线程通过此接口实时收到每一段回复）
+     */
+    public static abstract class StreamCallback {
+        public abstract void onChunk(String chunk);
+        public abstract void onDone(String reply);
+        public abstract void onError(String error);
+    }
+
+    // 流式回调（最新一个请求）
+    private volatile StreamCallback streamCallback;
+
+    /**
      * 发送聊天消息并等待回复（同步阻塞，最长 60 秒）
      *
      * @param message 用户输入的消息
@@ -121,6 +133,63 @@ public class DeepSeekChatBridge {
 							   reply.substring(0, Math.min(100, reply.length())) + "...");
         }
         return reply;
+    }
+
+    /**
+     * 发送消息并实时回调每一段回复（流式）。不阻塞调用线程。
+     *
+     * @param message 用户输入的消息
+     * @param callback 回调接口：onChunk(每段) / onDone(完整) / onError
+     */
+    public void sendMessageStream(final String message, final StreamCallback callback) {
+        final WebView wb;
+        final Handler handler;
+        synchronized (this) {
+            wb = boundWebView;
+            handler = mainHandler;
+            this.streamCallback = callback;
+        }
+        if (wb == null || handler == null) {
+            callback.onError("WebView 未注册");
+            return;
+        }
+
+        handler.post(new Runnable() {
+				@Override
+				public void run() {
+					// 用 latch / ref 做最终完成同步（onDeepSeekReply 里触发）
+					final CountDownLatch latch = new CountDownLatch(1);
+					final AtomicReference<String> replyRef = new AtomicReference<String>();
+					final AtomicReference<String> errorRef = new AtomicReference<String>();
+					injectChatScript(wb, message, latch, replyRef, errorRef);
+
+					// 后台线程等待完成，以便调 onDone / onError
+					new Thread(new Runnable() {
+						@Override
+						public void run() {
+							try {
+								boolean completed = latch.await(90, TimeUnit.SECONDS);
+								String reply = replyRef.get();
+								String err = errorRef.get();
+								StreamCallback cb = streamCallback;
+								if (!completed) {
+									if (cb != null) cb.onError("流式等待超时（90s）");
+								} else if (err != null) {
+									if (cb != null) cb.onError(err);
+								} else if (reply != null) {
+									if (cb != null) cb.onDone(reply);
+								} else {
+									if (cb != null) cb.onError("未收到回复");
+								}
+							} catch (InterruptedException e) {
+								StreamCallback cb = streamCallback;
+								if (cb != null) cb.onError("等待被中断");
+								Thread.currentThread().interrupt();
+							}
+						}
+					}).start();
+				}
+			});
     }
 
     /**
@@ -265,6 +334,12 @@ public class DeepSeekChatBridge {
             "  // 轮询（主通道，最可靠）\n" +
             "  window.__deepseekPollInterval = setInterval(function() {\n" +
             "    pollCount++;\n" +
+            "    var reply = getLatestAssistantReply();\n" +
+            "    // 流式：每 500ms 检测到内容变化时，先把当前全量文本回调（浏览器前端可增量显示）\n" +
+            "    if (reply && reply.length > lastReplyLen && typeof Android !== 'undefined' && Android.onDeepSeekChunk) {\n" +
+            "      try { Android.onDeepSeekChunk(reply); } catch(e) {}\n" +
+            "      lastReplyLen = reply.length;\n" +
+            "    }\n" +
             "    if (tryFinish()) return;\n" +
             "    // 最长 90 秒超时，超时返回当前已有内容\n" +
             "    if (pollCount > 180) {\n" +
@@ -742,6 +817,16 @@ public class DeepSeekChatBridge {
     }
 
     /**
+     * 被 JavaScriptBridge 回调：流式回复的中间片段
+     */
+    public void onDeepSeekChunk(String chunk) {
+        StreamCallback cb = streamCallback;
+        if (cb != null) {
+            try { cb.onChunk(chunk); } catch (Exception e) { /* ignore */ }
+        }
+    }
+
+    /**
      * 被 JavaScriptBridge 回调：AI 回复已捕获
      */
     public void onDeepSeekReply(String reply) {
@@ -751,10 +836,16 @@ public class DeepSeekChatBridge {
             ref.set(reply);
             l.countDown();
         }
+        // 流式场景：通知 onDone
+        StreamCallback cb = streamCallback;
+        if (cb != null) {
+            try { cb.onDone(reply); } catch (Exception e) { /* ignore */ }
+        }
         // 重置状态
         deepSeekLatch = null;
         deepSeekReplyCallback = null;
         deepSeekErrorCallback = null;
+        streamCallback = null;
     }
 
     /**
@@ -768,9 +859,15 @@ public class DeepSeekChatBridge {
             ref.set(error);
             l.countDown();
         }
+        // 流式场景：通知 onError
+        StreamCallback cb = streamCallback;
+        if (cb != null) {
+            try { cb.onError(error); } catch (Exception e) { /* ignore */ }
+        }
         // 重置状态
         deepSeekLatch = null;
         deepSeekReplyCallback = null;
         deepSeekErrorCallback = null;
+        streamCallback = null;
     }
 }

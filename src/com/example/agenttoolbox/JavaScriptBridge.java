@@ -72,6 +72,19 @@ public class JavaScriptBridge {
     }
 
     /**
+     * JS 调用：DeepSeek 流式回复的中间片段（每 500ms 触发一次）
+     */
+    @JavascriptInterface
+    public void onDeepSeekChunk(final String chunk) {
+        handler.post(new Runnable() {
+            @Override
+            public void run() {
+                DeepSeekChatBridge.getInstance().onDeepSeekChunk(chunk);
+            }
+        });
+    }
+
+    /**
      * JS 调用：DeepSeek 聊天过程发生错误
      */
     @JavascriptInterface

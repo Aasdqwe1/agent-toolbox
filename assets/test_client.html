@@ -1490,6 +1490,86 @@
             }
         }
 
+        // 构建 MCP 工具初始化消息：告诉 LLM 当前有哪些工具、如何调用
+        function buildMcpInitMessage() {
+            if (!tools || tools.length === 0) {
+                return '【环境初始化】\n' +
+                    '当前尚未加载任何 MCP 工具。请先点击顶部的"连接"按钮。\n' +
+                    '---\n' +
+                    '当工具加载完成后，我会告知你可用工具及调用方式。';
+            }
+
+            let toolList = '';
+            for (let i = 0; i < tools.length; i++) {
+                const t = tools[i];
+                let schemaStr = '';
+                if (t.inputSchema && t.inputSchema.properties) {
+                    const props = t.inputSchema.properties;
+                    const keys = Object.keys(props);
+                    for (let k = 0; k < keys.length; k++) {
+                        const p = props[keys[k]];
+                        const typeStr = p.type || 'any';
+                        const required = t.inputSchema.required &&
+                            Array.isArray(t.inputSchema.required) &&
+                            t.inputSchema.required.indexOf(keys[k]) !== -1;
+                        schemaStr += '        - ' + keys[k] +
+                            ' (类型: ' + typeStr +
+                            (required ? '，必填' : '') +
+                            (p.description ? '，说明: ' + p.description : '') + ')\n';
+                    }
+                }
+                toolList += '    ' + (i + 1) + '. **' + t.name + '**\n' +
+                    '       - 描述: ' + (t.description || '(无描述)') + '\n' +
+                    (schemaStr ? '       - 参数:\n' + schemaStr : '');
+            }
+
+            return '【环境初始化 · MCP 工具协议】\n' +
+                '\n' +
+                '你（LLM）正处于一个可调用 MCP 工具的智能会话环境。所有用户问题都应优先使用以下工具，而不是只靠自身知识回答。\n' +
+                '\n' +
+                '---\n' +
+                '\n' +
+                '**一、工具列表（共 ' + tools.length + ' 个）**\n' +
+                toolList +
+                '\n' +
+                '**二、调用格式（严格按此 JSON-RPC 输出）**\n' +
+                '当你判断需要使用工具时，请输出一个严格合法的 JSON（单独一行，不要包裹在代码块里，也不要有其它文字）：\n' +
+                '\n' +
+                '```\n' +
+                '{"jsonrpc":"2.0","id":"req_" + 任意唯一ID,"method":"tools/call","params":{"name":"工具名","arguments":{...参数}}}\n' +
+                '```\n' +
+                '\n' +
+                '示例（计算 123 + 456）：\n' +
+                '```\n' +
+                '{"jsonrpc":"2.0","id":"calc_1","method":"tools/call","params":{"name":"math_calculator","arguments":{"expression":"123 + 456"}}}\n' +
+                '```\n' +
+                '\n' +
+                '**三、返回结果读取方式**\n' +
+                '系统收到你的 JSON 后会以如下结构返回给你（作为用户下一条消息）：\n' +
+                '- `result.content[].text`：工具执行的文本输出\n' +
+                '- `result.isError`：是否失败\n' +
+                '- 若出错会包含错误信息\n' +
+                '\n' +
+                '请基于返回结果继续回答用户的问题；若工具结果不足以得出结论，或需要多步调用，请继续输出下一个 JSON-RPC 调用。\n' +
+                '\n' +
+                '**四、交互流程**\n' +
+                '1. 用户提问 → 你判断是否需要调用工具\n' +
+                '2. 需要时，严格只输出一个 JSON-RPC 请求（可放在代码块中）\n' +
+                '3. 系统执行工具并返回结果\n' +
+                '4. 你基于工具结果继续推理或给出最终回答\n' +
+                '5. 无需工具时直接回答用户\n' +
+                '\n' +
+                '**五、重要约束**\n' +
+                '- 每次只调用一个工具\n' +
+                '- 确保 JSON 完全合法，引号、括号匹配，字符串需双引号\n' +
+                '- 使用的工具名必须严格与上方列表一致\n' +
+                '- 参数必须与 inputSchema 的 properties 字段一一对应\n' +
+                '\n' +
+                '---\n' +
+                '\n' +
+                '如果你明白了，请回复"已接收工具协议，可以开始任务"。后续我会把用户的问题提供给你，请按协议执行。';
+        }
+
         async function selectDeepSeekSession(sessionId) {
             try {
                 const url = getServerUrl();
@@ -1504,6 +1584,10 @@
                     await loadDeepSeekSessions();
                     // 移动端：切换到聊天视图
                     showChatView();
+                    // 自动向 DeepSeek 发送 MCP 工具初始化消息，让 LLM 知晓工具环境
+                    const initMsg = buildMcpInitMessage();
+                    addLog('request', '自动发送 MCP 初始化消息 (切换会话)');
+                    await sendToDeepSeek(initMsg);
                 } else {
                     addSystemMessage('切换失败: ' + (data.error || '未知错误'));
                 }
@@ -1525,6 +1609,10 @@
                     addSystemMessage('已创建新会话');
                     await loadDeepSeekSessions();
                     showChatView();
+                    // 自动向 DeepSeek 发送 MCP 工具初始化消息，让 LLM 知晓工具环境
+                    const initMsg = buildMcpInitMessage();
+                    addLog('request', '自动发送 MCP 初始化消息 (新建会话)');
+                    await sendToDeepSeek(initMsg);
                 } else {
                     addSystemMessage('创建失败: ' + (data.error || '未知错误'));
                 }
@@ -1535,7 +1623,34 @@
 
         async function sendToDeepSeek(text) {
             addUserMessage(text);
-            setSessionStatus('等待回复…');
+            setSessionStatus('连接中…');
+
+            // 创建占位的 AI 消息条，用于流式增量渲染
+            const bubbleEl = document.createElement('div');
+            bubbleEl.className = 'message-bubble';
+            bubbleEl.style.whiteSpace = 'pre-wrap';
+            bubbleEl.textContent = '…';
+
+            const labelEl = document.createElement('div');
+            labelEl.className = 'message-label';
+            labelEl.innerHTML = '<span class="method-badge method-response">DeepSeek</span> <span class="text-muted" style="font-size:12px; font-weight:400;" id="dsStreamState">流式</span>';
+
+            const contentEl = document.createElement('div');
+            contentEl.className = 'message-content';
+            contentEl.appendChild(labelEl);
+            contentEl.appendChild(bubbleEl);
+
+            const msgEl = document.createElement('div');
+            msgEl.className = 'message server';
+            msgEl.innerHTML = '<div class="message-avatar">AI</div>';
+            msgEl.appendChild(contentEl);
+            chatMessages.appendChild(msgEl);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+
+            const setState = (t) => {
+                const s = document.getElementById('dsStreamState');
+                if (s) s.textContent = t;
+            };
 
             try {
                 const url = getServerUrl();
@@ -1544,19 +1659,135 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message: text })
                 });
-                const data = await res.json();
-                if (data.success && data.reply) {
-                    const div = document.createElement('div');
-                    div.className = 'message server';
-                    div.innerHTML =
-                        `<div class="message-avatar">AI</div><div class="message-content"><div class="message-label"><span class="method-badge method-response">DeepSeek</span></div><div class="message-bubble" style="white-space:pre-wrap;">${escapeHtml(data.reply)}</div></div>`;
-                    chatMessages.appendChild(div);
+
+                const contentType = (res.headers.get('Content-Type') || '').toLowerCase();
+                const isStream = contentType.includes('text/event-stream');
+
+                if (!isStream) {
+                    // 兼容非流式旧响应：直接 JSON
+                    const data = await res.json();
+                    if (data && (data.success !== false) && (data.reply || (data.data && data.data.reply))) {
+                        const reply = data.reply || (data.data && data.data.reply) || '';
+                        bubbleEl.textContent = reply;
+                        setState('完成');
+                    } else {
+                        bubbleEl.textContent = '';
+                        addSystemMessage('发送失败: ' + (data.error || '未知错误'));
+                    }
                     chatMessages.scrollTop = chatMessages.scrollHeight;
-                } else {
-                    addSystemMessage('发送失败: ' + (data.error || '未知错误'));
+                    return;
+                }
+
+                // ===== 流式 SSE 解析 =====
+                setSessionStatus('生成中…');
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder('utf-8');
+                let buffer = '';           // 剩余未解析原始字节
+                let eventName = '';        // 当前事件名
+                let dataLines = [];        // 当前事件的 data 行
+                let lastLen = 0;
+                let gotContent = false;
+                let gotDone = false;
+
+                const flushEvent = () => {
+                    if (dataLines.length === 0) {
+                        eventName = '';
+                        return;
+                    }
+                    const payload = dataLines.join('\n');
+                    dataLines = [];
+                    let obj = null;
+                    try { obj = JSON.parse(payload); } catch (e) { obj = null; }
+
+                    if (eventName === 'started') {
+                        setState('开始');
+                    } else if (eventName === 'chunk') {
+                        if (obj && typeof obj.content === 'string') {
+                            // 服务端回传的 chunk 是当前全量文本，这里增量渲染
+                            if (obj.content.length > lastLen) {
+                                if (!gotContent) {
+                                    bubbleEl.textContent = obj.content;
+                                } else {
+                                    bubbleEl.textContent = obj.content;
+                                }
+                                lastLen = obj.content.length;
+                            }
+                            gotContent = true;
+                        }
+                    } else if (eventName === 'done') {
+                        gotDone = true;
+                        if (obj && typeof obj.content === 'string') {
+                            bubbleEl.textContent = obj.content;
+                        }
+                        setState('完成');
+                    } else if (eventName === 'error') {
+                        gotDone = true;
+                        const errText = (obj && obj.error) ? obj.error : payload;
+                        if (!gotContent) bubbleEl.textContent = '';
+                        addSystemMessage('流式回复失败: ' + errText);
+                        setState('错误');
+                    }
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                    eventName = '';
+                };
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+
+                    // 按行解析 SSE：以 \n\n 为一个事件边界
+                    let idx;
+                    while ((idx = buffer.indexOf('\n\n')) !== -1) {
+                        const block = buffer.substring(0, idx);
+                        buffer = buffer.substring(idx + 2);
+                        const lines = block.split('\n');
+                        for (let li = 0; li < lines.length; li++) {
+                            const line = lines[li];
+                            if (!line) continue;
+                            if (line.charAt(0) === ':') continue; // 注释/心跳
+                            const colon = line.indexOf(':');
+                            if (colon === -1) {
+                                // 没有冒号，忽略
+                                continue;
+                            }
+                            const field = line.substring(0, colon).trim();
+                            let val = line.substring(colon + 1);
+                            if (val.charAt(0) === ' ') val = val.substring(1);
+                            if (field === 'event') eventName = val;
+                            else if (field === 'data') dataLines.push(val);
+                            // id / retry 忽略
+                        }
+                        flushEvent();
+                    }
+                }
+                // 处理末尾可能剩余不完整块
+                if (buffer.length > 0) {
+                    const lines = buffer.split('\n');
+                    for (let li = 0; li < lines.length; li++) {
+                        const line = lines[li];
+                        if (!line) continue;
+                        if (line.charAt(0) === ':') continue;
+                        const colon = line.indexOf(':');
+                        if (colon === -1) continue;
+                        const field = line.substring(0, colon).trim();
+                        let val = line.substring(colon + 1);
+                        if (val.charAt(0) === ' ') val = val.substring(1);
+                        if (field === 'event') eventName = val;
+                        else if (field === 'data') dataLines.push(val);
+                    }
+                    flushEvent();
+                }
+
+                if (!gotDone) {
+                    // 流被提前关闭但没收到 done
+                    if (!gotContent) addSystemMessage('流异常结束，未收到完整回复');
+                    setState('结束');
                 }
             } catch (e) {
+                if (bubbleEl.textContent === '…') bubbleEl.textContent = '';
                 addSystemMessage('发送失败: ' + e.message);
+                setState('失败');
             } finally {
                 setSessionStatus('就绪');
             }

@@ -383,35 +383,97 @@ public class McpServer {
                             .toString();
                     }
                 } else if ("/api/chat/send".equals(action)) {
-                    // 发送消息并等待回复
-                    String message = body.optString("message", "").trim();
+                    // 流式发送：SSE / Transfer-Encoding: chunked
+                    final String message = body != null ? body.optString("message", "").trim() : "";
                     if (message.isEmpty()) {
                         responseBody = new JSONObject()
                             .put("success", false)
                             .put("error", "message 参数不能为空")
                             .toString();
+                    } else if (!DeepSeekChatBridge.getInstance().isRegistered()) {
+                        responseBody = new JSONObject()
+                            .put("success", false)
+                            .put("error", "DeepSeek 未连接，请先打开 DeepSeek 页面并确保已登录")
+                            .toString();
                     } else {
-                        // 检查 DeepSeekActivity 是否已注册 WebView
-                        if (!DeepSeekChatBridge.getInstance().isRegistered()) {
-                            responseBody = new JSONObject()
-                                .put("success", false)
-                                .put("error", "DeepSeek 未连接，请先打开 DeepSeek 页面并确保已登录")
-                                .toString();
-                        } else {
-                            log("DeepSeek 聊天请求: " + message.substring(0, Math.min(50, message.length())));
-                            String reply = DeepSeekChatBridge.getInstance().sendMessage(message);
-                            if (reply != null) {
-                                responseBody = new JSONObject()
-                                    .put("success", true)
-                                    .put("reply", reply)
-                                    .toString();
-                            } else {
-                                responseBody = new JSONObject()
-                                    .put("success", false)
-                                    .put("error", "未收到回复（可能超时或页面未响应）")
-                                    .toString();
+                        log("DeepSeek 流式聊天请求: " + message.substring(0, Math.min(50, message.length())));
+
+                        // 写 HTTP 头（裸写，flush）
+                        String header = "HTTP/1.1 200 OK\r\n" +
+                            "Content-Type: text/event-stream; charset=UTF-8\r\n" +
+                            "Transfer-Encoding: chunked\r\n" +
+                            "Cache-Control: no-cache, no-transform\r\n" +
+                            "Access-Control-Allow-Origin: *\r\n" +
+                            "Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n" +
+                            "Access-Control-Allow-Headers: Content-Type\r\n" +
+                            "Connection: keep-alive\r\n" +
+                            "\r\n";
+                        out.write(header.getBytes("UTF-8"));
+                        out.flush();
+
+                        // 第一个事件：started
+                        writeEventChunk(out, "started", new JSONObject()
+                            .put("ok", true).toString());
+
+                        // 用一个 CountDownLatch 等完成
+                        final CountDownLatch doneLatch = new CountDownLatch(1);
+                        final java.util.concurrent.atomic.AtomicReference<String> finalReplyRef =
+                            new java.util.concurrent.atomic.AtomicReference<String>();
+                        final java.util.concurrent.atomic.AtomicReference<String> errRef =
+                            new java.util.concurrent.atomic.AtomicReference<String>();
+
+                        DeepSeekChatBridge.getInstance().sendMessageStream(message,
+                            new DeepSeekChatBridge.StreamCallback() {
+                                @Override
+                                public void onChunk(String chunk) {
+                                    try {
+                                        JSONObject j = new JSONObject();
+                                        j.put("content", chunk);
+                                        writeEventChunk(out, "chunk", j.toString());
+                                        if (chunk != null && chunk.length() > 30) {
+                                            log("流式回复片段: " + chunk.substring(0, 30) + "...");
+                                        }
+                                    } catch (Exception e) { /* ignore */ }
+                                }
+                                @Override
+                                public void onDone(String reply) {
+                                    try {
+                                        finalReplyRef.set(reply);
+                                        JSONObject j = new JSONObject();
+                                        j.put("content", reply == null ? "" : reply);
+                                        writeEventChunk(out, "done", j.toString());
+                                        endChunked(out);
+                                        log("流式回复完成: " + (reply == null ? "空" : String.valueOf(reply.length()) + " 字节"));
+                                    } catch (Exception e) { /* ignore */ }
+                                    doneLatch.countDown();
+                                }
+                                @Override
+                                public void onError(String error) {
+                                    try {
+                                        errRef.set(error);
+                                        JSONObject j = new JSONObject();
+                                        j.put("error", error == null ? "未知错误" : error);
+                                        writeEventChunk(out, "error", j.toString());
+                                        endChunked(out);
+                                        log("流式回复错误: " + error);
+                                    } catch (Exception e) { /* ignore */ }
+                                    doneLatch.countDown();
+                                }
+                            });
+
+                        // HTTP 线程等待完成，最大 120 秒
+                        try {
+                            if (!doneLatch.await(120, java.util.concurrent.TimeUnit.SECONDS)) {
+                                try {
+                                    writeEventChunk(out, "error", new JSONObject()
+                                        .put("error", "等待超时").toString());
+                                    endChunked(out);
+                                } catch (Exception ex) { /* ignore */ }
                             }
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
                         }
+                        return;  // 已写入完整响应，跳出后续的统一响应写入
                     }
                 } else if ("/api/chat/status".equals(action)) {
                     boolean registered = DeepSeekChatBridge.getInstance().isRegistered();
@@ -478,6 +540,34 @@ public class McpServer {
                 body;
             out.write(response.getBytes("UTF-8"));
             log("返回错误: " + code + " " + message);
+        }
+
+        /**
+         * 写一个 HTTP chunk（Transfer-Encoding: chunked）。格式: [hex size]\r\n[data]\r\n
+         */
+        private void writeChunked(OutputStream out, byte[] data) throws IOException {
+            if (data == null || data.length == 0) return;
+            out.write(Integer.toHexString(data.length).getBytes("UTF-8"));
+            out.write("\r\n".getBytes("UTF-8"));
+            out.write(data);
+            out.write("\r\n".getBytes("UTF-8"));
+            out.flush();
+        }
+
+        /**
+         * 写一个 SSE 事件（包装为 chunk）。格式: event: TYPE\ndata: JSON\n\n
+         */
+        private void writeEventChunk(OutputStream out, String type, String jsonData) throws IOException {
+            String event = "event: " + type + "\n" + "data: " + jsonData + "\n\n";
+            writeChunked(out, event.getBytes("UTF-8"));
+        }
+
+        /**
+         * 结束 chunk 流（最后的 0\r\n\r\n）
+         */
+        private void endChunked(OutputStream out) throws IOException {
+            out.write("0\r\n\r\n".getBytes("UTF-8"));
+            out.flush();
         }
 
         /**
