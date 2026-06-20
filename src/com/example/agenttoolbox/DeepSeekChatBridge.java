@@ -346,10 +346,11 @@ public class DeepSeekChatBridge {
         final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<String> resultRef = new AtomicReference<String>();
 
+        final WebView finalWb = wb;
         handler.post(new Runnable() {
             @Override
             public void run() {
-                wb.evaluateJavascript(jsCode, new ValueCallback<String>() {
+                finalWb.evaluateJavascript(jsCode, new ValueCallback<String>() {
                     @Override
                     public void onReceiveValue(String value) {
                         resultRef.set(value);

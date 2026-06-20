@@ -284,7 +284,22 @@ public class McpServer {
 
             // DeepSeek 聊天接口
             if (path.startsWith("/api/chat/")) {
-                handleChatRequest(path, requestBody, out);
+                try {
+                    handleChatRequest(path, requestBody, out);
+                } catch (JSONException e) {
+                    log("JSON处理异常: " + e.getMessage());
+                    String errBody = new JSONObject()
+                        .put("success", false)
+                        .put("error", "JSON解析失败: " + e.getMessage())
+                        .toString();
+                    String response = "HTTP/1.1 200 OK\r\n" +
+                        "Content-Type: application/json\r\n" +
+                        "Content-Length: " + errBody.getBytes("UTF-8").length + "\r\n" +
+                        "Access-Control-Allow-Origin: *\r\n" +
+                        "\r\n" +
+                        errBody;
+                    out.write(response.getBytes("UTF-8"));
+                }
                 return;
             }
 
@@ -309,7 +324,7 @@ public class McpServer {
         /**
          * 处理 DeepSeek 聊天请求
          */
-        private void handleChatRequest(String path, String requestBody, OutputStream out) throws IOException {
+        private void handleChatRequest(String path, String requestBody, OutputStream out) throws IOException, JSONException {
             String responseBody;
             try {
                 org.json.JSONObject body = requestBody != null && requestBody.length() > 2
