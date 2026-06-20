@@ -1,6 +1,7 @@
 package com.example.agenttoolbox.mcp;
 
 import android.content.Context;
+import com.example.agenttoolbox.DeepSeekChatBridge;
 import com.example.agenttoolbox.tools.ToolManager;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -311,10 +312,60 @@ public class McpServer {
         private void handleChatRequest(String path, String requestBody, OutputStream out) throws IOException {
             String responseBody;
             try {
-                org.json.JSONObject body = new org.json.JSONObject(requestBody);
+                org.json.JSONObject body = requestBody != null && requestBody.length() > 2
+                    ? new org.json.JSONObject(requestBody) : new org.json.JSONObject();
                 String action = path;
+                // 允许末尾斜杠
+                if (action.endsWith("/")) action = action.substring(0, action.length() - 1);
 
-                if ("/api/chat/send".equals(action) || "/api/chat/send".equals(action + "/")) {
+                DeepSeekChatBridge bridge = DeepSeekChatBridge.getInstance();
+
+                if ("/api/chat/sessions".equals(action)) {
+                    // 获取会话列表
+                    if (!bridge.isRegistered()) {
+                        responseBody = new org.json.JSONObject()
+                            .put("success", false)
+                            .put("error", "DeepSeek 未连接，请先打开 DeepSeek 页面")
+                            .toString();
+                    } else {
+                        log("DeepSeek 会话列表查询");
+                        String sessionsJson = bridge.getSessions();
+                        if (sessionsJson == null) {
+                            responseBody = new org.json.JSONObject()
+                                .put("success", false)
+                                .put("error", "提取会话列表失败")
+                                .toString();
+                        } else {
+                            // sessionsJson 本身就是完整 JSON，直接包一层 success
+                            responseBody = new org.json.JSONObject()
+                                .put("success", true)
+                                .put("data", new org.json.JSONObject(sessionsJson))
+                                .toString();
+                        }
+                    }
+                } else if ("/api/chat/select".equals(action)) {
+                    // 切换会话
+                    String sessionId = body.optString("session_id", "").trim();
+                    if (sessionId.isEmpty()) {
+                        responseBody = new org.json.JSONObject()
+                            .put("success", false)
+                            .put("error", "session_id 参数不能为空")
+                            .toString();
+                    } else if (!bridge.isRegistered()) {
+                        responseBody = new org.json.JSONObject()
+                            .put("success", false)
+                            .put("error", "DeepSeek 未连接")
+                            .toString();
+                    } else {
+                        log("DeepSeek 切换会话: " + sessionId);
+                        boolean ok = bridge.selectSession(sessionId);
+                        responseBody = new org.json.JSONObject()
+                            .put("success", ok)
+                            .put("message", ok ? "已切换会话 " + sessionId : "未找到会话 " + sessionId)
+                            .put("session_id", sessionId)
+                            .toString();
+                    }
+                } else if ("/api/chat/send".equals(action)) {
                     // 发送消息并等待回复
                     String message = body.optString("message", "").trim();
                     if (message.isEmpty()) {

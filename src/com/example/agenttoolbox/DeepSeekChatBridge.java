@@ -328,6 +328,174 @@ public class DeepSeekChatBridge {
     private volatile AtomicReference<String> deepSeekErrorCallback;
 
     /**
+     * 通用：在主线程同步执行 JS 代码并等待返回值（最长 10 秒）
+     * 用于不需要 `Android.*` 回调的纯 DOM 查询场景。
+     */
+    private String evaluateJsSync(final String jsCode, int timeoutSeconds) {
+        final WebView wb;
+        final Handler handler;
+        synchronized (this) {
+            wb = boundWebView;
+            handler = mainHandler;
+        }
+        if (wb == null || handler == null) {
+            android.util.Log.w("DeepSeekChatBridge", "evaluateJsSync: WebView 未注册");
+            return null;
+        }
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<String> resultRef = new AtomicReference<String>();
+
+        handler.post(new Runnable() {
+            @Override
+            public void run() {
+                wb.evaluateJavascript(jsCode, new ValueCallback<String>() {
+                    @Override
+                    public void onReceiveValue(String value) {
+                        resultRef.set(value);
+                        latch.countDown();
+                    }
+                });
+            }
+        });
+
+        try {
+            if (!latch.await(timeoutSeconds, TimeUnit.SECONDS)) {
+                android.util.Log.w("DeepSeekChatBridge", "evaluateJsSync: 超时");
+                return null;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+        return resultRef.get();
+    }
+
+    /**
+     * 获取会话列表
+     *
+     * 真实 DOM 示例：
+     *   <a class="_546d736" href="/a/chat/s/f42a7fb5-2d45-4ad4-8011-0c94f0a8e2ac">
+     *     <div class="c08e6e93">已登录DeepSeek</div>
+     *   </a>
+     *   <div class="f3d18f6a">今天</div>
+     *
+     * 返回 JSON 示例：
+     *   {
+     *     "success": true,
+     *     "total": 2,
+     *     "current": "f42a7fb5-2d45-4ad4-8011-0c94f0a8e2ac",
+     *     "sessions": [
+     *       {"id": "...", "title": "已登录DeepSeek", "group": "今天", "isCurrent": true},
+     *       ...
+     *     ]
+     *   }
+     */
+    public String getSessions() {
+        String js =
+            "(function() {\n" +
+            "  var result = {sessions: [], current: null, total: 0, _url: location.pathname};\n" +
+            "  var currentPath = location.pathname || '';\n" +
+            "\n" +
+            "  // 当前会话 ID：从 URL 提取 /a/chat/s/{id}\n" +
+            "  var currentMatch = currentPath.match(/chat[\\\\/\\\\\\\\]s[\\\\/\\\\\\\\]([a-zA-Z0-9_-]+)/);\n" +
+            "  if (currentMatch) result.current = currentMatch[1];\n" +
+            "\n" +
+            "  // 提取所有会话项：a._546d736 或 a[href*='/a/chat/s/']\n" +
+            "  var anchors = document.querySelectorAll('a[href*=\"/chat/s/\"]');\n" +
+            "  if (anchors.length === 0) {\n" +
+            "    anchors = document.querySelectorAll('a[href*=\"chat\"]');\n" +
+            "  }\n" +
+            "\n" +
+            "  // 分组标签（遇到新的分组标签后，后续会话归到该分组）\n" +
+            "  var currentGroup = '';\n" +
+            "\n" +
+            "  // 为了支持分组遍历，改用树顺序遍历所有候选元素\n" +
+            "  // 策略：遍历页面中所有带 class 的元素，遇到 f3d18f6a 即切换分组，遇到 _546d736 即添加会话\n" +
+            "  var all = document.querySelectorAll('[class]');\n" +
+            "  for (var idx = 0; idx < all.length; idx++) {\n" +
+            "    var el = all[idx];\n" +
+            "    var cls = el.getAttribute('class') || '';\n" +
+            "\n" +
+            "    if (el.tagName === 'A' && cls.indexOf('_546d736') !== -1) {\n" +
+            "      // 会话项\n" +
+            "      var href = el.getAttribute('href') || '';\n" +
+            "      var idMatch = href.match(/chat[\\\\/\\\\\\\\]s[\\\\/\\\\\\\\]([a-zA-Z0-9_-]+)/);\n" +
+            "      var id = idMatch ? idMatch[1] : null;\n" +
+            "      if (!id) continue;\n" +
+            "\n" +
+            "      // 标题：内部 c08e6e93 的文字，如没有则取整个链接的 innerText\n" +
+            "      var titleDiv = el.querySelector('[class*=\"c08e6e93\"]');\n" +
+            "      var title = titleDiv ? (titleDiv.innerText || titleDiv.textContent || '').trim()\n" +
+            "                           : (el.innerText || el.textContent || '').trim();\n" +
+            "\n" +
+            "      result.sessions.push({\n" +
+            "        id: id,\n" +
+            "        title: title,\n" +
+            "        group: currentGroup || '',\n" +
+            "        isCurrent: (id === result.current)\n" +
+            "      });\n" +
+            "    } else if (el.tagName === 'DIV' && cls.indexOf('f3d18f6a') !== -1) {\n" +
+            "      // 分组标签\n" +
+            "      currentGroup = (el.innerText || el.textContent || '').trim();\n" +
+            "    }\n" +
+            "  }\n" +
+            "\n" +
+            "  result.total = result.sessions.length;\n" +
+            "  return JSON.stringify(result);\n" +
+            "})()";
+
+        String raw = evaluateJsSync(js, 10);
+        if (raw == null) return null;
+        // evaluateJavascript 返回 JSON 字符串（带外层双引号），需要解包
+        try {
+            // Android.evaluateJavascript 会把 JS 返回值序列化成 JSON 值；
+            // 当 JS 返回 JSON.stringify(...) 时，Java 端拿到的是带外层双引号的字符串
+            // 例如 "\"{\\\"sessions\\\":[...]}\""
+            if (raw.length() >= 2 && raw.startsWith("\"") && raw.endsWith("\"")) {
+                // 使用 JSONObject 来解包，避免手动处理转义出错
+                java.util.ArrayList<String> list = new java.util.ArrayList<String>();
+                list.add(raw);
+                org.json.JSONArray arr = new org.json.JSONArray(list);
+                return arr.getString(0);
+            }
+        } catch (Exception e) {
+            android.util.Log.w("DeepSeekChatBridge", "getSessions 解包失败: " + e.getMessage());
+        }
+        return raw;
+    }
+
+    /**
+     * 切换会话：点击对应会话 ID 的链接
+     *
+     * @param sessionId 目标会话 ID
+     * @return true 表示找到了元素并点击成功
+     */
+    public boolean selectSession(final String sessionId) {
+        if (sessionId == null || sessionId.isEmpty()) return false;
+
+        String js =
+            "(function() {\n" +
+            "  var targetId = " + JSONObject.quote(sessionId) + ";\n" +
+            "  var anchors = document.querySelectorAll('a[href*=\"/chat/s/\"]');\n" +
+            "  var clicked = false;\n" +
+            "  for (var i = 0; i < anchors.length; i++) {\n" +
+            "    var href = anchors[i].getAttribute('href') || '';\n" +
+            "    if (href.indexOf(targetId) !== -1) {\n" +
+            "      anchors[i].click();\n" +
+            "      clicked = true;\n" +
+            "      break;\n" +
+            "    }\n" +
+            "  }\n" +
+            "  return clicked ? 'ok' : 'not_found';\n" +
+            "})()";
+
+        String raw = evaluateJsSync(js, 10);
+        if (raw == null) return false;
+        return raw.contains("ok");
+    }
+
+    /**
      * 被 JavaScriptBridge 回调：AI 回复已捕获
      */
     public void onDeepSeekReply(String reply) {
