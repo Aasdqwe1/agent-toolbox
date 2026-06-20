@@ -519,24 +519,99 @@ public class DeepSeekChatBridge {
     public boolean newSession() {
         String js =
             "(function() {\n" +
-            "  // 策略1: 查找含 '新建'/'new' 的按钮\n" +
-            "  var buttons = document.querySelectorAll('button');\n" +
-            "  for (var i = 0; i < buttons.length; i++) {\n" +
-            "    var txt = (buttons[i].innerText || buttons[i].textContent || '').trim();\n" +
-            "    if (txt.indexOf('新建') !== -1 || txt.toLowerCase().indexOf('new chat') !== -1 || txt.toLowerCase().indexOf('new') !== -1) {\n" +
-            "      buttons[i].click();\n" +
-            "      return 'ok';\n" +
+            "  // 策略1: 直接通过 URL 跳转（最可靠）\n" +
+            "  try {\n" +
+            "    // DeepSeek 新对话通常在 /chat 路径\n" +
+            "    var currentPath = location.pathname;\n" +
+            "    if (currentPath.indexOf('/chat') === -1) {\n" +
+            "      location.href = '/chat';\n" +
+            "      return 'ok_navigate';\n" +
+            "    }\n" +
+            "  } catch(e) {}\n" +
+            "\n" +
+            "  // 策略2: 查找含 '新建'/'新对话'/'new chat' 的按钮/元素\n" +
+            "  var allClickable = document.querySelectorAll('button, a, [role=\"button\"], div[onclick]');\n" +
+            "  for (var i = 0; i < allClickable.length; i++) {\n" +
+            "    var el = allClickable[i];\n" +
+            "    var txt = (el.innerText || el.textContent || '').trim().toLowerCase();\n" +
+            "    var aria = (el.getAttribute('aria-label') || '').toLowerCase();\n" +
+            "    var title = (el.getAttribute('title') || '').toLowerCase();\n" +
+            "    if (txt.indexOf('新建') !== -1 || txt.indexOf('新对话') !== -1 || \n" +
+            "        txt.indexOf('new chat') !== -1 || txt.indexOf('new conversation') !== -1 ||\n" +
+            "        aria.indexOf('new chat') !== -1 || aria.indexOf('新建') !== -1 ||\n" +
+            "        title.indexOf('new chat') !== -1 || title.indexOf('新建') !== -1) {\n" +
+            "      // 优先选择侧边栏的元素（在左侧区域）\n" +
+            "      var rect = el.getBoundingClientRect();\n" +
+            "      if (rect.left < window.innerWidth * 0.3) {\n" +
+            "        el.click();\n" +
+            "        return 'ok_sidebar';\n" +
+            "      }\n" +
             "    }\n" +
             "  }\n" +
-            "  // 策略2: 查找左侧栏含加号/加号图标的元素\n" +
-            "  var plusIcons = document.querySelectorAll('[class*=\"plus\"],[class*=\"Plus\"],[class*=\"add\"],[class*=\"Add\"]');\n" +
-            "  for (var j = 0; j < plusIcons.length; j++) {\n" +
-            "    var el = plusIcons[j];\n" +
-            "    if (el && el.click) { el.click(); return 'ok'; }\n" +
+            "\n" +
+            "  // 策略3: 查找加号图标（SVG 或 + 字符）\n" +
+            "  var svgs = document.querySelectorAll('svg');\n" +
+            "  for (var k = 0; k < svgs.length; k++) {\n" +
+            "    var svg = svgs[k];\n" +
+            "    var svgParent = svg.closest('button, a, [role=\"button\"], div');\n" +
+            "    if (svgParent) {\n" +
+            "      var sRect = svgParent.getBoundingClientRect();\n" +
+            "      // 优先选择左侧的加号图标\n" +
+            "      if (sRect.left < window.innerWidth * 0.3 && sRect.top < window.innerHeight * 0.3) {\n" +
+            "        svgParent.click();\n" +
+            "        return 'ok_svg_plus';\n" +
+            "      }\n" +
+            "    }\n" +
             "  }\n" +
-            "  // 策略3: 查找 a 标签且 href 指向 /chat\n" +
-            "  var newChat = document.querySelector('a[href=\"/chat\"]');\n" +
-            "  if (newChat) { newChat.click(); return 'ok'; }\n" +
+            "\n" +
+            "  // 策略4: 查找包含 + 号的元素\n" +
+            "  var allElements = document.querySelectorAll('*');\n" +
+            "  for (var m = 0; m < allElements.length; m++) {\n" +
+            "    var elem = allElements[m];\n" +
+            "    if (elem.children && elem.children.length > 0) continue; // 只看叶子节点\n" +
+            "    var text = (elem.textContent || '').trim();\n" +
+            "    if (text === '+' || text === '＋') {\n" +
+            "      var clickable = elem.closest('button, a, [role=\"button\"], div[onclick]');\n" +
+            "      if (clickable) {\n" +
+            "        var eRect = clickable.getBoundingClientRect();\n" +
+            "        if (eRect.left < window.innerWidth * 0.3) {\n" +
+            "          clickable.click();\n" +
+            "          return 'ok_plus_char';\n" +
+            "        }\n" +
+            "      }\n" +
+            "    }\n" +
+            "  }\n" +
+            "\n" +
+            "  // 策略5: 查找侧边栏顶部第一个可点击元素（通常是新建按钮）\n" +
+            "  var sidebar = document.querySelector('nav, aside, [class*=\"sidebar\"], [class*=\"side\"]');\n" +
+            "  if (sidebar) {\n" +
+            "    var firstBtn = sidebar.querySelector('button, a, [role=\"button\"]');\n" +
+            "    if (firstBtn) {\n" +
+            "      firstBtn.click();\n" +
+            "      return 'ok_sidebar_first';\n" +
+            "    }\n" +
+            "  }\n" +
+            "\n" +
+            "  // 策略6: 查找 a 标签且 href 包含 chat\n" +
+            "  var chatLinks = document.querySelectorAll('a[href*=\"chat\"]');\n" +
+            "  for (var n = 0; n < chatLinks.length; n++) {\n" +
+            "    var href = chatLinks[n].getAttribute('href') || '';\n" +
+            "    // 排除具体的会话链接，找根路径的\n" +
+            "    if (href === '/chat' || href === '/a/chat' || href.endsWith('/chat')) {\n" +
+            "      chatLinks[n].click();\n" +
+            "      return 'ok_chat_link';\n" +
+            "    }\n" +
+            "  }\n" +
+            "\n" +
+            "  // 策略7: 兜底 - 直接修改 URL\n" +
+            "  try {\n" +
+            "    // 尝试跳转到新对话页面\n" +
+            "    if (location.pathname !== '/chat' && location.pathname !== '/a/chat') {\n" +
+            "      location.pathname = '/chat';\n" +
+            "      return 'ok_path_change';\n" +
+            "    }\n" +
+            "  } catch(e) {}\n" +
+            "\n" +
             "  return 'not_found';\n" +
             "})()";
         String raw = evaluateJsSync(js, 10);
