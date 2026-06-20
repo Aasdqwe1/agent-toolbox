@@ -306,13 +306,16 @@ public class DeepSeekChatBridge {
         deepSeekErrorCallback = errorRef;
         deepSeekLatch = latch;
 
+        // 在匿名类之前复制为 final，确保内部类可引用
+        final WebView finalWebView = webView;
+
         // Step 1: 启动监听
-        webView.evaluateJavascript(observerScript, new ValueCallback<String>() {
+        finalWebView.evaluateJavascript(observerScript, new ValueCallback<String>() {
             @Override
             public void onReceiveValue(String value) {
                 android.util.Log.d("DeepSeekChatBridge", "Observer 启动: " + value);
                 // Step 2: 发送消息
-                webView.evaluateJavascript(sendScript, new ValueCallback<String>() {
+                finalWebView.evaluateJavascript(sendScript, new ValueCallback<String>() {
                     @Override
                     public void onReceiveValue(String sendResult) {
                         android.util.Log.d("DeepSeekChatBridge", "发送结果: " + sendResult);
