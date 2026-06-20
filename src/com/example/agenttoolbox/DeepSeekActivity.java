@@ -595,7 +595,7 @@ public class DeepSeekActivity extends Activity {
                     setStatus("提取超时");
                     String timeoutInfo = "【提取超时 - 完整诊断】\n" +
                         "时间: " + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()) + "\n\n" +
-                        "=== 诊断探针返回值 ===\n" + (probeValue != null ? probeValue : "null") + "\n\n" +
+                        "=== 诊断探针返回值 ===\n" + (probeInfo != null ? probeInfo : "null") + "\n\n" +
                         "=== 提取 JavaScript 未返回 ===\n" +
                         "12 秒内 evaluateJavascript 未回调，说明提取脚本未执行或被阻塞\n\n" +
                         "可能原因：\n" +
