@@ -278,18 +278,19 @@ public class DeepSeekActivity extends Activity {
         // 如果失败，就重新加载页面
         webView.evaluateJavascript(
             "(function() {" +
-            "  // 尝试找到新会话按钮并点击" +
-            "  var newChatBtn = document.querySelector('[data-testid=\"new-chat-button\"]');" +
-            "  if (newChatBtn) { newChatBtn.click(); return 'clicked'; }" +
-            "  " +
-            "  // 尝试其他选择器" +
-            "  var buttons = document.querySelectorAll('button');" +
-            "  for (var i = 0; i < buttons.length; i++) {" +
-            "    if (buttons[i].textContent.includes('新对话') || buttons[i].textContent.includes('新建')) {" +
-            "      buttons[i].click();" +
+            "  // 策略1：点击导航栏中带 + 图标 / 新对话文本的按钮或可点击元素" +
+            "  var candidates = document.querySelectorAll('button, [role=\"button\"], a, [class*=\"new-chat\" i]');" +
+            "  for (var i = 0; i < candidates.length; i++) {" +
+            "    var txt = (candidates[i].innerText || candidates[i].textContent || '').trim();" +
+            "    if (txt.indexOf('新对话') === 0 || txt === '+' || txt === 'New chat' ||" +
+            "        txt.indexOf('New') === 0 || txt.indexOf('新建') === 0) {" +
+            "      candidates[i].click();" +
             "      return 'clicked';" +
             "    }" +
             "  }" +
+            "  // 策略2：导航到主页自动开启新会话" +
+            "  var link = document.querySelector('a[href=\"/\"]');" +
+            "  if (link) { link.click(); return 'clicked'; }" +
             "  return 'not_found';" +
             "})()",
             new android.webkit.ValueCallback<String>() {
@@ -308,56 +309,72 @@ public class DeepSeekActivity extends Activity {
 
     /**
      * 检测登录状态
+     * 说明：DeepSeek 真实登录凭据存储在 localStorage（userToken / settingsJwt），
+     * 页面中不存在 data-testid 属性，登录页面路径为 /sign_in。
      */
     private void checkLoginStatus() {
-        // 方法1：通过 Cookie 检测
-        final boolean hasLoginCookie = checkLoginCookie();
-
-        // 方法2：通过页面元素检测
         webView.evaluateJavascript(
             "(function() {" +
-            "  // 检查是否存在登录按钮" +
-            "  var loginBtn = document.querySelector('[data-testid=\"login-button\"]');" +
-            "  if (loginBtn) return 'not_logged_in';" +
-            "  " +
-            "  // 检查是否存在用户头像/用户菜单" +
-            "  var userAvatar = document.querySelector('[data-testid=\"user-avatar\"]');" +
-            "  if (userAvatar) return 'logged_in';" +
-            "  " +
-            "  // 检查 URL 是否包含登录相关路径" +
-            "  if (window.location.pathname.includes('login')) return 'not_logged_in';" +
-            "  " +
-            "  // 检查是否有输入框（通常登录后才有聊天输入框）" +
-            "  var chatInput = document.querySelector('textarea, [contenteditable=\"true\"]');" +
-            "  if (chatInput) return 'logged_in';" +
-            "  " +
-            "  return 'unknown';" +
+            "  var result = {" +
+            "    hasUserToken: false," +
+            "    hasSettingsJwt: false," +
+            "    isSignInPage: false," +
+            "    hasChatInput: false," +
+            "    path: window.location.pathname || ''" +
+            "  };" +
+            "  try {" +
+            "    result.hasUserToken = !!(localStorage && localStorage.getItem('userToken'));" +
+            "  } catch(e) {}" +
+            "  try {" +
+            "    result.hasSettingsJwt = !!(localStorage && localStorage.getItem('settingsJwt'));" +
+            "  } catch(e) {}" +
+            "  var p = (result.path || '').toLowerCase();" +
+            "  result.isSignInPage = (p.indexOf('sign_in') >= 0 || p.indexOf('sign-in') >= 0 ||" +
+            "                          p.indexOf('login') >= 0 || p.indexOf('sign-up') >= 0 ||" +
+            "                          p.indexOf('sign_up') >= 0);" +
+            "  try {" +
+            "    result.hasChatInput = !!(document.querySelector('textarea') ||" +
+            "                              document.querySelector('[contenteditable=\"true\"]'));" +
+            "  } catch(e) {}" +
+            "  return JSON.stringify(result);" +
             "})()",
             new android.webkit.ValueCallback<String>() {
                 @Override
                 public void onReceiveValue(String value) {
-                    boolean isLoggedInByPage = false;
-                    if (value != null) {
-                        if (value.contains("logged_in")) {
-                            isLoggedInByPage = true;
-                        } else if (value.contains("not_logged_in")) {
-                            isLoggedInByPage = false;
-                        } else {
-                            // unknown 状态，用 cookie 判断
-                            isLoggedInByPage = hasLoginCookie;
+                    boolean loggedIn = false;
+                    String detailInfo = "";
+                    try {
+                        String jsonStr = value;
+                        if (jsonStr != null && jsonStr.startsWith("\"") && jsonStr.endsWith("\"")) {
+                            jsonStr = jsonStr.substring(1, jsonStr.length() - 1)
+                                    .replace("\\\"", "\"")
+                                    .replace("\\\\", "\\");
                         }
-                    } else {
-                        isLoggedInByPage = hasLoginCookie;
+                        org.json.JSONObject obj = new org.json.JSONObject(jsonStr);
+                        boolean hasUserToken = obj.optBoolean("hasUserToken", false);
+                        boolean hasSettingsJwt = obj.optBoolean("hasSettingsJwt", false);
+                        boolean isSignInPage = obj.optBoolean("isSignInPage", false);
+                        boolean hasChatInput = obj.optBoolean("hasChatInput", false);
+                        String path = obj.optString("path", "");
+                        detailInfo = "path=" + path + " token=" + hasUserToken +
+                                     " jwt=" + hasSettingsJwt + " input=" + hasChatInput;
+                        // 判定逻辑：有 userToken 或 settingsJwt 且不在登录页 → 已登录
+                        if ((hasUserToken || hasSettingsJwt) && !isSignInPage) {
+                            loggedIn = true;
+                        } else if (hasChatInput) {
+                            loggedIn = true;
+                        }
+                    } catch (Exception e) {
+                        android.util.Log.d("DeepSeekLogin", "解析登录检测结果失败: " + value, e);
                     }
-
-                    updateLoginStatus(isLoggedInByPage);
+                    updateLoginStatus(loggedIn, detailInfo);
                 }
             }
         );
     }
 
     /**
-     * 通过 Cookie 检测登录状态
+     * 通过 Cookie 检测登录状态（保留兼容，不作为主判定依据）
      */
     private boolean checkLoginCookie() {
         CookieManager cookieManager = CookieManager.getInstance();
@@ -384,17 +401,23 @@ public class DeepSeekActivity extends Activity {
     }
 
     /**
-     * 更新登录状态显示
+     * 更新登录状态显示（带调试信息，供排查使用）
      */
     private void updateLoginStatus(boolean loggedIn) {
+        updateLoginStatus(loggedIn, null);
+    }
+
+    private void updateLoginStatus(boolean loggedIn, String detail) {
         isLoggedIn = loggedIn;
 
         if (loggedIn) {
             tvLoginStatus.setText("✓ 已登录");
             tvLoginStatus.setTextColor(0xFF0E6B4C); // 绿色
+            setStatus("检测完成 · 已登录" + (detail != null ? " (" + detail + ")" : ""));
         } else {
             tvLoginStatus.setText("未登录");
             tvLoginStatus.setTextColor(0xFFB33A34); // 红色
+            setStatus("检测完成 · 未登录" + (detail != null ? " (" + detail + ")" : ""));
         }
     }
 
