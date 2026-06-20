@@ -86,11 +86,11 @@ public class DeepSeekChatBridge {
 
         // 在主线程注入 JS：发消息 + 监听回复
         handler.post(new Runnable() {
-            @Override
-            public void run() {
-                injectChatScript(wb, message, latch, replyRef, errorRef);
-            }
-        });
+				@Override
+				public void run() {
+					injectChatScript(wb, message, latch, replyRef, errorRef);
+				}
+			});
 
         // HTTP 线程阻塞等待
         try {
@@ -108,8 +108,8 @@ public class DeepSeekChatBridge {
         String reply = replyRef.get();
         if (reply != null) {
             android.util.Log.d("DeepSeekChatBridge", "收到回复（" +
-                (System.currentTimeMillis() - startTime) + "ms）：" +
-                reply.substring(0, Math.min(100, reply.length())) + "...");
+							   (System.currentTimeMillis() - startTime) + "ms）：" +
+							   reply.substring(0, Math.min(100, reply.length())) + "...");
         }
         return reply;
     }
@@ -129,7 +129,7 @@ public class DeepSeekChatBridge {
         }
 
         // Step 1: 注册 MutationObserver，等待 AI 回复出现
-        String observerScript = "(function() {\n" +
+        final String observerScript = "(function() {\n" +
             "  if (window.__deepseekReplyObserved) return;\n" +
             "  window.__deepseekReplyObserved = true;\n" +
             "  window.__deepseekLastReply = '';\n" +
@@ -212,7 +212,7 @@ public class DeepSeekChatBridge {
             "})()";
 
         // Step 2: 填写消息并发送
-        String sendScript =
+        final String sendScript =
             "(function() {\n" +
             "  var msg = " + JSONObject.quote(message) + ";\n" +
             "\n" +
@@ -301,29 +301,43 @@ public class DeepSeekChatBridge {
             "  return 'preparing';\n" +
             "})()";
 
-        // 先注册回调
-        deepSeekReplyCallback = replyRef;
-        deepSeekErrorCallback = errorRef;
-        deepSeekLatch = latch;
+		// 注册回调
+		deepSeekReplyCallback = replyRef;
+		deepSeekErrorCallback = errorRef;
+		deepSeekLatch = latch;
 
-        // 在匿名类之前复制为 final，确保内部类可引用
-        final WebView finalWebView = webView;
+		final Handler handler = mainHandler;
+		if (handler == null) {
+			errorRef.set("Handler 未初始化");
+			latch.countDown();
+			return;
+		}
 
-        // Step 1: 启动监听
-        finalWebView.evaluateJavascript(observerScript, new ValueCallback<String>() {
-            @Override
-            public void onReceiveValue(String value) {
-                android.util.Log.d("DeepSeekChatBridge", "Observer 启动: " + value);
-                // Step 2: 发送消息
-                finalWebView.evaluateJavascript(sendScript, new ValueCallback<String>() {
-                    @Override
-                    public void onReceiveValue(String sendResult) {
-                        android.util.Log.d("DeepSeekChatBridge", "发送结果: " + sendResult);
-                    }
-                });
-            }
-        });
-    }
+		handler.post(new Runnable() {
+				@Override
+				public void run() {
+					if (boundWebView == null) {
+						errorRef.set("WebView 已释放");
+						latch.countDown();
+						return;
+					}
+
+					// 先启动监听
+					DeepSeekChatBridge.this.boundWebView.evaluateJavascript(observerScript, null);
+// 再发送消息（分开调用）
+					DeepSeekChatBridge.this.boundWebView.evaluateJavascript(sendScript, new ValueCallback<String>() {
+							@Override
+							public void onReceiveValue(String sendResult) {
+								android.util.Log.d("DeepSeekChatBridge", "发送结果: " + sendResult);
+							}
+						});
+
+				}
+			});
+	}
+
+
+
 
     // 回调（由 JavaScriptBridge.onDeepSeekReply 调用）
     private volatile CountDownLatch deepSeekLatch;
@@ -351,17 +365,17 @@ public class DeepSeekChatBridge {
 
         final WebView finalWb = wb;
         handler.post(new Runnable() {
-            @Override
-            public void run() {
-                finalWb.evaluateJavascript(jsCode, new ValueCallback<String>() {
-                    @Override
-                    public void onReceiveValue(String value) {
-                        resultRef.set(value);
-                        latch.countDown();
-                    }
-                });
-            }
-        });
+				@Override
+				public void run() {
+					finalWb.evaluateJavascript(jsCode, new ValueCallback<String>() {
+							@Override
+							public void onReceiveValue(String value) {
+								resultRef.set(value);
+								latch.countDown();
+							}
+						});
+				}
+			});
 
         try {
             if (!latch.await(timeoutSeconds, TimeUnit.SECONDS)) {

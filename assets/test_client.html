@@ -1435,7 +1435,6 @@
         if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
             serverUrlInput.value = window.location.protocol + '//' + window.location.host;
             setTimeout(connectMcp, 400);
-            // 同时检查 DeepSeek 状态
             setTimeout(checkDeepSeekStatus, 800);
         }
         addLog('request', '终端已就绪');
