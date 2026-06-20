@@ -138,110 +138,157 @@ public class DeepSeekChatBridge {
         }
 
         // Step 1: 注册 MutationObserver，等待 AI 回复出现
-        // 重置标志，确保每次发送都有新的监听
+        // 基于实际 DeepSeek 页面 DOM：
+        //   - AI 消息内容: .ds-assistant-message-main-content
+        //   - 操作栏（回复完成标志）: .ds-button--iconLabelTertiary
+        //   - 发送按钮: div[role="button"].ds-button--primary（向上箭头 SVG）
+        //   - 暂停按钮: div[role="button"].ds-button--circle（红色方块/暂停图标）
+        //   - 打字指示器: [class*="typing"] / [class*="loading"]
         final String observerScript = "(function() {\n" +
             "  window.__deepseekReplyObserved = false;\n" +
             "  window.__deepseekLastReply = '';\n" +
             "  window.__deepseekPendingLatch = " + latch.hashCode() + ";\n" +
+            "  window.__deepseekStartTs = Date.now();\n" +
             "\n" +
-            "  // 查找最新 assistant 消息的函数\n" +
+            "  // ======== A. 取最新一条 AI 消息的完整内容 ========\n" +
             "  function getLatestAssistantReply() {\n" +
-            "    // 策略1：找所有看起来像 AI 回复的元素（按 DOM 顺序取最后一个）\n" +
-            "    var candidates = document.querySelectorAll(\n" +
-            "      '[class*=\"prose\"]', '[class*=\"markdown\"]', '[class*=\"assistant\"]',\n" +
-            "      '.whitespace-pre-wrap', '[role=\"article\"]', 'article',\n" +
-            "      '.message-body', '.chat-message'\n" +
-            "    );\n" +
-            "\n" +
-            "    var texts = [];\n" +
-            "    for (var i = 0; i < candidates.length; i++) {\n" +
-            "      var el = candidates[i];\n" +
-            "      // 过滤掉在用户消息区域内的元素（通过父级 class 判断）\n" +
-            "      var parent = el.closest ? el.closest('[class*=\"user\"]') : null;\n" +
-            "      if (parent) continue;\n" +
-            "      // 排除输入框本身\n" +
-            "      if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') continue;\n" +
-            "      var txt = (el.innerText || el.textContent || '').trim();\n" +
-            "      if (txt && txt.length > 5) texts.push(txt);\n" +
+            "    var aiMessages = document.querySelectorAll('.ds-assistant-message-main-content');\n" +
+            "    // 兼容：如果没有 ds- 前缀类名，退回通用选择器\n" +
+            "    if (aiMessages.length === 0) {\n" +
+            "      aiMessages = document.querySelectorAll(\n" +
+            "        '[class*=\"assistant-message\"]', '[class*=\"prose\"]', '.whitespace-pre-wrap',\n" +
+            "        '[class*=\"markdown\"]', 'article', '[role=\"article\"]'\n" +
+            "      );\n" +
             "    }\n" +
-            "\n" +
-            "    // 策略2：取所有 role=article 的元素，或取最深层的 prose 文本\n" +
-            "    if (texts.length === 0) {\n" +
-            "      var articles = document.querySelectorAll('[role=\"article\"], article');\n" +
-            "      for (var k = 0; k < articles.length; k++) {\n" +
-            "        var artTxt = (articles[k].innerText || articles[k].textContent || '').trim();\n" +
-            "        if (artTxt && artTxt.length > 10) texts.push(artTxt);\n" +
-            "      }\n" +
-            "    }\n" +
-            "\n" +
-            "    if (texts.length === 0) return null;\n" +
-            "    return texts[texts.length - 1]; // 最后一条（最新）\n" +
+            "    if (aiMessages.length === 0) return null;\n" +
+            "    var lastMsg = aiMessages[aiMessages.length - 1];\n" +
+            "    var txt = (lastMsg.innerText || lastMsg.textContent || '').trim();\n" +
+            "    return txt || null;\n" +
             "  }\n" +
             "\n" +
-            "  // 检查是否在生成回复（DeepSeek 新版本：生成时出现停止按钮，发送按钮消失）\n" +
+            "  // ======== B. 检查最新 AI 消息下方是否有操作栏（= 回复完成） ========\n" +
+            "  function isLatestReplyComplete() {\n" +
+            "    var aiMessages = document.querySelectorAll('.ds-assistant-message-main-content');\n" +
+            "    if (aiMessages.length === 0) return false;\n" +
+            "    var lastMsg = aiMessages[aiMessages.length - 1];\n" +
+            "\n" +
+            "    // 向上找消息容器（通常是父级或祖父级），再查里面是否有 iconLabelTertiary\n" +
+            "    var container = lastMsg;\n" +
+            "    for (var i = 0; i < 5 && container && container.parentElement; i++) {\n" +
+            "      if (container.querySelector && container.querySelector('.ds-button--iconLabelTertiary')) {\n" +
+            "        return true;\n" +
+            "      }\n" +
+            "      container = container.parentElement;\n" +
+            "    }\n" +
+            "    // 兼容：在整个文档末尾找 tertiary 按钮（可能是最新那条的）\n" +
+            "    var terBtns = document.querySelectorAll('.ds-button--iconLabelTertiary');\n" +
+            "    return terBtns.length > 0;\n" +
+            "  }\n" +
+            "\n" +
+            "  // ======== C. 检查是否正在生成（有暂停按钮/发送按钮不是向上箭头） ========\n" +
             "  function isGenerating() {\n" +
-            "    // 策略A：生成中出现停止按钮（div[role=\"button\"], 非 primary）\n" +
-            "    var stopBtn = document.querySelector('[class*=\"stop\"]');\n" +
-            "    // 策略B：发送按钮是否存在（不存在=正在生成）\n" +
+            "    // 1) 打字/loading 指示器\n" +
+            "    var typing = document.querySelector('[class*=\"typing\"]') ||\n" +
+            "                  document.querySelector('[class*=\"loading\"]') ||\n" +
+            "                  document.querySelector('[class*=\"thinking\"]');\n" +
+            "    if (typing) return true;\n" +
+            "\n" +
+            "    // 2) 发送按钮位置显示「暂停/停止」图标（不是向上箭头）\n" +
+            "    //    生成时：ds-button--circle 内的 SVG 显示红色方块 或 暂停图标\n" +
+            "    //    空闲时：ds-button--primary 内的 SVG 显示向上箭头（发送）\n" +
             "    var sendBtn = document.querySelector('div[role=\"button\"][class*=\"ds-button--primary\"]');\n" +
-            "    var hasSecondaryBtn = false;\n" +
-            "    var roleBtns = document.querySelectorAll('div[role=\"button\"]');\n" +
-            "    for (var i = 0; i < roleBtns.length; i++) {\n" +
-            "      var c = roleBtns[i].getAttribute('class') || '';\n" +
-            "      if (c.indexOf('ds-button--secondary') !== -1 || c.indexOf('ds-button--ghost') !== -1) {\n" +
-            "        hasSecondaryBtn = true;\n" +
-            "        break;\n" +
+            "    var circleBtns = document.querySelectorAll('div[role=\"button\"][class*=\"ds-button--circle\"]');\n" +
+            "    // 有 circle 按钮但不是 primary（通常是暂停按钮）\n" +
+            "    for (var j = 0; j < circleBtns.length; j++) {\n" +
+            "      var cls = circleBtns[j].getAttribute('class') || '';\n" +
+            "      if (cls.indexOf('ds-button--primary') === -1) {\n" +
+            "        // 不是 primary 的 circle 按钮 → 暂停/停止按钮\n" +
+            "        return true;\n" +
             "      }\n" +
             "    }\n" +
-            "    // 策略C：loading / thinking\n" +
-            "    var loading = document.querySelector('[class*=\"loading\"]');\n" +
-            "    var thinking = document.querySelector('[class*=\"thinking\"]');\n" +
+            "    // 3) 如果没有 primary 发送按钮 → 仍在生成\n" +
+            "    if (!sendBtn) return true;\n" +
             "\n" +
-            "    return !!(stopBtn || (!sendBtn && hasSecondaryBtn) || loading || thinking);\n" +
+            "    // 4) 分析 primary 发送按钮内的 SVG：是否仍有「不是向上箭头」的图标\n" +
+            "    var svg = sendBtn.querySelector('svg');\n" +
+            "    if (svg) {\n" +
+            "      var svgHtml = svg.innerHTML || '';\n" +
+            "      // 暂停图标：rect / 两条竖线；向上箭头：path 带 M...L... 向上三角\n" +
+            "      if (svgHtml.indexOf('<rect') !== -1 ||\n" +
+            "          svgHtml.indexOf('pause') !== -1 ||\n" +
+            "          svgHtml.indexOf('stop') !== -1 ||\n" +
+            "          svgHtml.indexOf('M 4.88') !== -1) {\n" +
+            "        return true;\n" +
+            "      }\n" +
+            "    }\n" +
+            "    return false;\n" +
             "  }\n" +
             "\n" +
-            "  // 主动轮询（兜底，确保 observer 漏掉时也能捕获）\n" +
+            "  // ======== D. 轮询 + MutationObserver 双通道监听 ========\n" +
             "  var pollCount = 0;\n" +
             "  var lastReply = '';\n" +
-            "  var pollInterval = setInterval(function() {\n" +
-            "    pollCount++;\n" +
-            "    var currentReply = getLatestAssistantReply();\n" +
+            "  var lastReplyLen = 0;\n" +
+            "  var sameLenStable = 0;  // 内容长度连续稳定多少次 → 认为完成\n" +
+            "\n" +
+            "  function tryFinish() {\n" +
+            "    var reply = getLatestAssistantReply();\n" +
+            "    if (!reply || reply.length < 2) return false;\n" +
+            "\n" +
+            "    var complete = isLatestReplyComplete();\n" +
             "    var generating = isGenerating();\n" +
             "\n" +
-            "    // 有新回复且生成停止 → 发送\n" +
-            "    if (currentReply && currentReply !== lastReply && !generating && currentReply.length > 5) {\n" +
-            "      lastReply = currentReply;\n" +
-            "      clearInterval(pollInterval);\n" +
-            "      window.__deepseekLastReply = currentReply;\n" +
-            "      Android.onDeepSeekReply(currentReply);\n" +
-            "      return;\n" +
+            "    // 内容长度稳定检测（兜底：操作栏延迟出现时仍能捕获）\n" +
+            "    if (reply.length === lastReplyLen) {\n" +
+            "      sameLenStable++;\n" +
+            "    } else {\n" +
+            "      sameLenStable = 0;\n" +
+            "      lastReplyLen = reply.length;\n" +
             "    }\n" +
             "\n" +
-            "    // 超时 50s 直接返回当前内容\n" +
-            "    if (pollCount > 100) {\n" +
-            "      clearInterval(pollInterval);\n" +
+            "    // 判定完成：有操作栏 或 (不在生成中 且 内容长度已稳定 3 次)\n" +
+            "    if (complete || (!generating && sameLenStable >= 3 && reply !== lastReply)) {\n" +
+            "      if (reply === lastReply) return false;  // 重复不触发\n" +
+            "      lastReply = reply;\n" +
+            "      window.__deepseekLastReply = reply;\n" +
+            "      window.__deepseekReplyObserved = true;\n" +
+            "      if (window.__deepseekPollInterval) clearInterval(window.__deepseekPollInterval);\n" +
+            "      if (window.__deepseekObserver) {\n" +
+            "        try { window.__deepseekObserver.disconnect(); } catch(e) {}\n" +
+            "      }\n" +
+            "      Android.log('DeepSeek: 捕获回复（长度=' + reply.length + '，有操作栏=' + complete + '）');\n" +
+            "      Android.onDeepSeekReply(reply);\n" +
+            "      return true;\n" +
+            "    }\n" +
+            "    return false;\n" +
+            "  }\n" +
+            "\n" +
+            "  // 轮询（主通道，最可靠）\n" +
+            "  window.__deepseekPollInterval = setInterval(function() {\n" +
+            "    pollCount++;\n" +
+            "    if (tryFinish()) return;\n" +
+            "    // 最长 90 秒超时，超时返回当前已有内容\n" +
+            "    if (pollCount > 180) {\n" +
+            "      clearInterval(window.__deepseekPollInterval);\n" +
+            "      if (window.__deepseekObserver) { try { window.__deepseekObserver.disconnect(); } catch(e) {} }\n" +
             "      var finalReply = getLatestAssistantReply() || window.__deepseekLastReply || '';\n" +
-            "      window.__deepseekLastReply = finalReply;\n" +
-            "      if (finalReply) Android.onDeepSeekReply(finalReply);\n" +
+            "      if (finalReply && finalReply.length > 2) {\n" +
+            "        Android.log('DeepSeek: 超时返回（长度=' + finalReply.length + '）');\n" +
+            "        Android.onDeepSeekReply(finalReply);\n" +
+            "      } else {\n" +
+            "        Android.onDeepSeekError('超时未捕获到回复');\n" +
+            "      }\n" +
             "    }\n" +
             "  }, 500);\n" +
             "\n" +
-            "  // MutationObserver 监听 DOM 变化\n" +
-            "  var observer = new MutationObserver(function(mutations) {\n" +
-            "    var reply = getLatestAssistantReply();\n" +
-            "    var generating = isGenerating();\n" +
-            "    if (reply && reply !== lastReply && !generating) {\n" +
-            "      lastReply = reply;\n" +
-            "      clearInterval(pollInterval);\n" +
-            "      window.__deepseekLastReply = reply;\n" +
-            "      Android.onDeepSeekReply(reply);\n" +
-            "      observer.disconnect();\n" +
-            "    }\n" +
+            "  // MutationObserver（辅助通道，加速捕获）\n" +
+            "  window.__deepseekObserver = new MutationObserver(function(mutations) {\n" +
+            "    // 每个变化快速检查，但真正决定完成仍依赖 tryFinish 的规则\n" +
+            "    tryFinish();\n" +
             "  });\n" +
-            "\n" +
             "  var target = document.body || document.documentElement;\n" +
             "  if (target) {\n" +
-            "    observer.observe(target, { childList: true, subtree: true, characterData: true });\n" +
+            "    window.__deepseekObserver.observe(target,\n" +
+            "      { childList: true, subtree: true, characterData: true, attributes: true });\n" +
             "  }\n" +
             "\n" +
             "  return 'observer_started';\n" +
