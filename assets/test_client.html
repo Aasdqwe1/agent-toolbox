@@ -13,19 +13,22 @@
                 gfm: true          // GitHub Flavored Markdown
             });
         }
-        // 安全的 Markdown 渲染函数
+        // 安全的 Markdown 渲染函数（兼容旧 WebView）
         function renderMarkdown(text) {
             if (!text) return '';
             try {
                 if (typeof marked !== 'undefined') {
+                    // 优先使用 parseInline（同步、非 Promise）
+                    if (typeof marked.parseInline === 'function') {
+                        var inline = marked.parseInline(text);
+                        if (typeof inline === 'string' && inline.length > 0) return inline;
+                    }
                     var parsed = marked.parse(text);
-                    // marked.parse 可能返回 Promise（长文本）
                     if (typeof parsed === 'string') return parsed;
-                    // 如果返回 Promise，降级为纯文本
-                    return '<pre style="white-space:pre-wrap;">' + escapeHtml(text) + '</pre>';
                 }
             } catch (e) { }
-            return escapeHtml(text);
+            // 降级：保留换行的纯文本
+            return '<pre style="white-space:pre-wrap; word-break:break-word; margin:0; padding:0; border:0; background:transparent;">' + escapeHtml(text) + '</pre>';
         }
     </script>
     <style>
@@ -1806,10 +1809,13 @@
                 let buffer = '';           // 剩余未解析原始字节
                 let eventName = '';        // 当前事件名
                 let dataLines = [];        // 当前事件的 data 行
+                let currentRound = 0;      // 当前轮次（用于跨轮次重置 lastLen）
                 let lastLen = 0;
                 let gotContent = false;
                 let gotDone = false;
-                let finalContent = '';    // 保存最终内容用于 Markdown 渲染
+                let finalContent = '';    // 保存最终文本（非工具调用）用于 Markdown 渲染
+                let finalToolCall = '';   // 保存工具调用 JSON（用于用户参考）
+                let hasToolCallDetected = false;
 
                 const flushEvent = () => {
                     if (dataLines.length === 0) {
@@ -1825,16 +1831,37 @@
                         setState('开始');
                     } else if (eventName === 'chunk') {
                         if (obj && typeof obj.content === 'string') {
-                            if (obj.content.length > lastLen) {
-                                // 流式过程中：先用纯文本快速显示避免闪烁
-                                bubbleEl.textContent = obj.content;
-                                lastLen = obj.content.length;
+                            const content = obj.content;
+                            const round = obj.round || 1;
+                            const isToolCall = obj.isToolCall === true
+                                || (content.indexOf('"jsonrpc"') !== -1 && content.indexOf('"tools/call"') !== -1);
+
+                            // 轮次切换时重置 lastLen，避免后续较短回复被丢弃
+                            if (round !== currentRound) {
+                                currentRound = round;
+                                lastLen = 0;
                             }
-                            gotContent = true;
+
+                            if (isToolCall) {
+                                // 工具调用：仅在首次时提示用户，避免 JSON 刷屏
+                                if (!hasToolCallDetected) {
+                                    hasToolCallDetected = true;
+                                    finalToolCall = content;
+                                    bubbleEl.textContent = '🔧 正在调用工具（请稍候…）';
+                                    setState('工具调用中');
+                                }
+                            } else {
+                                if (content.length > lastLen || content.length >= lastLen - 20) {
+                                    // 小的波动也允许（有时字符串末尾会被轻微修剪）
+                                    bubbleEl.textContent = content;
+                                    lastLen = content.length;
+                                }
+                                gotContent = true;
+                            }
                         }
                     } else if (eventName === 'status') {
                         const statusText = (obj && obj.message) ? obj.message : '模型处理中…';
-                        if (!gotContent) {
+                        if (!gotContent && !hasToolCallDetected) {
                             bubbleEl.textContent = '… ' + statusText;
                         }
                         setState('生成中');
@@ -1847,18 +1874,24 @@
                     } else if (eventName === 'done') {
                         gotDone = true;
                         if (obj && typeof obj.content === 'string') {
-                            finalContent = obj.content;
-                        }
-                        if (obj && obj.mode === 'fallback-blocking') {
-                            setState('完成(降级)');
-                        } else {
-                            setState('完成');
+                            const isToolCall = obj.isToolCall === true
+                                || (obj.content.indexOf('"jsonrpc"') !== -1 && obj.content.indexOf('"tools/call"') !== -1);
+                            if (isToolCall) {
+                                // 工具调用那轮的 done：保存 JSON 供用户参考，不作为最终文本
+                                finalToolCall = obj.content;
+                            } else if (obj.content.length > 0) {
+                                // 非工具调用那轮的 done：作为最终用户可见文本
+                                finalContent = obj.content;
+                                bubbleEl.textContent = finalContent;
+                                gotContent = true;
+                                setState('完成');
+                            }
                         }
                     } else if (eventName === 'error') {
                         gotDone = true;
                         const errText = (obj && obj.error) ? obj.error : payload;
                         if (!gotContent) bubbleEl.textContent = '';
-                        addSystemMessage('流式回复失败: ' + errText);
+                        addSystemMessage('流式回复失败: ' + escapeHtml(errText));
                         setState('错误');
                     }
                     chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -1920,12 +1953,23 @@
                     // 流被提前关闭但没收到 done
                     if (!gotContent) addSystemMessage('流异常结束，未收到完整回复');
                     setState('结束');
-                } else {
-                    // 流结束后：用 Markdown 渲染最终内容
-                    if (finalContent) {
-                        bubbleEl.innerHTML = '<div class="md-body">' + renderMarkdown(finalContent) + '</div>';
+                }
+
+                // 最后：用 Markdown 渲染完整文本（finalContent 是最后一段非工具调用的 done 内容）
+                // 如果 finalContent 为空，则退回到 bubbleEl 当前已显示的文本
+                let displayText = finalContent;
+                if (!displayText && bubbleEl.textContent) {
+                    displayText = bubbleEl.textContent;
+                }
+                if (displayText) {
+                    // 若是"正在调用工具…"类提示且无真正内容，保持原样
+                    if (displayText.indexOf('🔧') === 0 && !finalContent) {
+                        // 保留工具调用提示，不覆盖
+                    } else {
+                        bubbleEl.innerHTML = '<div class="md-body">' + renderMarkdown(displayText) + '</div>';
                     }
                 }
+                chatMessages.scrollTop = chatMessages.scrollHeight;
             } catch (e) {
                 if (bubbleEl.textContent === '…') bubbleEl.textContent = '';
                 addSystemMessage('发送失败: ' + e.message);

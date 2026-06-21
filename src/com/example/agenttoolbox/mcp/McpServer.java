@@ -615,9 +615,14 @@ public class McpServer {
                                                 log(chunk);
                                                 return;
                                             }
+                                            // 检测是否为工具调用 JSON（避免把 JSON 当作普通文本塞给用户）
+                                            boolean isToolCall = chunk != null
+                                                && chunk.indexOf("\"jsonrpc\"") != -1
+                                                && chunk.indexOf("\"tools/call\"") != -1;
                                             JSONObject j = new JSONObject();
                                             j.put("content", chunk == null ? "" : chunk);
                                             j.put("round", currentRound);
+                                            j.put("isToolCall", isToolCall);
                                             writeEventChunk(out, "chunk", j.toString());
                                         } catch (Exception e) {
                                             // ignore
@@ -628,11 +633,16 @@ public class McpServer {
                                     public void onDone(String reply) {
                                         try {
                                             roundReplyRef.set(reply);
+                                            boolean isToolCall = reply != null
+                                                && reply.indexOf("\"jsonrpc\"") != -1
+                                                && reply.indexOf("\"tools/call\"") != -1;
                                             JSONObject j = new JSONObject();
                                             j.put("content", reply == null ? "" : reply);
                                             j.put("round", currentRound);
+                                            j.put("isToolCall", isToolCall);
                                             writeEventChunk(out, "done", j.toString());
-                                            log("轮次 " + currentRound + " 完成，长度=" + (reply == null ? 0 : reply.length()));
+                                            log("轮次 " + currentRound + " 完成，长度=" + (reply == null ? 0 : reply.length())
+                                                + (isToolCall ? "（工具调用）" : "（文本回复）"));
                                         } catch (Exception e) {
                                             // ignore
                                         }
