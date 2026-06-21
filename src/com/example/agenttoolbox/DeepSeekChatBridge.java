@@ -321,17 +321,17 @@ public class DeepSeekChatBridge {
             "    md = md.replace(/<code[^>]*>([\\s\\S]*?)<\\/code>/gi, '`$1`');\n" +
             "    // 移除其他HTML标签\n" +
             "    md = md.replace(/<[^>]+>/gi, '');\n" +
-            "    // HTML实体解码\n" +
+            "    // 清理多余的空行（保留最多2个连续空行）\n" +
+            "    md = md.replace(/\\n{3,}/g, '\\n\\n');\n" +
+            "    // 删除前后空白\n" +
+            "    md = md.trim();\n" +
+            "    // HTML实体解码（&amp;必须最后解码，避免破坏其他实体）\n" +
             "    md = md.replace(/&quot;/g, '\"');\n" +
             "    md = md.replace(/&#39;/g, \"'\");\n" +
             "    md = md.replace(/&lt;/g, '<');\n" +
             "    md = md.replace(/&gt;/g, '>');\n" +
             "    md = md.replace(/&amp;/g, '&');\n" +
-            "    // 清理多余的空行（保留最多2个连续空行）\n" +
-            "    md = md.replace(/\\n{3,}/g, '\\n\\n');\n" +
-            "    // 删除前后空白\n" +
-            "    md = md.trim();\n" +
-            "    return md || null;\n" +
+            "    return md.length > 0 ? md : null;\n" +
             "  }\n" +
             "\n" +
             "  // 备用全页扫描：依次尝试多个选择器，返回最后一条非空内容\n" +
