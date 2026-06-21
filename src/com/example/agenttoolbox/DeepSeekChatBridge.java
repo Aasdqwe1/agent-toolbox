@@ -290,6 +290,26 @@ public class DeepSeekChatBridge {
             "  function htmlToMarkdown(html) {\n" +
             "    if (!html) return '';\n" +
             "    var md = html;\n" +
+            "    \n" +
+            "    // ===== 第1步：先解码所有HTML实体（命名实体 + 数字实体）=====\n" +
+            "    // 修复：DeepSeek可能把标签转义成数字实体（如&#60;code&#62;），必须先解码才能匹配标签\n" +
+            "    // 解码数字实体（十进制：&#60;）\n" +
+            "    md = md.replace(/&#(\\d+);/g, function(m, num) {\n" +
+            "      return String.fromCharCode(parseInt(num, 10));\n" +
+            "    });\n" +
+            "    // 解码数字实体（十六进制：&#x3C;）\n" +
+            "    md = md.replace(/&#x([0-9a-fA-F]+);/g, function(m, hex) {\n" +
+            "      return String.fromCharCode(parseInt(hex, 16));\n" +
+            "    });\n" +
+            "    // 解码命名实体\n" +
+            "    md = md.replace(/&quot;/g, '\"');\n" +
+            "    md = md.replace(/&#39;/g, \"'\");\n" +
+            "    md = md.replace(/&lt;/g, '<');\n" +
+            "    md = md.replace(/&gt;/g, '>');\n" +
+            "    md = md.replace(/&amp;/g, '&');\n" +
+            "    md = md.replace(/&nbsp;/g, ' ');\n" +
+            "    \n" +
+            "    // ===== 第2步：转换HTML标签为Markdown =====\n" +
             "    // 保留段落之间的空行\n" +
             "    md = md.replace(/<\\/p>/gi, '\\n\\n');\n" +
             "    md = md.replace(/<p[^>]*>/gi, '');\n" +
@@ -321,22 +341,13 @@ public class DeepSeekChatBridge {
             "    md = md.replace(/<code[^>]*>([\\s\\S]*?)<\\/code>/gi, '`$1`');\n" +
             "    // 移除其他HTML标签\n" +
             "    md = md.replace(/<[^>]+>/gi, '');\n" +
+            "    \n" +
+            "    // ===== 第3步：清理格式 =====\n" +
             "    // 清理多余的空行（保留最多2个连续空行）\n" +
             "    md = md.replace(/\\n{3,}/g, '\\n\\n');\n" +
             "    // 删除前后空白\n" +
             "    md = md.trim();\n" +
-            "    // HTML实体解码（&amp;必须最后解码，避免破坏其他实体）\n" +
-            "    md = md.replace(/&quot;/g, '\"');\n" +
-            "    md = md.replace(/&#39;/g, \"'\");\n" +
-            "    md = md.replace(/&lt;/g, '<');\n" +
-            "    md = md.replace(/&gt;/g, '>');\n" +
-            "    md = md.replace(/&amp;/g, '&');\n" +
-            "    // 修复：实体解码后再做一次HTML标签清理\n" +
-            "    // 防止标签被转义成实体后，绕过前面的标签移除逻辑\n" +
-            "    md = md.replace(/<[^>]+>/g, '');\n" +
-            "    // 再次清理多余空行\n" +
-            "    md = md.replace(/\\n{3,}/g, '\\n\\n');\n" +
-            "    md = md.trim();\n" +
+            "    \n" +
             "    // 返回非空内容或null，允许fallback机制使用innerText\n" +
             "    return md.length > 0 ? md : null;\n" +
             "  }\n" +
