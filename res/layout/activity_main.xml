@@ -71,7 +71,9 @@
             android:layout_height="wrap_content"
             android:textSize="12sp"
             android:fontFamily="monospace"
-            android:textColor="#333333"/>
+            android:textColor="#333333"
+            android:textIsSelectable="true"
+            android:longClickable="true"/>
     </ScrollView>
 
 </LinearLayout>
