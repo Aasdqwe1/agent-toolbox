@@ -296,23 +296,31 @@ public class DeepSeekChatBridge {
             "    if (!html) return '';\n" +
             "    var md = html;\n" +
             "    \n" +
-            "    // ===== 第1步：先解码所有HTML实体（命名实体 + 数字实体）=====\n" +
-            "    // 修复：DeepSeek可能把标签转义成数字实体（如&#60;code&#62;），必须先解码才能匹配标签\n" +
-            "    // 解码数字实体（十进制：&#60;）\n" +
-            "    md = md.replace(/&#(\\d+);/g, function(m, num) {\n" +
-            "      return String.fromCharCode(parseInt(num, 10));\n" +
-            "    });\n" +
-            "    // 解码数字实体（十六进制：&#x3C;）\n" +
-            "    md = md.replace(/&#x([0-9a-fA-F]+);/g, function(m, hex) {\n" +
-            "      return String.fromCharCode(parseInt(hex, 16));\n" +
-            "    });\n" +
-            "    // 解码命名实体\n" +
-            "    md = md.replace(/&quot;/g, '\"');\n" +
-            "    md = md.replace(/&#39;/g, \"'\");\n" +
-            "    md = md.replace(/&lt;/g, '<');\n" +
-            "    md = md.replace(/&gt;/g, '>');\n" +
-            "    md = md.replace(/&amp;/g, '&');\n" +
-            "    md = md.replace(/&nbsp;/g, ' ');\n" +
+            "    // ===== 第1步：循环解码HTML实体直到稳定（处理双重/多重编码）=====\n" +
+            "    // 关键修复：&amp; 必须在 &lt;/&gt; 之前解码，否则 &amp;lt; 只能变成 &lt; 而不是 <\n" +
+            "    // 同时循环解码，处理三重/四重编码的深度转义场景\n" +
+            "    var _prevMd;\n" +
+            "    var _decodeIter = 0;\n" +
+            "    do {\n" +
+            "      _prevMd = md;\n" +
+            "      // 1) &amp; 必须最先解码！否则 &amp;lt; 无法被后续 &lt; 匹配\n" +
+            "      md = md.replace(/&amp;/g, '&');\n" +
+            "      // 2) 解码数字实体（十进制：&#60;）\n" +
+            "      md = md.replace(/&#(\\d+);/g, function(m, num) {\n" +
+            "        return String.fromCharCode(parseInt(num, 10));\n" +
+            "      });\n" +
+            "      // 3) 解码数字实体（十六进制：&#x3C;）\n" +
+            "      md = md.replace(/&#x([0-9a-fA-F]+);/g, function(m, hex) {\n" +
+            "        return String.fromCharCode(parseInt(hex, 16));\n" +
+            "      });\n" +
+            "      // 4) 命名实体\n" +
+            "      md = md.replace(/&quot;/g, '\"');\n" +
+            "      md = md.replace(/&#39;/g, \"'\");\n" +
+            "      md = md.replace(/&lt;/g, '<');\n" +
+            "      md = md.replace(/&gt;/g, '>');\n" +
+            "      md = md.replace(/&nbsp;/g, ' ');\n" +
+            "      _decodeIter++;\n" +
+            "    } while (md !== _prevMd && _decodeIter < 5 && md.length > 0);\n" +
             "    \n" +
             "    // ===== 第2步：转换HTML标签为Markdown =====\n" +
             "    // 保留段落之间的空行\n" +
@@ -343,6 +351,10 @@ public class DeepSeekChatBridge {
             "    // 转换代码块（必须在单行code之前）\n" +
             "    md = md.replace(/<pre[^>]*><code[^>]*>([\\s\\S]*?)<\\/code><\\/pre>/gi, '```\\n$1\\n```');\n" +
             "    md = md.replace(/<pre[^>]*>([\\s\\S]*?)<\\/pre>/gi, '```\\n$1\\n```');\n" +
+            "    // 修复：DeepSeek 可能用 span 标签代替 code 来渲染行内代码\n" +
+            "    // 匹配常见的 DeepSeek 类名：ds-markdown-code / inline-code / code 等\n" +
+            "    md = md.replace(/<span[^>]*class=\"[^\"]*(?:ds-markdown(?:--)?(?:inline-)?code|inline-code|markdown-code|code)[^\"]*\"[^>]*>([\\s\\S]*?)<\\/span>/gi, '`$1`');\n" +
+            "    md = md.replace(/<span[^>]*class='[^']*(?:ds-markdown(?:--)?(?:inline-)?code|inline-code|markdown-code|code)[^']*'[^>]*>([\\s\\S]*?)<\\/span>/gi, '`$1`');\n" +
             "    md = md.replace(/<code[^>]*>([\\s\\S]*?)<\\/code>/gi, '`$1`');\n" +
             "    // 转换HTML表格为Markdown表格\\n" +
             "    md = md.replace(/<table[^>]*>([\\s\\S]*?)<\\/table>/gi, function(match, tableContent) {\\n" +

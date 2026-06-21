@@ -1101,13 +1101,24 @@
 
         function unescapeHtml(html) {
             if (!html) return '';
-            // 用正则表达式直接替换常见 HTML 实体（更可靠，不依赖 DOM）
-            return html.replace(/&lt;/g, '<')
-                       .replace(/&gt;/g, '>')
-                       .replace(/&quot;/g, '"')
-                       .replace(/&#39;/g, "'")
-                       .replace(/&amp;/g, '&')
-                       .replace(/&nbsp;/g, ' ');
+            // 关键修复：循环解码直到稳定，&amp; 必须最先解码，否则
+            // 双重编码的 &amp;lt; 只能解到 &lt; 无法继续到 <
+            var result = html;
+            var prev;
+            var iter = 0;
+            do {
+                prev = result;
+                result = result.replace(/&amp;/g, '&')
+                            .replace(/&#(\d+);/g, function(m, n) { return String.fromCharCode(parseInt(n, 10)); })
+                            .replace(/&#x([0-9a-fA-F]+);/g, function(m, h) { return String.fromCharCode(parseInt(h, 16)); })
+                            .replace(/&quot;/g, '"')
+                            .replace(/&#39;/g, "'")
+                            .replace(/&lt;/g, '<')
+                            .replace(/&gt;/g, '>')
+                            .replace(/&nbsp;/g, ' ');
+                iter++;
+            } while (result !== prev && iter < 5);
+            return result;
         }
 
         function syntaxHighlight(json) {
