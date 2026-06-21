@@ -567,14 +567,13 @@ public class McpServer {
                                         if (stopHeartbeat.get()) return;
                                         long now = System.currentTimeMillis();
                                         long last = lastActivityAt.get();
-                                        if (now - last >= 7000) {
+                                        if (now - last >= 8000) {
                                             seq++;
                                             JSONObject j = new JSONObject();
                                             j.put("message", "模型处理中...");
                                             j.put("seq", seq);
                                             j.put("elapsedMs", now - last);
                                             writeEventChunk(out, "status", j.toString());
-                                            log("[心跳] 模型处理中... seq=" + seq + " 已等待=" + (now - last) + "ms");
                                         }
                                     }
                                 } catch (InterruptedException ignored) {
@@ -691,6 +690,7 @@ public class McpServer {
 
                             String reply = roundReplyRef.get();
                             if (reply == null || reply.isEmpty()) {
+                                log("轮次 " + round + " 回复为空，结束对话");
                                 break;
                             }
 
