@@ -822,7 +822,7 @@ public class DeepSeekChatBridge {
     }
 
     /**
-     * 获取会话列表
+     * 获取会话列表（仅 7 天内）
      */
     public String getSessions() {
         String js =
@@ -836,6 +836,8 @@ public class DeepSeekChatBridge {
             "    anchors = document.querySelectorAll('a[href*=\"chat\"]');\n" +
             "  }\n" +
             "  var currentGroup = '';\n" +
+            "  // 仅保留 7 天内的分组（今天、昨天、7 天内）\n" +
+            "  var allowedGroups = ['今天', '昨天', '7 天内'];\n" +
             "  var all = document.querySelectorAll('[class]');\n" +
             "  for (var idx = 0; idx < all.length; idx++) {\n" +
             "    var el = all[idx];\n" +
@@ -845,6 +847,8 @@ public class DeepSeekChatBridge {
             "      var idMatch = href.match(/chat[\\/\\\\]s[\\/\\\\]([a-zA-Z0-9_-]+)/);\n" +
             "      var id = idMatch ? idMatch[1] : null;\n" +
             "      if (!id) continue;\n" +
+            "      // 过滤：仅保留 7 天内的会话\n" +
+            "      if (allowedGroups.indexOf(currentGroup) === -1) continue;\n" +
             "      var titleDiv = el.querySelector('[class*=\"c08e6e93\"]');\n" +
             "      var title = titleDiv ? (titleDiv.innerText || titleDiv.textContent || '').trim()\n" +
             "                            : (el.innerText || el.textContent || '').trim();\n" +
