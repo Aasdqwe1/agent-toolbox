@@ -370,30 +370,22 @@ public class DeepSeekChatBridge {
             "    }\n" +
             "    // 必须有**新增**的消息（index >= baseline）\n" +
             "    if (list.length <= baseline) {\n" +
-            "      // 兜底检测：如果生成已停止且最后一条消息有内容，可能是页面未触发新增事件\n" +
-            "      if (!gen && list.length > 0) {\n" +
+            "      // 兜底检测：如果最后一条消息内容足够长，可能是页面未触发新增事件\n" +
+            "      if (list.length > 0) {\n" +
             "        var lastEl = list[list.length - 1];\n" +
             "        var lastReply = getAssistantReply(lastEl);\n" +
-            "        if (lastReply && lastReply.length > 30) {\n" +
+            "        if (lastReply && lastReply.length > 80) {\n" +
             "          Android.log('[DEBUG][' + __rid + '] 兜底检测：直接完成，长度=' + lastReply.length);\n" +
             "          finish(lastReply);\n" +
             "          return;\n" +
-            "        } else {\n" +
-            "          var maxPoll = gen ? 180 : 120;\n" +
-            "          if (pollCount > maxPoll) {\n" +
-            "            finish('');\n" +
-            "            Android.onDeepSeekError(__rid, gen ? '超时：生成中但未完成（超过90秒）' : '超时未捕获到新回复');\n" +
-            "          }\n" +
-            "          return;\n" +
             "        }\n" +
-            "      } else {\n" +
-            "        var maxPoll = gen ? 180 : 120;\n" +
-            "        if (pollCount > maxPoll) {\n" +
-            "          finish('');\n" +
-            "          Android.onDeepSeekError(__rid, gen ? '超时：生成中但未完成（超过90秒）' : '超时未捕获到新回复');\n" +
-            "        }\n" +
-            "        return;\n" +
             "      }\n" +
+            "      // 超时处理：统一90秒\n" +
+            "      if (pollCount > 180) {\n" +
+            "        finish('');\n" +
+            "        Android.onDeepSeekError(__rid, '超时未捕获到新回复');\n" +
+            "      }\n" +
+            "      return;\n" +
             "    } else {\n" +
             "      // 检测到新消息，更新baseline\n" +
             "      baseline = list.length;\n" +
@@ -419,12 +411,13 @@ public class DeepSeekChatBridge {
             "      lastSeenText = reply;\n" +
             "    }\n" +
             "\n" +
-            "    var hasMinimumLength = reply.length > 30;\n" +
-            "    var stableEnough = sameLenStable >= 4;\n" +
+            "    var complete = isLatestReplyComplete(latestEl);\n" +
+            "    var stableEnough = sameLenStable >= 8;\n" +
+            "    var hasMinimumLength = reply.length > 50;\n" +
             "    \n" +
-            "    // 完成判定：必须同时满足三个条件\n" +
-            "    // 1. AI停止生成 2. 内容超过30字符 3. 内容稳定至少2秒\n" +
-            "    if (!gen && hasMinimumLength && stableEnough) {\n" +
+            "    // 完成判定：操作栏出现 或 (内容稳定4秒且超过50字符)\n" +
+            "    // 完全不依赖 gen，避免 isGenerating() 误判\n" +
+            "    if (complete || (stableEnough && hasMinimumLength)) {\n" +
             "      finish(reply);\n" +
             "      return;\n" +
             "    }\n" +
