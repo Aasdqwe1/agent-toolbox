@@ -29,16 +29,12 @@ public class McpServer {
     private ServerSocket serverSocket;
     private boolean running = false;
     private Thread serverThread;
-
-    // 静态变量，记录是否有服务在运行
     private static boolean serverRunning = false;
 
-    /**
-     * 检查 MCP 服务是否在运行（静态方法）
-     */
     public static boolean isServiceRunning() {
         return serverRunning;
     }
+
     private OnLogListener logListener;
     private Context context;
 
@@ -61,9 +57,6 @@ public class McpServer {
         }
     }
 
-    /**
-     * 启动服务
-     */
     public void start() throws IOException {
         if (running) {
             return;
@@ -74,30 +67,27 @@ public class McpServer {
         serverRunning = true;
 
         serverThread = new Thread(new Runnable() {
-				@Override
-				public void run() {
-					log("MCP服务已启动，监听端口: " + port);
-					log("本机IP地址: " + getLocalIpAddress());
-					log("浏览器访问: http://" + getLocalIpAddress() + ":" + port);
+            @Override
+            public void run() {
+                log("MCP服务已启动，监听端口: " + port);
+                log("本机IP地址: " + getLocalIpAddress());
+                log("浏览器访问: http://" + getLocalIpAddress() + ":" + port);
 
-					while (running) {
-						try {
-							Socket clientSocket = serverSocket.accept();
-							new Thread(new ClientHandler(clientSocket)).start();
-						} catch (IOException e) {
-							if (running) {
-								log("接受连接失败: " + e.getMessage());
-							}
-						}
-					}
-				}
-			});
+                while (running) {
+                    try {
+                        Socket clientSocket = serverSocket.accept();
+                        new Thread(new ClientHandler(clientSocket)).start();
+                    } catch (IOException e) {
+                        if (running) {
+                            log("接受连接失败: " + e.getMessage());
+                        }
+                    }
+                }
+            }
+        });
         serverThread.start();
     }
 
-    /**
-     * 停止服务
-     */
     public void stop() {
         running = false;
         serverRunning = false;
@@ -111,9 +101,6 @@ public class McpServer {
         log("MCP服务已停止");
     }
 
-    /**
-     * 获取本机IP地址
-     */
     public String getLocalIpAddress() {
         try {
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
@@ -141,9 +128,6 @@ public class McpServer {
         return port;
     }
 
-    /**
-     * 读取assets文件内容
-     */
     private String readAssetFile(String fileName) {
         try {
             InputStream is = context.getAssets().open(fileName);
@@ -162,11 +146,7 @@ public class McpServer {
         }
     }
 
-    /**
-     * 客户端处理线程
-     */
     private class ClientHandler implements Runnable {
-
         private Socket clientSocket;
 
         public ClientHandler(Socket socket) {
@@ -180,19 +160,16 @@ public class McpServer {
                     new InputStreamReader(clientSocket.getInputStream()));
                 OutputStream out = clientSocket.getOutputStream();
 
-                // 读取HTTP请求行
                 String requestLine = in.readLine();
                 if (requestLine == null) {
                     clientSocket.close();
                     return;
                 }
 
-                // 解析请求方法和路径
                 String[] parts = requestLine.split(" ");
                 String method = parts[0];
                 String path = parts.length > 1 ? parts[1] : "/";
 
-                // 读取请求头
                 StringBuilder headersBuilder = new StringBuilder();
                 String line;
                 int contentLength = 0;
@@ -204,11 +181,9 @@ public class McpServer {
                     }
                 }
 
-                // 根据请求方法处理
                 if ("GET".equalsIgnoreCase(method)) {
                     handleGetRequest(path, out);
                 } else if ("POST".equalsIgnoreCase(method)) {
-                    // 读取请求体
                     char[] body = new char[contentLength];
                     in.read(body, 0, contentLength);
                     String requestBody = new String(body);
@@ -227,16 +202,15 @@ public class McpServer {
             } catch (Exception e) {
                 log("处理客户端请求失败: " + e.getMessage());
                 try {
-                    clientSocket.close();
+                    if (clientSocket != null && !clientSocket.isClosed()) {
+                        clientSocket.close();
+                    }
                 } catch (IOException ex) {
                     // ignore
                 }
             }
         }
 
-        /**
-         * 处理GET请求 - 返回静态网页
-         */
         private void handleGetRequest(String path, OutputStream out) throws IOException {
             log("GET请求: " + path);
 
@@ -247,9 +221,7 @@ public class McpServer {
                 fileName = "test_client.html";
                 contentType = "text/html; charset=UTF-8";
             } else {
-                // 去掉开头的斜杠
                 fileName = path.startsWith("/") ? path.substring(1) : path;
-                // 简单的MIME类型判断
                 if (fileName.endsWith(".html") || fileName.endsWith(".htm")) {
                     contentType = "text/html; charset=UTF-8";
                 } else if (fileName.endsWith(".css")) {
@@ -280,47 +252,35 @@ public class McpServer {
             }
         }
 
-        /**
-		 * 处理POST请求 - JSON-RPC + DeepSeek 聊天
-		 */
-		private void handlePostRequest(String path, String requestBody, OutputStream out) throws IOException {
-			log("收到请求: " + requestBody);
+        private void handlePostRequest(String path, String requestBody, OutputStream out) throws IOException {
+            log("收到请求: " + requestBody);
 
-			// DeepSeek 聊天接口
-			if (path.startsWith("/api/chat/")) {
-				handleChatRequest(path, requestBody, out);  // 直接调用，不需要 try-catch
-				return;
-			}
+            if (path.startsWith("/api/chat/")) {
+                handleChatRequest(path, requestBody, out);
+                return;
+            }
 
-			// 处理JSON-RPC请求
-			String responseBody = handleJsonRpcRequest(requestBody);
+            String responseBody = handleJsonRpcRequest(requestBody);
+            log("返回响应: " + responseBody);
 
-			log("返回响应: " + responseBody);
+            String response = "HTTP/1.1 200 OK\r\n" +
+                "Content-Type: application/json\r\n" +
+                "Content-Length: " + responseBody.getBytes("UTF-8").length + "\r\n" +
+                "Access-Control-Allow-Origin: *\r\n" +
+                "Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n" +
+                "Access-Control-Allow-Headers: Content-Type\r\n" +
+                "\r\n" +
+                responseBody;
 
-			// 发送HTTP响应
-			String response = "HTTP/1.1 200 OK\r\n" +
-				"Content-Type: application/json\r\n" +
-				"Content-Length: " + responseBody.getBytes("UTF-8").length + "\r\n" +
-				"Access-Control-Allow-Origin: *\r\n" +
-				"Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n" +
-				"Access-Control-Allow-Headers: Content-Type\r\n" +
-				"\r\n" +
-				responseBody;
+            out.write(response.getBytes("UTF-8"));
+        }
 
-			out.write(response.getBytes("UTF-8"));
-		}
-
-        /**
-         * 从回复文本中提取 JSON-RPC 工具调用（简单实现）
-         */
         private String extractJsonRpcFromReply(String reply) {
             if (reply == null || reply.length() == 0) return null;
-            
-            // 查找 jsonrpc 标记
+
             int idx = reply.indexOf("\"jsonrpc\"");
             if (idx == -1) return null;
-            
-            // 向前找最近的 {
+
             int start = -1;
             for (int i = idx; i >= 0; i--) {
                 if (reply.charAt(i) == '{') {
@@ -329,8 +289,7 @@ public class McpServer {
                 }
             }
             if (start == -1) return null;
-            
-            // 向后找最近的 }
+
             int end = -1;
             for (int i = idx; i < reply.length(); i++) {
                 if (reply.charAt(i) == '}') {
@@ -339,13 +298,10 @@ public class McpServer {
                 }
             }
             if (end == -1) return null;
-            
+
             return reply.substring(start, end + 1);
         }
-        
-        /**
-         * 执行 JSON-RPC 工具调用并返回结果字符串
-         */
+
         private String executeToolCall(String jsonRpcStr) {
             try {
                 JSONObject req = new JSONObject(jsonRpcStr);
@@ -353,22 +309,21 @@ public class McpServer {
                 if (!"tools/call".equals(method)) {
                     return null;
                 }
-                
+
                 JSONObject params = req.optJSONObject("params");
                 if (params == null) {
                     return "错误: 缺少 params";
                 }
-                
+
                 String toolName = params.optString("name", "");
                 JSONObject args = params.optJSONObject("arguments");
                 if (args == null) {
                     args = new JSONObject();
                 }
-                
+
                 log("执行工具: " + toolName);
                 JSONObject result = ToolManager.getInstance().callTool(toolName, args);
-                
-                // 提取文本结果
+
                 JSONArray contentArr = result.optJSONArray("content");
                 if (contentArr != null && contentArr.length() > 0) {
                     JSONObject first = contentArr.optJSONObject(0);
@@ -376,28 +331,29 @@ public class McpServer {
                         return first.optString("text", "");
                     }
                 }
-                
+
                 return result.toString();
             } catch (Exception e) {
                 log("工具调用失败: " + e.getMessage());
                 return "工具执行失败: " + e.getMessage();
             }
         }
-        
-        private void handleChatRequest(String path, String requestBody, final OutputStream out) 
-		throws IOException {
-            String responseBody;
+
+        private void handleChatRequest(String path, String requestBody, final OutputStream out)
+                throws IOException {
+            String responseBody = "";
+
             try {
                 JSONObject body = requestBody != null && requestBody.length() > 2
                     ? new JSONObject(requestBody) : new JSONObject();
                 String action = path;
-                // 允许末尾斜杠
-                if (action.endsWith("/")) action = action.substring(0, action.length() - 1);
+                if (action.endsWith("/")) {
+                    action = action.substring(0, action.length() - 1);
+                }
 
                 DeepSeekChatBridge bridge = DeepSeekChatBridge.getInstance();
 
                 if ("/api/chat/sessions".equals(action)) {
-                    // 获取会话列表
                     if (!bridge.isRegistered()) {
                         responseBody = new JSONObject()
                             .put("success", false)
@@ -412,7 +368,6 @@ public class McpServer {
                                 .put("error", "提取会话列表失败")
                                 .toString();
                         } else {
-                            // sessionsJson 本身就是完整 JSON，直接包一层 success
                             responseBody = new JSONObject()
                                 .put("success", true)
                                 .put("data", new JSONObject(sessionsJson))
@@ -420,7 +375,6 @@ public class McpServer {
                         }
                     }
                 } else if ("/api/chat/select".equals(action)) {
-                    // 切换会话
                     String sessionId = body.optString("session_id", "").trim();
                     if (sessionId.isEmpty()) {
                         responseBody = new JSONObject()
@@ -442,7 +396,6 @@ public class McpServer {
                             .toString();
                     }
                 } else if ("/api/chat/new".equals(action)) {
-                    // 创建新会话
                     if (!bridge.isRegistered()) {
                         responseBody = new JSONObject()
                             .put("success", false)
@@ -457,19 +410,13 @@ public class McpServer {
                             .toString();
                     }
                 } else if ("/api/chat/send".equals(action)) {
-                    // 流式发送：SSE / Transfer-Encoding: chunked
-                    // 策略：
-                    //   1. 启动心跳守护线程，每 15 秒输出一次 status 事件，避免连接被认为超时
-                    //   2. 先尝试流式请求（最长 180 秒/含降级逻辑）
-                    //   3. 若流式长时间无内容（首次 35 秒内没收到 chunk），自动重试一次
-                    //   4. 若重试后仍失败，降级到阻塞式 sendMessage
-                    final String message = body != null ? body.optString("message", "").trim() : "";
+                    final String message = body.optString("message", "").trim();
                     if (message.isEmpty()) {
                         responseBody = new JSONObject()
                             .put("success", false)
                             .put("error", "message 参数不能为空")
                             .toString();
-                    } else if (!DeepSeekChatBridge.getInstance().isRegistered()) {
+                    } else if (!bridge.isRegistered()) {
                         responseBody = new JSONObject()
                             .put("success", false)
                             .put("error", "DeepSeek 未连接，请先打开 DeepSeek 页面并确保已登录")
@@ -477,6 +424,7 @@ public class McpServer {
                     } else {
                         log("DeepSeek 流式聊天请求: " + message.substring(0, Math.min(50, message.length())));
 
+                        // SSE 头部
                         String header = "HTTP/1.1 200 OK\r\n" +
                             "Content-Type: text/event-stream; charset=UTF-8\r\n" +
                             "Transfer-Encoding: chunked\r\n" +
@@ -491,13 +439,9 @@ public class McpServer {
 
                         writeEventChunk(out, "started", new JSONObject().put("ok", true).toString());
 
-                        // 每 15 秒一个心跳 status 事件，避免浏览器/中间层认为超时
-                        final java.util.concurrent.atomic.AtomicReference<Long> lastActivityAt =
-                            new java.util.concurrent.atomic.AtomicReference<Long>(System.currentTimeMillis());
-                        final java.util.concurrent.atomic.AtomicReference<Thread> heartbeatThreadRef =
-                            new java.util.concurrent.atomic.AtomicReference<Thread>();
-                        final java.util.concurrent.atomic.AtomicReference<Boolean> stopHeartbeat =
-                            new java.util.concurrent.atomic.AtomicReference<Boolean>(Boolean.FALSE);
+                        // 心跳
+                        final AtomicReference<Long> lastActivityAt = new AtomicReference<>(System.currentTimeMillis());
+                        final AtomicReference<Boolean> stopHeartbeat = new AtomicReference<>(false);
 
                         Thread heartbeat = new Thread(new Runnable() {
                             @Override
@@ -509,7 +453,6 @@ public class McpServer {
                                         if (stopHeartbeat.get()) return;
                                         long now = System.currentTimeMillis();
                                         long last = lastActivityAt.get();
-                                        // 只有在"流式回调确实一直没 activity"时才补心跳，避免覆盖真实数据
                                         if (now - last >= 14000) {
                                             seq++;
                                             JSONObject j = new JSONObject();
@@ -520,14 +463,14 @@ public class McpServer {
                                         }
                                     }
                                 } catch (InterruptedException ignored) {
-                                } catch (Exception ignored) { }
+                                } catch (Exception ignored) {
+                                }
                             }
                         }, "DeepSeekHeartbeat");
                         heartbeat.setDaemon(true);
-                        heartbeatThreadRef.set(heartbeat);
                         heartbeat.start();
 
-                        // ===== 对话循环：自动处理工具调用 =====
+                        // 对话循环
                         String currentMessage = message;
                         int maxRounds = 10;
                         int round = 0;
@@ -539,12 +482,10 @@ public class McpServer {
                             log("对话轮次 " + currentRound);
 
                             final CountDownLatch roundLatch = new CountDownLatch(1);
-                            final java.util.concurrent.atomic.AtomicReference<String> roundReplyRef =
-                                new java.util.concurrent.atomic.AtomicReference<String>();
-                            final java.util.concurrent.atomic.AtomicReference<String> roundErrorRef =
-                                new java.util.concurrent.atomic.AtomicReference<String>();
+                            final AtomicReference<String> roundReplyRef = new AtomicReference<>();
+                            final AtomicReference<String> roundErrorRef = new AtomicReference<>();
 
-                            DeepSeekChatBridge.getInstance().sendMessageStream(currentMessage,
+                            bridge.sendMessageStream(currentMessage,
                                 new DeepSeekChatBridge.StreamCallback() {
                                     @Override
                                     public void onChunk(String chunk) {
@@ -560,12 +501,13 @@ public class McpServer {
                                                 log(chunk);
                                                 return;
                                             }
-                                            // 转发流式片段给客户端
                                             JSONObject j = new JSONObject();
                                             j.put("content", chunk == null ? "" : chunk);
                                             j.put("round", currentRound);
                                             writeEventChunk(out, "chunk", j.toString());
-                                        } catch (Exception e) { /* ignore */ }
+                                        } catch (Exception e) {
+                                            // ignore
+                                        }
                                     }
 
                                     @Override
@@ -577,7 +519,9 @@ public class McpServer {
                                             j.put("round", currentRound);
                                             writeEventChunk(out, "done", j.toString());
                                             log("轮次 " + currentRound + " 完成，长度=" + (reply == null ? 0 : reply.length()));
-                                        } catch (Exception e) { /* ignore */ }
+                                        } catch (Exception e) {
+                                            // ignore
+                                        }
                                         roundLatch.countDown();
                                     }
 
@@ -590,12 +534,13 @@ public class McpServer {
                                             j.put("round", currentRound);
                                             writeEventChunk(out, "error", j.toString());
                                             log("轮次 " + currentRound + " 错误: " + error);
-                                        } catch (Exception e) { /* ignore */ }
+                                        } catch (Exception e) {
+                                            // ignore
+                                        }
                                         roundLatch.countDown();
                                     }
                                 });
 
-                            // 等待本轮完成（最长 90 秒）
                             boolean completed = false;
                             try {
                                 completed = roundLatch.await(90, TimeUnit.SECONDS);
@@ -612,7 +557,7 @@ public class McpServer {
                             }
 
                             if (roundErrorRef.get() != null) {
-                                break;  // 错误已通过 onError 发送
+                                break;
                             }
 
                             String reply = roundReplyRef.get();
@@ -620,38 +565,31 @@ public class McpServer {
                                 break;
                             }
 
-                            // ---- 检测是否有工具调用 ----
                             String toolJson = extractJsonRpcFromReply(reply);
                             if (toolJson == null) {
-                                // 没有工具调用，对话结束
                                 finalDone = true;
                                 log("对话完成，无更多工具调用");
                                 break;
                             }
 
-                            // ---- 执行工具 ----
                             log("检测到工具调用，执行中...");
                             String toolResult = executeToolCall(toolJson);
                             if (toolResult == null || toolResult.isEmpty()) {
                                 toolResult = "工具执行返回空结果";
                             }
 
-                            // 将工具结果作为下一轮用户消息
                             currentMessage = toolResult;
 
-                            // 发送状态通知
-                            try {
-                                JSONObject status = new JSONObject();
-                                status.put("message", "工具执行完成，继续对话");
-                                writeEventChunk(out, "status", status.toString());
-                            } catch (Exception e) { /* ignore */ }
+                            JSONObject status = new JSONObject();
+                            status.put("message", "工具执行完成，继续对话");
+                            writeEventChunk(out, "status", status.toString());
                         }
 
-                        // 结束 SSE 流
                         endChunked(out);
                         stopHeartbeat.set(true);
                         log("对话结束，共 " + round + " 轮");
-                        return;  // 已写入完整响应，跳出后续的统一响应写入
+                        return; // 流式路径结束，直接返回
+                    } // end of send success block
                 } else if ("/api/chat/status".equals(action)) {
                     boolean registered = DeepSeekChatBridge.getInstance().isRegistered();
                     responseBody = new JSONObject()
@@ -677,8 +615,8 @@ public class McpServer {
                 }
             }
 
+            // 非流式路径统一发送 JSON 响应
             log("聊天响应:\n" + responseBody);
-
             String response = "HTTP/1.1 200 OK\r\n" +
                 "Content-Type: application/json\r\n" +
                 "Content-Length: " + responseBody.getBytes("UTF-8").length + "\r\n" +
@@ -687,13 +625,9 @@ public class McpServer {
                 "Access-Control-Allow-Headers: Content-Type\r\n" +
                 "\r\n" +
                 responseBody;
-
             out.write(response.getBytes("UTF-8"));
         }
 
-        /**
-         * 处理OPTIONS请求 - CORS预检
-         */
         private void handleOptionsRequest(OutputStream out) throws IOException {
             String response = "HTTP/1.1 200 OK\r\n" +
                 "Access-Control-Allow-Origin: *\r\n" +
@@ -705,9 +639,6 @@ public class McpServer {
             out.write(response.getBytes("UTF-8"));
         }
 
-        /**
-         * 发送错误响应
-         */
         private void sendErrorResponse(OutputStream out, int code, String message) throws IOException {
             String body = "<html><body><h1>" + code + " " + message + "</h1></body></html>";
             String response = "HTTP/1.1 " + code + " " + message + "\r\n" +
@@ -719,9 +650,6 @@ public class McpServer {
             log("返回错误: " + code + " " + message);
         }
 
-        /**
-         * 写一个 HTTP chunk（Transfer-Encoding: chunked）。格式: [hex size]\r\n[data]\r\n
-         */
         private void writeChunked(OutputStream out, byte[] data) throws IOException {
             if (data == null || data.length == 0) return;
             out.write(Integer.toHexString(data.length).getBytes("UTF-8"));
@@ -731,30 +659,20 @@ public class McpServer {
             out.flush();
         }
 
-        /**
-         * 写一个 SSE 事件（包装为 chunk）。格式: event: TYPE\ndata: JSON\n\n
-         */
         private void writeEventChunk(OutputStream out, String type, String jsonData) throws IOException {
             String event = "event: " + type + "\n" + "data: " + jsonData + "\n\n";
             writeChunked(out, event.getBytes("UTF-8"));
         }
 
-        /**
-         * 结束 chunk 流（最后的 0\r\n\r\n）
-         */
         private void endChunked(OutputStream out) throws IOException {
             out.write("0\r\n\r\n".getBytes("UTF-8"));
             out.flush();
         }
 
-        /**
-         * 处理JSON-RPC请求
-         */
         private String handleJsonRpcRequest(String requestBody) {
             try {
                 JsonRpcRequest request = new JsonRpcRequest(requestBody);
 
-                // 验证JSON-RPC版本
                 if (!"2.0".equals(request.getJsonrpc())) {
                     return JsonRpcResponse.invalidRequest(request.getId()).toString();
                 }
@@ -762,7 +680,6 @@ public class McpServer {
                 String method = request.getMethod();
                 JSONObject params = request.getParams();
 
-                // 处理MCP标准方法
                 switch (method) {
                     case "tools/list":
                         return handleToolsList(request);
@@ -771,29 +688,21 @@ public class McpServer {
                     case "initialize":
                         return handleInitialize(request);
                     case "notifications/initialized":
-                        // 通知，返回成功响应（兼容HTTP传输）
                         return JsonRpcResponse.success(request.getId(), new JSONObject()).toString();
                     default:
                         return JsonRpcResponse.methodNotFound(request.getId()).toString();
                 }
-
             } catch (Exception e) {
                 return JsonRpcResponse.parseError().toString();
             }
         }
 
-        /**
-         * 处理tools/list方法
-         */
         private String handleToolsList(JsonRpcRequest request) throws JSONException {
             JSONObject result = new JSONObject();
             result.put("tools", ToolManager.getInstance().getToolsList());
             return JsonRpcResponse.success(request.getId(), result).toString();
         }
 
-        /**
-         * 处理tools/call方法
-         */
         private String handleToolsCall(JsonRpcRequest request, JSONObject params) throws JSONException {
             if (!params.has("name")) {
                 return JsonRpcResponse.invalidParams(request.getId(), "缺少必填参数: name").toString();
@@ -809,9 +718,6 @@ public class McpServer {
             return JsonRpcResponse.success(request.getId(), result).toString();
         }
 
-        /**
-         * 处理initialize方法
-         */
         private String handleInitialize(JsonRpcRequest request) throws JSONException {
             JSONObject result = new JSONObject();
             JSONObject serverInfo = new JSONObject();
@@ -828,5 +734,5 @@ public class McpServer {
 
             return JsonRpcResponse.success(request.getId(), result).toString();
         }
-    }
-}
+    } // ClientHandler 结束
+} // McpServer 结束
