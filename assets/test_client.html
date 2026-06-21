@@ -14,9 +14,14 @@
             });
         }
         
-       // 安全的HTML标签清理函数 - 使用allowlist方式
+       // 安全的HTML标签清理函数 - 使用 allow list 方式
        function sanitizeHtml(html) {
            if (!html) return '';
+            
+           // 节点类型常量
+           const TEXT_NODE = 3;
+           const COMMENT_NODE = 8;
+           const ELEMENT_NODE = 1;
             
            // 使用 DOMParser 解析 HTML，避免在设置 innerHTML 时执行脚本
            try {
@@ -31,9 +36,9 @@
                // 递归清理危险元素和属性
                function cleanNode(node) {
                    const nodeType = node.nodeType;
-                   if (nodeType === 3) return; // Text node: keep it
-                   if (nodeType === 8) { node.remove(); return; } // Comment node: remove it
-                   if (nodeType !== 1) return; // Element node check (nodeType === 1 for Element)
+                   if (nodeType === TEXT_NODE) return; // Text node: keep it
+                   if (nodeType === COMMENT_NODE) { node.remove(); return; } // Comment node: remove it
+                   if (nodeType !== ELEMENT_NODE) return; // Element node check
                     
                    const tagName = node.tagName;
                    if (!allowedTags.has(tagName)) {
@@ -46,16 +51,16 @@
                    }
                     
                    // 移除所有属性，除了href（仅用于链接安全性检查）
-                   const attrNames = Array.from(node.attributes).map(attr => attr.name);
-                   attrNames.forEach(attr => {
-                       if (attr === 'href') {
+                   Array.from(node.attributes).forEach(attr => {
+                       const attrName = attr.name;
+                       if (attrName === 'href') {
                            // 只允许 http/https/mailto 协议
                            const href = node.getAttribute('href');
                            if (!href || !/^(https?:|mailto:)/.test(href)) {
                                node.removeAttribute('href');
                            }
                        } else {
-                           node.removeAttribute(attr);
+                           node.removeAttribute(attrName);
                        }
                    });
                     
