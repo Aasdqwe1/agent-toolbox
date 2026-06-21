@@ -842,7 +842,7 @@ public class DeepSeekChatBridge {
     private void tryExtractFromDOMAndRelease(final String requestId) {
         // 在 synchronized 块内一次性捕获所有引用，保证一致性。
         // 注意：即使 cleanupRequest 随后从 map 中移除这些引用，
-        // 已捕获的对象仍然有效：l.countDown() 在 latch 已归零后是空操作，
+        // 已捕获的对象仍然有效：l.countDown() 在 latch 已归零后仍然安全（内部计数为负不会抛异常），
         // ref.set() 设置的值若无人读取也是无害的。
         final CountDownLatch l;
         final AtomicReference<String> ref;
@@ -855,7 +855,7 @@ public class DeepSeekChatBridge {
             wb = boundWebView;
         }
         if (handler == null || wb == null) {
-            // 无法执行，直接以 null 回复释放 latch（触发 onError 路径）
+            // 无法执行备用 DOM 提取：ref 保持 null，latch 释放后调用方会走"未收到回复"错误路径
             if (l != null) l.countDown();
             return;
         }
@@ -885,7 +885,7 @@ public class DeepSeekChatBridge {
                     @Override
                     public void onReceiveValue(String result) {
                         String extracted = null;
-                        // evaluateJavascript 返回 JSON 编码值；使用 JSONTokener 安全解析
+                        // evaluateJavascript 返回 JSON 编码的字符串值；用 JSONTokener 安全解析
                         if (result != null && result.startsWith("\"") && result.endsWith("\"")) {
                             try {
                                 Object parsed = new org.json.JSONTokener(result).nextValue();
