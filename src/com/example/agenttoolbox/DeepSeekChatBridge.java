@@ -652,15 +652,16 @@ public class DeepSeekChatBridge {
             "        if (!actuallyGenerating) {\n" +
             "          // UI显示已停止 且 内容停止增长 = 大概率真的停止了\n" +
             "          // 但为了保险，再等几轮确认（防止瞬时波动）\n" +
-            "          if (jsonStableCount >= 6) {\n" +
-            "            // 连续6轮（约3秒）内容没有增长，才认为真的停止了\n" +
+            "          if (jsonStableCount >= 30) {\n" +
+            "            // 连续30轮（约15秒）内容没有增长，才认为真的停止了\n" +
+            "            // 给LLM足够的思考时间，避免工具调用思考阶段的短暂停顿被误判为停止\n" +
             "            Android.log('[DEBUG][' + __rid + '] ERROR: LLM已停止生成且JSON内容不再增长（pollCount=' + pollCount + ', stableCount=' + jsonStableCount + '）');\n" +
             "            Android.onDeepSeekError(__rid, '工具调用JSON不完整（LLM已停止生成）');\n" +
             "            if (window[__prefix + 'poll']) clearInterval(window[__prefix + 'poll']);\n" +
             "            if (window[__prefix + 'obs']) { try { window[__prefix + 'obs'].disconnect(); } catch(_e) {} }\n" +
             "            finished = true;\n" +
             "          } else {\n" +
-            "            Android.log('[DEBUG][' + __rid + '] UI显示已停止但内容刚停止增长，继续观察（stableCount=' + jsonStableCount + '/6）');\n" +
+            "            Android.log('[DEBUG][' + __rid + '] UI显示已停止但内容刚停止增长，继续观察（stableCount=' + jsonStableCount + '/30）');\n" +
             "          }\n" +
             "        } else if (pollCount > 1200) {\n" +
             "          // 最后防护：10分钟后仍在生成状态，则强制停止（防止无限等待）\n" +
