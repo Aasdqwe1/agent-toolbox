@@ -108,7 +108,7 @@ public class FileWriteTool implements Tool {
         } else if (isShorthandExternalPath(path)) {
             // 外部存储简写路径（如 /Download/xxx、/Documents/xxx）
             // 移除前导斜杠后获取完整路径
-            String relativePath = path.length() > 1 ? path.substring(1) : "";
+            String relativePath = path.length() > 0 ? path.substring(1) : path;
             String fullPath = new File(getExternalStorageDir(), relativePath).getAbsolutePath();
             if (!isAllowedExternalPath(fullPath)) {
                 throw new Exception("不允许的外部存储路径，仅支持 Download/Documents/Pictures/DCIM/Movies 等公共目录");
