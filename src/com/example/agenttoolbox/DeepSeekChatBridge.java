@@ -339,6 +339,38 @@ public class DeepSeekChatBridge {
             "    md = md.replace(/<pre[^>]*><code[^>]*>([\\s\\S]*?)<\\/code><\\/pre>/gi, '```\\n$1\\n```');\n" +
             "    md = md.replace(/<pre[^>]*>([\\s\\S]*?)<\\/pre>/gi, '```\\n$1\\n```');\n" +
             "    md = md.replace(/<code[^>]*>([\\s\\S]*?)<\\/code>/gi, '`$1`');\n" +
+            "    // 转换HTML表格为Markdown表格\\n" +
+            "    md = md.replace(/<table[^>]*>([\\s\\S]*?)<\\/table>/gi, function(match, tableContent) {\\n" +
+            "      var rows = [];\\n" +
+            "      // 提取所有行\\n" +
+            "      tableContent.replace(/<tr[^>]*>([\\s\\S]*?)<\\/tr>/gi, function(trMatch, trContent) {\\n" +
+            "        var cells = [];\\n" +
+            "        // 提取单元格（th 和 td）\\n" +
+            "        trContent.replace(/<t[hd][^>]*>([\\s\\S]*?)<\\/t[hd]>/gi, function(tdMatch, tdContent) {\\n" +
+            "          cells.push(tdContent.trim());\\n" +
+            "        });\\n" +
+            "        if (cells.length > 0) {\\n" +
+            "          rows.push(cells);\\n" +
+            "        }\\n" +
+            "        return trMatch; // 不替换，只是遍历\\n" +
+            "      });\\n" +
+            "      \\n" +
+            "      if (rows.length < 1) return '';\\n" +
+            "      \\n" +
+            "      var result = '\\n';\\n" +
+            "      // 第一行作为表头\\n" +
+            "      result += '| ' + rows[0].join(' | ') + ' |\\n';\\n" +
+            "      // 分隔线\\n" +
+            "      var separators = rows[0].map(function() { return '---'; });\\n" +
+            "      result += '| ' + separators.join(' | ') + ' |\\n';\\n" +
+            "      // 剩余行作为数据\\n" +
+            "      for (var i = 1; i < rows.length; i++) {\\n" +
+            "        result += '| ' + rows[i].join(' | ') + ' |\\n';\\n" +
+            "      }\\n" +
+            "      result += '\\n';\\n" +
+            "      \\n" +
+            "      return result;\\n" +
+            "    });\\n" +
             "    // 移除其他HTML标签\n" +
             "    md = md.replace(/<[^>]+>/gi, '');\n" +
             "    \n" +
