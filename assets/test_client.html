@@ -13,23 +13,47 @@
                 gfm: true          // GitHub Flavored Markdown
             });
         }
-        // 安全的 Markdown 渲染函数（兼容旧 WebView）
-        function renderMarkdown(text) {
-            if (!text) return '';
-            try {
-                if (typeof marked !== 'undefined') {
-                    // 优先使用 parseInline（同步、非 Promise）
-                    if (typeof marked.parseInline === 'function') {
-                        var inline = marked.parseInline(text);
-                        if (typeof inline === 'string' && inline.length > 0) return inline;
-                    }
-                    var parsed = marked.parse(text);
-                    if (typeof parsed === 'string') return parsed;
-                }
-            } catch (e) { }
-            // 降级：保留换行的纯文本
-            return '<pre style="white-space:pre-wrap; word-break:break-word; margin:0; padding:0; border:0; background:transparent;">' + escapeHtml(text) + '</pre>';
-        }
+       // 简单的HTML标签清理函数（移除潜在的XSS风险标签）
+       function sanitizeHtml(html) {
+           if (!html) return '';
+           const div = document.createElement('div');
+           div.innerHTML = html;
+            
+           // 移除可能危险的元素
+           const dangerousTags = ['script', 'iframe', 'object', 'embed'];
+           dangerousTags.forEach(tag => {
+               div.querySelectorAll(tag).forEach(el => el.remove());
+           });
+            
+           // 移除事件处理器属性
+           div.querySelectorAll('*').forEach(el => {
+               Array.from(el.attributes).forEach(attr => {
+                   if (attr.name.startsWith('on')) {
+                       el.removeAttribute(attr.name);
+                   }
+               });
+           });
+            
+           return div.innerHTML;
+       }
+        
+       // 安全的 Markdown 渲染函数（兼容旧 WebView）
+       function renderMarkdown(text) {
+           if (!text) return '';
+           try {
+               if (typeof marked !== 'undefined') {
+                   // 优先使用 parseInline（同步、非 Promise）
+                   if (typeof marked.parseInline === 'function') {
+                       var inline = marked.parseInline(text);
+                       if (typeof inline === 'string' && inline.length > 0) return sanitizeHtml(inline);
+                   }
+                   var parsed = marked.parse(text);
+                   if (typeof parsed === 'string') return sanitizeHtml(parsed);
+               }
+           } catch (e) { }
+           // 降级：保留换行的纯文本
+           return '<pre style="white-space:pre-wrap; word-break:break-word; margin:0; padding:0; border:0; background:transparent;">' + escapeHtml(text) + '</pre>';
+       }
     </script>
     <style>
         /* ===== 全局重置 ===== */

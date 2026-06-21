@@ -20,6 +20,8 @@ import android.widget.Toast;
 import com.example.agenttoolbox.mcp.McpServer;
 
 import java.io.File;
+import java.util.Deque;
+import java.util.LinkedList;
 
 /**
  * 主Activity - MCP服务端控制界面
@@ -35,7 +37,8 @@ public class MainActivity extends Activity {
     
     private McpServer mcpServer;
     private Handler handler;
-    private StringBuilder logBuilder = new StringBuilder();
+    private Deque<String> logDeque = new LinkedList<>();
+    private static final int MAX_LOGS = 1000;  // 最多保存1000条日志
     
     private static final int PORT = 8080;
     private static final int PERMISSION_REQUEST_CODE = 1001;
@@ -250,10 +253,21 @@ public class MainActivity extends Activity {
      * 添加日志（新日志显示在最上面）
      */
     private void appendLog(String message) {
-        String newLog = "[" + getCurrentTime() + "] " + message + "\n";
-        // 将新日志插入到开头，使最新的日志显示在最上面
-        logBuilder.insert(0, newLog);
-        tvLog.setText(logBuilder.toString());
+        String newLog = "[" + getCurrentTime() + "] " + message;
+        // 将新日志插入到队列前面，使最新的日志显示在最上面
+        logDeque.addFirst(newLog);
+        
+        // 限制日志条数，防止内存溢出
+        if (logDeque.size() > MAX_LOGS) {
+            logDeque.removeLast();
+        }
+        
+        // 构建显示文本
+        StringBuilder displayText = new StringBuilder();
+        for (String log : logDeque) {
+            displayText.append(log).append("\n");
+        }
+        tvLog.setText(displayText.toString());
         
         // 自动滚动到顶部
         final ScrollView scrollView = (ScrollView) tvLog.getParent();
