@@ -19,11 +19,16 @@ import java.util.Enumeration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
 
 /**
  * MCP 服务端 - 基于HTTP的JSON-RPC 2.0服务 + 静态网页服务
  */
 public class McpServer {
+
+    // P0 修复：预编译控制字符过滤正则表达式以提升性能
+    private static final Pattern CONTROL_CHARS_PATTERN = 
+        Pattern.compile("[\\x00\\x01-\\x08\\x0B-\\x0C\\x0E-\\x1F\\x7F-\\x9F]");
 
     private int port;
     private ServerSocket serverSocket;
@@ -252,8 +257,52 @@ public class McpServer {
             }
         }
 
+        /**
+         * 清理请求体中的空字节和不可见字符，防止注入攻击
+         */
+        private String sanitizeRequestBody(String requestBody) {
+            if (requestBody == null) {
+                return "";
+            }
+            // 使用预编译的正则表达式移除所有控制字符
+            return CONTROL_CHARS_PATTERN.matcher(requestBody).replaceAll("");
+        }
+
+        /**
+         * 截断日志以防止过长日志
+         */
+        private String truncateForLogging(String text, int maxLen) {
+            if (text == null) return "";
+            if (text.length() > maxLen) {
+                return text.substring(0, maxLen) + "... (共 " + text.length() + " 字符)";
+            }
+            return text;
+        }
+
         private void handlePostRequest(String path, String requestBody, OutputStream out) throws IOException {
-            log("收到请求: " + requestBody);
+            // P0 修复：清理空字节和控制字符
+            // 注意：这可能会将某些请求转换为空 JSON 对象（例如 "{\x00}" 变成 "{}"）
+            // 这是一种防御性的设计，可以防止含有控制字符的恶意 JSON 被处理
+            requestBody = sanitizeRequestBody(requestBody);
+            
+            // P3 修复：检测空请求
+            String trimmedBody = requestBody.trim();
+            if (trimmedBody.isEmpty()) {
+                // 完全空请求，可能是心跳包，返回 204 No Content
+                log("收到空请求（心跳包），已忽略");
+                sendNoContentResponse(out);
+                return;
+            }
+            
+            if ("{}".equals(trimmedBody)) {
+                // 空 JSON 对象（可能由删除控制字符后产生），无法处理，返回 400 Bad Request
+                log("收到空 JSON 对象请求 {}，无法处理");
+                sendErrorResponse(out, 400, "Empty request object");
+                return;
+            }
+            
+            // P2 修复：截断日志防止过长
+            log("收到请求: " + truncateForLogging(requestBody, 4096));
 
             if (path.startsWith("/api/chat/")) {
                 handleChatRequest(path, requestBody, out);
@@ -261,7 +310,7 @@ public class McpServer {
             }
 
             String responseBody = handleJsonRpcRequest(requestBody);
-            log("返回响应: " + responseBody);
+            log("返回响应: " + truncateForLogging(responseBody, 4096));
 
             String response = "HTTP/1.1 200 OK\r\n" +
                 "Content-Type: application/json\r\n" +
@@ -636,9 +685,10 @@ public class McpServer {
                                             boolean isToolCall = reply != null
                                                 && reply.indexOf("\"jsonrpc\"") != -1
                                                 && reply.indexOf("\"tools/call\"") != -1;
-                                            // 记录 LLM 完整回复（非工具调用时）
+                                            // P2 修复：记录 LLM 完整回复（非工具调用时），使用截断防止过长日志
                                             if (!isToolCall && reply != null && reply.length() > 0) {
-                                                log("LLM最终回复[轮次" + currentRound + "]: " + reply);
+                                                String logReply = truncateForLogging(reply, 4096);
+                                                log("LLM最终回复[轮次" + currentRound + "]: " + logReply);
                                             }
                                             JSONObject j = new JSONObject();
                                             j.put("content", reply == null ? "" : reply);
@@ -701,10 +751,10 @@ public class McpServer {
                                 break;
                             }
 
-                            log("检测到工具调用: " + toolJson);
+                            log("检测到工具调用: " + truncateForLogging(toolJson, 4096));
                             log("执行工具中...");
                             String toolResult = executeToolCall(toolJson);
-                            log("工具执行结果: " + toolResult);
+                            log("工具执行结果: " + truncateForLogging(toolResult, 4096));
                             if (toolResult == null || toolResult.isEmpty()) {
                                 toolResult = "工具执行返回空结果";
                             }
@@ -779,6 +829,15 @@ public class McpServer {
                 body;
             out.write(response.getBytes("UTF-8"));
             log("返回错误: " + code + " " + message);
+        }
+
+        private void sendNoContentResponse(OutputStream out) throws IOException {
+            String response = "HTTP/1.1 204 No Content\r\n" +
+                "Content-Length: 0\r\n" +
+                "Access-Control-Allow-Origin: *\r\n" +
+                "\r\n";
+            out.write(response.getBytes("UTF-8"));
+            log("返回心跳确认: 204 No Content");
         }
 
         private void writeChunked(OutputStream out, byte[] data) throws IOException {
