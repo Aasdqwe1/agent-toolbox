@@ -111,6 +111,50 @@ public class DeepSeekChatBridge {
     }
 
     /**
+     * 发送消息，阻塞等待 DeepSeek 返回完整回复文本。
+     * 等价于 sendMessageStream + 等待 onDone，用于 McpServer 的"降级阻塞"路径。
+     * 最长等待 180 秒。返回 null 表示失败或未捕获到内容。
+     */
+    public String sendMessage(final String message) {
+        final CountDownLatch latch = new CountDownLatch(1);
+        final java.util.concurrent.atomic.AtomicReference<String> replyRef =
+            new java.util.concurrent.atomic.AtomicReference<String>();
+        final java.util.concurrent.atomic.AtomicReference<String> errRef =
+            new java.util.concurrent.atomic.AtomicReference<String>();
+
+        sendMessageStream(message, new StreamCallback() {
+            @Override
+            public void onChunk(String chunk) { /* 流式过程忽略 */ }
+            @Override
+            public void onDone(String reply) {
+                replyRef.set(reply);
+                latch.countDown();
+            }
+            @Override
+            public void onError(String error) {
+                errRef.set(error);
+                latch.countDown();
+            }
+        });
+
+        try {
+            if (!latch.await(180, java.util.concurrent.TimeUnit.SECONDS)) {
+                android.util.Log.w("DeepSeekChatBridge",
+                    "sendMessage 超时，message=" + (message == null ? "" : message.substring(0, Math.min(40, message.length()))));
+                return null;
+            }
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+        if (errRef.get() != null) {
+            android.util.Log.w("DeepSeekChatBridge", "sendMessage 错误: " + errRef.get());
+            return null;
+        }
+        return replyRef.get();
+    }
+
+    /**
      * 发送消息并实时回调每一段回复（流式）
      */
     public void sendMessageStream(final String message, final StreamCallback callback) {
