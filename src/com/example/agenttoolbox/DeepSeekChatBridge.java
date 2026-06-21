@@ -418,10 +418,12 @@ public class DeepSeekChatBridge {
             "    if (pollCount % 10 === 1 || pollCount <= 3) {\n" +
             "      var debugPreview = reply ? reply.substring(0, 80) : '';\n" +
             "      var sendReady = isSendButtonReady();\n" +
+            "      var complete = isLatestReplyComplete(latestEl);\n" +
             "      Android.log('[DEBUG][' + __rid + '] 轮询#' + pollCount + \n" +
             "        ' 消息数=' + list.length + '/' + initialMsgCount + \n" +
             "        ' 生成中=' + gen + \n" +
             "        ' 发送就绪=' + sendReady + \n" +
+            "        ' 操作栏=' + complete + \n" +
             "        ' 回复长度=' + (reply ? reply.length : 0) + \n" +
             "        ' 稳定次数=' + sameLenStable + \n" +
             "        ' 预览=\"' + debugPreview + '\"');\n" +
@@ -457,12 +459,12 @@ public class DeepSeekChatBridge {
             "      lastSeenText = reply;\n" +
             "    }\n" +
             "\n" +
-            "    // 完成判定：操作栏出现 或 (内容稳定且足够长) 或 (发送按钮就绪且内容非空)\n" +
-            "    var complete = isLatestReplyComplete(latestEl);\n" +
-            "    var stableEnough = sameLenStable >= 8;\n" +
-            "    var hasMinimumLength = reply.length > 50;\n" +
+            "    // 完成判定：(内容稳定且达到最小长度) 或 (发送按钮就绪且内容非空)\n" +
+            "    // 注意：不再使用 complete（操作栏）作为独立条件，因为 DeepSeek 操作栏在回复开始时就渲染\n" +
+            "    var stableEnough = sameLenStable >= 12;\n" +
+            "    var hasMinimumLength = reply.length > 10;\n" +
             "    var sendReady = isSendButtonReady();\n" +
-            "    if (complete || (stableEnough && hasMinimumLength) || (sendReady && reply.length > 30)) {\n" +
+            "    if ((stableEnough && hasMinimumLength) || (sendReady && reply.length > 20)) {\n" +
             "      finish(reply);\n" +
             "      return;\n" +
             "    }\n" +
