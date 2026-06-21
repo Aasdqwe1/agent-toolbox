@@ -465,7 +465,8 @@ public class DeepSeekChatBridge {
             "\n" +
             "    // 没有任何AI消息，继续等待\n" +
             "    if (list.length === 0) {\n" +
-            "      if (pollCount > 240) {\n" +
+            "      // 超时时间从 240 (2分钟) 增加到 600 (5分钟)，支持更长的生成时间\n" +
+            "      if (pollCount > 600) {\n" +
             "        finish('');\n" +
             "        Android.onDeepSeekError(__rid, '超时：未捕获到任何AI消息');\n" +
             "      }\n" +
@@ -491,7 +492,8 @@ public class DeepSeekChatBridge {
             "        }\n" +
             "      }\n" +
             "      if (!detectedNewMessage) {\n" +
-            "        if (pollCount > 240) {\n" +
+            "        // 超时时间从 240 (2分钟) 增加到 600 (5分钟)，支持更长的生成时间\n" +
+            "        if (pollCount > 600) {\n" +
             "          // 超时前最后一次备用提取\n" +
             "          var lastTry = getAssistantReplyFallback();\n" +
             "          if (lastTry && lastTry.length > 5) {\n" +
@@ -615,7 +617,8 @@ public class DeepSeekChatBridge {
             "        sameLenStable = 0;\n" +
             "        Android.log('[DEBUG][' + __rid + '] JSON不完整，继续等待（已检测到jsonrpc/tools/call）');\n" +
             "        // 超时：报错；不调用 finish，避免回传残缺文本导致工具调用失败\n" +
-            "        if (pollCount > 240) {\n" +
+            "        // 超时时间从 240 (2分钟) 增加到 600 (5分钟)，支持更长的JSON生成时间\n" +
+            "        if (pollCount > 600) {\n" +
             "          Android.onDeepSeekError(__rid, '超时：工具调用JSON不完整');\n" +
             "          if (window[__prefix + 'poll']) clearInterval(window[__prefix + 'poll']);\n" +
             "          if (window[__prefix + 'obs']) { try { window[__prefix + 'obs'].disconnect(); } catch(_e) {} }\n" +
@@ -629,7 +632,8 @@ public class DeepSeekChatBridge {
             "\n" +
             "    // 内容太短，继续等待\n" +
             "    if (!reply || reply.length < 2) {\n" +
-            "      if (pollCount > 240) {\n" +
+            "      // 超时时间从 240 (2分钟) 增加到 600 (5分钟)，支持更长的生成时间\n" +
+            "      if (pollCount > 600) {\n" +
             "        // 超时前尝试备用提取\n" +
             "        var fallbackEmpty = getAssistantReplyFallback();\n" +
             "        if (fallbackEmpty && fallbackEmpty.length > 5) {\n" +
@@ -685,7 +689,8 @@ public class DeepSeekChatBridge {
             "    }\n" +
             "\n" +
             "    // 超时兜底（普通回复）：有部分内容就返回\n" +
-            "    if (pollCount > 240) {\n" +
+            "    // 超时时间从 240 (2分钟) 增加到 600 (5分钟)，支持更长的生成时间\n" +
+            "    if (pollCount > 600) {\n" +
             "      finish(reply || '');\n" +
             "    }\n" +
             "  }\n" +
