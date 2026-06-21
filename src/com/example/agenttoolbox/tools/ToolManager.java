@@ -26,6 +26,7 @@ public class ToolManager {
         registerTool(new CmdTool());
         registerTool(new PythonTool());
         registerTool(new ShTool());
+        registerTool(new WebTool());
     }
     
     public static synchronized ToolManager getInstance() {
