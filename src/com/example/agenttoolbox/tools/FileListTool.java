@@ -101,12 +101,15 @@ public class FileListTool implements Tool {
         result.append("目录内容 (").append(dir.getAbsolutePath()).append("):\n");
         result.append("共 ").append(files.length).append(" 个项目\n\n");
         
-        // 按名称排序
-        java.util.Arrays.sort(files, (f1, f2) -> {
-            // 目录优先
-            if (f1.isDirectory() && !f2.isDirectory()) return -1;
-            if (!f1.isDirectory() && f2.isDirectory()) return 1;
-            return f1.getName().compareToIgnoreCase(f2.getName());
+        // 按名称排序（目录优先）
+        java.util.Arrays.sort(files, new java.util.Comparator<File>() {
+            @Override
+            public int compare(File f1, File f2) {
+                // 目录优先
+                if (f1.isDirectory() && !f2.isDirectory()) return -1;
+                if (!f1.isDirectory() && f2.isDirectory()) return 1;
+                return f1.getName().compareToIgnoreCase(f2.getName());
+            }
         });
         
         for (File file : files) {
