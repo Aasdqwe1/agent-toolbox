@@ -527,178 +527,131 @@ public class McpServer {
                         heartbeatThreadRef.set(heartbeat);
                         heartbeat.start();
 
-                        // ====== 执行一次流式请求的辅助方法（闭包形式放在下面的 Runnable 内） ======
-                        final java.util.concurrent.atomic.AtomicReference<String> finalReplyRef =
-                            new java.util.concurrent.atomic.AtomicReference<String>();
-                        final java.util.concurrent.atomic.AtomicReference<String> errRef =
-                            new java.util.concurrent.atomic.AtomicReference<String>();
+                        // ===== 对话循环：自动处理工具调用 =====
+                        String currentMessage = message;
+                        int maxRounds = 10;
+                        int round = 0;
+                        boolean finalDone = false;
 
-                        boolean finishedNormally = false;
-                        int attempt = 0;
-                        int maxAttempts = 2;  // 第 1 次 + 1 次自动重试
+                        while (round < maxRounds && !finalDone) {
+                            round++;
+                            final int currentRound = round;
+                            log("对话轮次 " + currentRound);
 
-                        while (attempt < maxAttempts && !finishedNormally) {
-                            attempt++;
-                            final int curAttempt = attempt;
-
-                            final CountDownLatch attemptLatch = new CountDownLatch(1);
-                            final java.util.concurrent.atomic.AtomicReference<String> attemptReply =
+                            final CountDownLatch roundLatch = new CountDownLatch(1);
+                            final java.util.concurrent.atomic.AtomicReference<String> roundReplyRef =
                                 new java.util.concurrent.atomic.AtomicReference<String>();
-                            final java.util.concurrent.atomic.AtomicReference<String> attemptErr =
+                            final java.util.concurrent.atomic.AtomicReference<String> roundErrorRef =
                                 new java.util.concurrent.atomic.AtomicReference<String>();
-                            final java.util.concurrent.atomic.AtomicReference<Boolean> gotAnyChunk =
-                                new java.util.concurrent.atomic.AtomicReference<Boolean>(Boolean.FALSE);
 
-                            DeepSeekChatBridge.getInstance().sendMessageStream(message,
+                            DeepSeekChatBridge.getInstance().sendMessageStream(currentMessage,
                                 new DeepSeekChatBridge.StreamCallback() {
                                     @Override
                                     public void onChunk(String chunk) {
                                         try {
                                             lastActivityAt.set(System.currentTimeMillis());
-                                            // 区分心跳 STATUS 和真实内容
                                             if (chunk != null && chunk.startsWith("[STATUS]")) {
                                                 JSONObject j = new JSONObject();
                                                 j.put("message", chunk);
                                                 writeEventChunk(out, "status", j.toString());
                                                 return;
                                             }
-                                            // 调试日志：输出到应用日志
                                             if (chunk != null && chunk.startsWith("[DEBUG]")) {
                                                 log(chunk);
                                                 return;
                                             }
-                                            gotAnyChunk.set(true);
+                                            // 转发流式片段给客户端
                                             JSONObject j = new JSONObject();
                                             j.put("content", chunk == null ? "" : chunk);
-                                            j.put("attempt", curAttempt);
+                                            j.put("round", currentRound);
                                             writeEventChunk(out, "chunk", j.toString());
-                                            if (chunk != null && chunk.length() > 30) {
-                                                log("流式回复片段(" + curAttempt + "): " + chunk.substring(0, 30) + "...");
-                                            }
                                         } catch (Exception e) { /* ignore */ }
                                     }
+
                                     @Override
                                     public void onDone(String reply) {
                                         try {
-                                            attemptReply.set(reply);
-                                            finalReplyRef.set(reply);
+                                            roundReplyRef.set(reply);
                                             JSONObject j = new JSONObject();
                                             j.put("content", reply == null ? "" : reply);
-                                            j.put("attempt", curAttempt);
+                                            j.put("round", currentRound);
                                             writeEventChunk(out, "done", j.toString());
-                                            log("流式回复完成(" + curAttempt + "): " +
-                                                (reply == null ? "空" : reply.length() + " 字节\n完整回复:\n" + reply));
+                                            log("轮次 " + currentRound + " 完成，长度=" + (reply == null ? 0 : reply.length()));
                                         } catch (Exception e) { /* ignore */ }
-                                        attemptLatch.countDown();
+                                        roundLatch.countDown();
                                     }
+
                                     @Override
                                     public void onError(String error) {
                                         try {
-                                            attemptErr.set(error);
-                                            errRef.set(error);
+                                            roundErrorRef.set(error);
                                             JSONObject j = new JSONObject();
                                             j.put("error", error == null ? "未知错误" : error);
-                                            j.put("attempt", curAttempt);
+                                            j.put("round", currentRound);
                                             writeEventChunk(out, "error", j.toString());
-                                            log("流式回复错误(" + curAttempt + "): " + error);
+                                            log("轮次 " + currentRound + " 错误: " + error);
                                         } catch (Exception e) { /* ignore */ }
-                                        attemptLatch.countDown();
+                                        roundLatch.countDown();
                                     }
                                 });
 
-                            // 超时策略：首次收到内容前给 35 秒；若收到 chunk，延长到 180 秒
-                            long waited = 0;
-                            long stepMs = 1000;
-                            long softLimitMs = 35000;
-                            long hardLimitMs = 180000;
-                            boolean timedOut = false;
-                            while (waited < hardLimitMs) {
-                                // 每 1 秒轮询一次 latch，避免长时间阻塞导致无法响应中断
-                                boolean ok = false;
-                                try {
-                                    ok = attemptLatch.await(stepMs, java.util.concurrent.TimeUnit.MILLISECONDS);
-                                } catch (InterruptedException ie) {
-                                    Thread.currentThread().interrupt();
-                                    break;
-                                }
-                                waited += stepMs;
-                                if (ok) break;
-                                // 若 35 秒内还没收到任何真实 chunk 且没得到 done/error，判定为需要重试
-                                if (waited >= softLimitMs && !gotAnyChunk.get() && attemptLatch.getCount() > 0) {
-                                    timedOut = true;
-                                    break;
-                                }
-                            }
-
-                            if (timedOut) {
-                                // 首次请求长时间没任何 chunk，通常是输入框没定位、按钮点击失败等
-                                log("流式请求(" + attempt + ") 长时间无内容，判定超时 " + (waited / 1000) + "s");
-                                if (attempt >= maxAttempts) {
-                                    // 最后一次也超时：降级为阻塞请求
-                                    log("已达最大重试次数，降级到阻塞式发送消息");
-                                    try {
-                                        JSONObject j = new JSONObject();
-                                        j.put("message", "降级为阻塞请求：" +
-                                            (attemptLatch.getCount() > 0 ? "上次尝试仍未完成" : ""));
-                                        writeEventChunk(out, "status", j.toString());
-                                    } catch (Exception e) { /* ignore */ }
-
-                                    String fallback = DeepSeekChatBridge.getInstance().sendMessage(message);
-                                    stopHeartbeat.set(true);
-                                    if (fallback != null && fallback.length() > 0) {
-                                        JSONObject j = new JSONObject();
-                                        j.put("content", fallback);
-                                        j.put("mode", "fallback-blocking");
-                                        writeEventChunk(out, "done", j.toString());
-                                        endChunked(out);
-                                        log("阻塞请求完成：" + fallback.length() + " 字节");
-                                        finishedNormally = true;
-                                    } else {
-                                        JSONObject j = new JSONObject();
-                                        j.put("error", "请求超时且降级阻塞也无结果，请检查 DeepSeek 是否正常");
-                                        writeEventChunk(out, "error", j.toString());
-                                        endChunked(out);
-                                    }
-                                } else {
-                                    // 准备下一次重试
-                                    try {
-                                        JSONObject j = new JSONObject();
-                                        j.put("message", "首次尝试长时间无内容，准备自动重试 (" + (attempt + 1) + "/" + maxAttempts + ")");
-                                        writeEventChunk(out, "retrying", j.toString());
-                                    } catch (Exception e) { /* ignore */ }
-                                }
-                            } else {
-                                // 正常完成（或者 onError 已被触发）：看是否有错误
-                                if (attemptErr.get() != null && attempt >= maxAttempts) {
-                                    // 明确错误且是最后一次尝试：关闭流
-                                    try { endChunked(out); } catch (Exception e) { /* ignore */ }
-                                    finishedNormally = true;
-                                } else if (finalReplyRef.get() != null) {
-                                    try { endChunked(out); } catch (Exception e) { /* ignore */ }
-                                    finishedNormally = true;
-                                } else if (attemptErr.get() != null) {
-                                    // 前面出现错误但还有重试机会（例如"输入框找不到"可重试），继续
-                                    continue;
-                                } else {
-                                    // gotAnyChunk=true 但是没 done：视为完成
-                                    try { endChunked(out); } catch (Exception e) { /* ignore */ }
-                                    finishedNormally = true;
-                                }
-                            }
-                        }  // end of while attempt loop
-
-                        if (!finishedNormally) {
-                            // 保险：最终失败兜底
+                            // 等待本轮完成（最长 90 秒）
+                            boolean completed = false;
                             try {
+                                completed = roundLatch.await(90, TimeUnit.SECONDS);
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                break;
+                            }
+
+                            if (!completed) {
                                 JSONObject j = new JSONObject();
-                                j.put("error", "请求未能在限定时间内完成");
+                                j.put("error", "本轮回复超时");
                                 writeEventChunk(out, "error", j.toString());
-                                endChunked(out);
+                                break;
+                            }
+
+                            if (roundErrorRef.get() != null) {
+                                break;  // 错误已通过 onError 发送
+                            }
+
+                            String reply = roundReplyRef.get();
+                            if (reply == null || reply.isEmpty()) {
+                                break;
+                            }
+
+                            // ---- 检测是否有工具调用 ----
+                            String toolJson = extractJsonRpcFromReply(reply);
+                            if (toolJson == null) {
+                                // 没有工具调用，对话结束
+                                finalDone = true;
+                                log("对话完成，无更多工具调用");
+                                break;
+                            }
+
+                            // ---- 执行工具 ----
+                            log("检测到工具调用，执行中...");
+                            String toolResult = executeToolCall(toolJson);
+                            if (toolResult == null || toolResult.isEmpty()) {
+                                toolResult = "工具执行返回空结果";
+                            }
+
+                            // 将工具结果作为下一轮用户消息
+                            currentMessage = toolResult;
+
+                            // 发送状态通知
+                            try {
+                                JSONObject status = new JSONObject();
+                                status.put("message", "工具执行完成，继续对话");
+                                writeEventChunk(out, "status", status.toString());
                             } catch (Exception e) { /* ignore */ }
                         }
+
+                        // 结束 SSE 流
+                        endChunked(out);
                         stopHeartbeat.set(true);
+                        log("对话结束，共 " + round + " 轮");
                         return;  // 已写入完整响应，跳出后续的统一响应写入
-                    }
                 } else if ("/api/chat/status".equals(action)) {
                     boolean registered = DeepSeekChatBridge.getInstance().isRegistered();
                     responseBody = new JSONObject()
