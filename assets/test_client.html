@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes" />
     <title>MCP 工具箱</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         /* ===== 全局重置 ===== */
         * {
@@ -696,6 +697,102 @@
         }
         .json-null {
             color: #6b7a8f;
+        }
+
+        /* ===== Markdown 渲染样式 ===== */
+        .md-body {
+            word-break: break-word;
+            line-height: 1.6;
+        }
+        .md-body h1, .md-body h2, .md-body h3, .md-body h4, .md-body h5, .md-body h6 {
+            margin: 0.6em 0 0.3em;
+            font-weight: 600;
+            color: #0b1e33;
+        }
+        .md-body h1 { font-size: 1.25em; }
+        .md-body h2 { font-size: 1.15em; }
+        .md-body h3 { font-size: 1.05em; }
+        .md-body p {
+            margin: 0.3em 0;
+        }
+        .md-body p:first-child { margin-top: 0; }
+        .md-body p:last-child { margin-bottom: 0; }
+        .md-body strong { font-weight: 600; color: #0b1e33; }
+        .md-body em { font-style: italic; }
+        .md-body del { text-decoration: line-through; color: #6b7a8f; }
+        .md-body ul, .md-body ol {
+            margin: 0.3em 0;
+            padding-left: 1.4em;
+        }
+        .md-body li { margin: 0.15em 0; }
+        .md-body blockquote {
+            margin: 0.4em 0;
+            padding: 0.3em 0.8em;
+            border-left: 3px solid #3b82f6;
+            background: #f0f7ff;
+            border-radius: 0 6px 6px 0;
+            color: #334155;
+        }
+        .md-body blockquote p { margin: 0.2em 0; }
+        .md-body code {
+            background: #f1f5f9;
+            padding: 0.15em 0.4em;
+            border-radius: 5px;
+            font-family: ui-monospace, SFMono-Regular, "Cascadia Code", "Fira Code", Consolas, monospace;
+            font-size: 0.9em;
+            color: #b33a34;
+            border: 1px solid #e2e8f0;
+        }
+        .md-body pre {
+            background: #1e293b;
+            border-radius: 10px;
+            padding: 0.8em 1em;
+            margin: 0.5em 0;
+            overflow-x: auto;
+            border: 1px solid #334155;
+        }
+        .md-body pre code {
+            background: transparent;
+            padding: 0;
+            border-radius: 0;
+            font-size: 0.88em;
+            color: #e2e8f0;
+            border: none;
+            line-height: 1.5;
+        }
+        .md-body table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 0.4em 0;
+            font-size: 0.92em;
+        }
+        .md-body th, .md-body td {
+            border: 1px solid #e2e8f0;
+            padding: 0.35em 0.7em;
+            text-align: left;
+        }
+        .md-body th {
+            background: #f1f5f9;
+            font-weight: 600;
+            color: #334155;
+        }
+        .md-body tr:nth-child(even) td { background: #fafcff; }
+        .md-body a {
+            color: #3b82f6;
+            text-decoration: none;
+            border-bottom: 1px solid rgba(59, 130, 246, 0.3);
+        }
+        .md-body a:hover {
+            border-bottom-color: #3b82f6;
+        }
+        .md-body hr {
+            border: none;
+            border-top: 1px solid #e2e8f0;
+            margin: 0.6em 0;
+        }
+        .md-body img {
+            max-width: 100%;
+            border-radius: 8px;
         }
     </style>
 </head>
@@ -1668,7 +1765,8 @@
                     const data = await res.json();
                     if (data && (data.success !== false) && (data.reply || (data.data && data.data.reply))) {
                         const reply = data.reply || (data.data && data.data.reply) || '';
-                        bubbleEl.textContent = reply;
+                        // Markdown 渲染（非流式直接渲染）
+                        bubbleEl.innerHTML = '<div class="md-body">' + (typeof marked !== 'undefined' ? marked.parse(reply) : escapeHtml(reply)) + '</div>';
                         setState('完成');
                     } else {
                         bubbleEl.textContent = '';
@@ -1688,6 +1786,7 @@
                 let lastLen = 0;
                 let gotContent = false;
                 let gotDone = false;
+                let finalContent = '';    // 保存最终内容用于 Markdown 渲染
 
                 const flushEvent = () => {
                     if (dataLines.length === 0) {
@@ -1704,6 +1803,7 @@
                     } else if (eventName === 'chunk') {
                         if (obj && typeof obj.content === 'string') {
                             if (obj.content.length > lastLen) {
+                                // 流式过程中：先用纯文本快速显示避免闪烁
                                 bubbleEl.textContent = obj.content;
                                 lastLen = obj.content.length;
                             }
@@ -1724,7 +1824,7 @@
                     } else if (eventName === 'done') {
                         gotDone = true;
                         if (obj && typeof obj.content === 'string') {
-                            bubbleEl.textContent = obj.content;
+                            finalContent = obj.content;
                         }
                         if (obj && obj.mode === 'fallback-blocking') {
                             setState('完成(降级)');
@@ -1794,6 +1894,11 @@
                     // 流被提前关闭但没收到 done
                     if (!gotContent) addSystemMessage('流异常结束，未收到完整回复');
                     setState('结束');
+                } else {
+                    // 流结束后：用 Markdown 渲染最终内容
+                    if (finalContent) {
+                        bubbleEl.innerHTML = '<div class="md-body">' + (typeof marked !== 'undefined' ? marked.parse(finalContent) : escapeHtml(finalContent)) + '</div>';
+                    }
                 }
             } catch (e) {
                 if (bubbleEl.textContent === '…') bubbleEl.textContent = '';
