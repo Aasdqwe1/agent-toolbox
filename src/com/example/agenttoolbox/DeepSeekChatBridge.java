@@ -297,26 +297,33 @@ public class DeepSeekChatBridge {
             "    md = md.replace(/<\\/div>/gi, '\\n');\n" +
             "    // 转换br为换行符\n" +
             "    md = md.replace(/<br\\s*\\/?>/gi, '\\n');\n" +
-            "    // 保持换行符用于列表等结构\n" +
-            "    md = md.replace(/<li[^>]*>(.*?)<\\/li>/gi, '- $1\\n');\n" +
+            "    // 保持换行符用于列表等结构（使用[\\s\\S]处理跨行内容）\n" +
+            "    md = md.replace(/<li[^>]*>([\\s\\S]*?)<\\/li>/gi, '- $1\\n');\n" +
             "    // 转换加粗\n" +
-            "    md = md.replace(/<strong[^>]*>(.*?)<\\/strong>/gi, '**$1**');\n" +
-            "    md = md.replace(/<b[^>]*>(.*?)<\\/b>/gi, '**$1**');\n" +
+            "    md = md.replace(/<strong[^>]*>([\\s\\S]*?)<\\/strong>/gi, '**$1**');\n" +
+            "    md = md.replace(/<b[^>]*>([\\s\\S]*?)<\\/b>/gi, '**$1**');\n" +
             "    // 转换斜体\n" +
-            "    md = md.replace(/<em[^>]*>(.*?)<\\/em>/gi, '*$1*');\n" +
-            "    md = md.replace(/<i[^>]*>(.*?)<\\/i>/gi, '*$1*');\n" +
+            "    md = md.replace(/<em[^>]*>([\\s\\S]*?)<\\/em>/gi, '*$1*');\n" +
+            "    md = md.replace(/<i[^>]*>([\\s\\S]*?)<\\/i>/gi, '*$1*');\n" +
             "    // 转换标题\n" +
-            "    md = md.replace(/<h1[^>]*>(.*?)<\\/h1>/gi, '# $1\\n');\n" +
-            "    md = md.replace(/<h2[^>]*>(.*?)<\\/h2>/gi, '## $1\\n');\n" +
-            "    md = md.replace(/<h3[^>]*>(.*?)<\\/h3>/gi, '### $1\\n');\n" +
-            "    md = md.replace(/<h4[^>]*>(.*?)<\\/h4>/gi, '#### $1\\n');\n" +
+            "    md = md.replace(/<h1[^>]*>([\\s\\S]*?)<\\/h1>/gi, '# $1\\n');\n" +
+            "    md = md.replace(/<h2[^>]*>([\\s\\S]*?)<\\/h2>/gi, '## $1\\n');\n" +
+            "    md = md.replace(/<h3[^>]*>([\\s\\S]*?)<\\/h3>/gi, '### $1\\n');\n" +
+            "    md = md.replace(/<h4[^>]*>([\\s\\S]*?)<\\/h4>/gi, '#### $1\\n');\n" +
             "    // 转换链接\n" +
-            "    md = md.replace(/<a\\s+href=[\"']([^\"']*)[\"'][^>]*>(.*?)<\\/a>/gi, '[$2]($1)');\n" +
-            "    // 转换代码块\n" +
-            "    md = md.replace(/<code[^>]*>(.*?)<\\/code>/gi, '`$1`');\n" +
-            "    md = md.replace(/<pre[^>]*><code[^>]*>(.*?)<\\/code><\\/pre>/gi, '```\\n$1\\n```');\n" +
+            "    md = md.replace(/<a\\s+href=[\"']([^\"']*)[\"'][^>]*>([\\s\\S]*?)<\\/a>/gi, '[$2]($1)');\n" +
+            "    // 转换代码块（必须在单行code之前）\n" +
+            "    md = md.replace(/<pre[^>]*><code[^>]*>([\\s\\S]*?)<\\/code><\\/pre>/gi, '```\\n$1\\n```');\n" +
+            "    md = md.replace(/<pre[^>]*>([\\s\\S]*?)<\\/pre>/gi, '```\\n$1\\n```');\n" +
+            "    md = md.replace(/<code[^>]*>([\\s\\S]*?)<\\/code>/gi, '`$1`');\n" +
             "    // 移除其他HTML标签\n" +
             "    md = md.replace(/<[^>]+>/gi, '');\n" +
+            "    // HTML实体解码\n" +
+            "    md = md.replace(/&quot;/g, '\\\"');\n" +
+            "    md = md.replace(/&#39;/g, \"'\");\n" +
+            "    md = md.replace(/&lt;/g, '<');\n" +
+            "    md = md.replace(/&gt;/g, '>');\n" +
+            "    md = md.replace(/&amp;/g, '&');\n" +
             "    // 清理多余的空行（保留最多2个连续空行）\n" +
             "    md = md.replace(/\\n{3,}/g, '\\n\\n');\n" +
             "    // 删除前后空白\n" +
