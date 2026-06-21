@@ -375,9 +375,9 @@ public class DeepSeekChatBridge {
             "        var lastEl = list[list.length - 1];\n" +
             "        var lastReply = getAssistantReply(lastEl);\n" +
             "        if (lastReply && lastReply.length > 30) {\n" +
-            "          // 更新baseline，避免重复捕获\n" +
-            "          baseline = list.length;\n" +
-            "          Android.log('[DEBUG][' + __rid + '] 兜底检测：使用最后一条消息，长度=' + lastReply.length);\n" +
+            "          Android.log('[DEBUG][' + __rid + '] 兜底检测：直接完成，长度=' + lastReply.length);\n" +
+            "          finish(lastReply);\n" +
+            "          return;\n" +
             "        } else {\n" +
             "          var maxPoll = gen ? 180 : 120;\n" +
             "          if (pollCount > maxPoll) {\n" +
