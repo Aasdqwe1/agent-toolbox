@@ -66,11 +66,8 @@ public class FileListTool implements Tool {
                 dir = new File(path);
             } else if (isShorthandExternalPath(path)) {
                 // 外部存储简写路径
-                if (path.length() > 0) {
-                    dir = new File(getExternalStorageDir(), path.substring(1));
-                } else {
-                    dir = new File(getExternalStorageDir());
-                }
+                // isShorthandExternalPath保证path长度 >= 10，可以安全调用substring(1)
+                dir = new File(getExternalStorageDir(), path.substring(1));
             } else {
                 // 内部存储相对路径
                 dir = new File(getBaseDir(), path);

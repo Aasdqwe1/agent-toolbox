@@ -81,11 +81,8 @@ public class FileReadTool implements Tool {
             file = new File(path);
         } else if (isShorthandExternalPath(path)) {
             // 外部存储简写路径，转换为完整路径
-            if (path.length() > 0) {
-                file = new File(getExternalStorageDir(), path.substring(1));
-            } else {
-                file = new File(getExternalStorageDir());
-            }
+            // isShorthandExternalPath保证path长度 >= 10，可以安全调用substring(1)
+            file = new File(getExternalStorageDir(), path.substring(1));
         } else {
             // 内部存储相对路径
             file = new File(getBaseDir(), path);
