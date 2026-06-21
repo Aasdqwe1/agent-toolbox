@@ -274,15 +274,20 @@ public class DeepSeekChatBridge {
             "    if (!el) return null;\n" +
             "    // 尝试获取HTML内容以保持Markdown格式化\n" +
             "    var html = (el.innerHTML || '').trim();\n" +
+            "    Android.log('[DEBUG-HTML] 原始HTML长度: ' + (html ? html.length : 0));\n" +
+            "    Android.log('[DEBUG-HTML] 原始HTML前200字符: ' + (html ? html.substring(0, 200) : '(空)'));\n" +
             "    if (html && html.length > 0) {\n" +
             "      // 转换HTML为Markdown格式，保持文档结构\n" +
             "      var md = htmlToMarkdown(html);\n" +
+            "      Android.log('[DEBUG-HTML] 转换后Markdown长度: ' + (md ? md.length : 0));\n" +
+            "      Android.log('[DEBUG-HTML] 转换后Markdown前200字符: ' + (md ? md.substring(0, 200) : '(空)'));\n" +
             "      if (md && md.length > 0) {\n" +
             "        return md;\n" +
             "      }\n" +
             "    }\n" +
             "    // 备用方案：如果HTML转换失败，使用plaintext\n" +
             "    var txt = (el.innerText || el.textContent || '').trim();\n" +
+            "    Android.log('[DEBUG-HTML] 使用备用方案innerText，长度: ' + (txt ? txt.length : 0));\n" +
             "    return txt || null;\n" +
             "  }\n" +
             "\n" +
