@@ -252,8 +252,43 @@ public class McpServer {
             }
         }
 
+        /**
+         * 清理请求体中的空字节和不可见字符，防止注入攻击
+         */
+        private String sanitizeRequestBody(String requestBody) {
+            if (requestBody == null) {
+                return "";
+            }
+            // 移除所有 NUL 字节和其他控制字符（除了制表符、换行符、回车符）
+            return requestBody.replaceAll("\0", "")
+                    .replaceAll("[\u0001-\u0008\u000B-\u000C\u000E-\u001F\u007F-\u009F]", "");
+        }
+
+        /**
+         * 截断日志以防止过长日志
+         */
+        private String truncateForLogging(String text, int maxLen) {
+            if (text == null) return "";
+            if (text.length() > maxLen) {
+                return text.substring(0, maxLen) + "... (共 " + text.length() + " 字符)";
+            }
+            return text;
+        }
+
         private void handlePostRequest(String path, String requestBody, OutputStream out) throws IOException {
-            log("收到请求: " + requestBody);
+            // P0 修复：清理空字节和控制字符
+            requestBody = sanitizeRequestBody(requestBody);
+            
+            // P3 修复：检测空请求
+            String trimmedBody = requestBody.trim();
+            if (trimmedBody.isEmpty() || "{}".equals(trimmedBody)) {
+                log("收到空请求或心跳包，已忽略");
+                sendErrorResponse(out, 400, "Empty request");
+                return;
+            }
+            
+            // P2 修复：截断日志防止过长
+            log("收到请求: " + truncateForLogging(requestBody, 4096));
 
             if (path.startsWith("/api/chat/")) {
                 handleChatRequest(path, requestBody, out);
@@ -261,7 +296,7 @@ public class McpServer {
             }
 
             String responseBody = handleJsonRpcRequest(requestBody);
-            log("返回响应: " + responseBody);
+            log("返回响应: " + truncateForLogging(responseBody, 4096));
 
             String response = "HTTP/1.1 200 OK\r\n" +
                 "Content-Type: application/json\r\n" +
