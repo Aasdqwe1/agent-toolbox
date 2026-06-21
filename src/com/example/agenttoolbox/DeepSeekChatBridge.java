@@ -292,16 +292,13 @@ public class DeepSeekChatBridge {
             "  function isLatestReplyComplete(el) {\n" +
             "    if (!el) return false;\n" +
             "    var container = el;\n" +
-            "    for (var i = 0; i < 5 && container && container.parentElement; i++) {\n" +
+            "    for (var i = 0; i < 8 && container && container.parentElement; i++) {\n" +
             "      if (container.querySelector && container.querySelector('.ds-button--iconLabelTertiary')) {\n" +
             "        return true;\n" +
             "      }\n" +
             "      container = container.parentElement;\n" +
             "    }\n" +
-            "    // 兼容：在整个文档末尾找 tertiary 按钮\n" +
-            "    var terBtns = document.querySelectorAll('.ds-button--iconLabelTertiary');\n" +
-            "    var hasTerBtns = terBtns && terBtns.length > 0;\n" +
-            "    return hasTerBtns;\n" +
+            "    return false;\n" +
             "  }\n" +
             "\n" +
             "  // ===== C. 是否仍在生成 =====\n" +
