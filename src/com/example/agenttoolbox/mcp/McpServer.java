@@ -722,8 +722,9 @@ public class McpServer {
                                             boolean isToolCall = isToolCallJson(chunk);
                                             
                                             // 防止心跳中断工具调用 JSON 流：当检测到工具调用 JSON 时，禁用心跳
-                                            if (isToolCall) {
+                                            if (isToolCall && !inToolCallStream.get()) {
                                                 inToolCallStream.set(true);
+                                                log("【P3修复】检测到工具调用 JSON 流开始，禁用心跳 (chunk长度=" + (chunk == null ? 0 : chunk.length()) + ")");
                                             }
                                             
                                             JSONObject j = new JSONObject();
@@ -741,7 +742,9 @@ public class McpServer {
                                         try {
                                             roundReplyRef.set(reply);
                                             // 工具调用 JSON 流结束，恢复心跳
-                                            inToolCallStream.set(false);
+                                            if (inToolCallStream.getAndSet(false)) {
+                                                log("【P3修复】工具调用 JSON 流已完成，恢复心跳");
+                                            }
                                             
                                             boolean isToolCall = isToolCallJson(reply);
                                             // P2 修复：记录 LLM 完整回复（非工具调用时），使用截断防止过长日志
@@ -767,7 +770,9 @@ public class McpServer {
                                         try {
                                             roundErrorRef.set(error);
                                             // 错误时恢复心跳，避免心跳被永久禁用
-                                            inToolCallStream.set(false);
+                                            if (inToolCallStream.getAndSet(false)) {
+                                                log("【P3修复】工具调用 JSON 流发生错误，恢复心跳: " + error);
+                                            }
                                             
                                             JSONObject j = new JSONObject();
                                             j.put("error", error == null ? "未知错误" : error);
