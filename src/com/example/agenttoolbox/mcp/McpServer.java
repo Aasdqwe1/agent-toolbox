@@ -612,6 +612,8 @@ public class McpServer {
                         // 心跳
                         final AtomicReference<Long> lastActivityAt = new AtomicReference<>(System.currentTimeMillis());
                         final AtomicReference<Boolean> stopHeartbeat = new AtomicReference<>(false);
+                        // 用于标记是否正在接收工具调用 JSON 流：当检测到工具调用时设为 true，接收完成后设为 false
+                        final AtomicReference<Boolean> inToolCallStream = new AtomicReference<>(false);
 
                         Thread heartbeat = new Thread(new Runnable() {
                             @Override
@@ -621,6 +623,12 @@ public class McpServer {
                                     while (!stopHeartbeat.get()) {
                                         Thread.sleep(HEARTBEAT_TIMEOUT_MS);
                                         if (stopHeartbeat.get()) return;
+                                        
+                                        // 如果正在接收工具调用 JSON 流，不发送心跳（避免中断 JSON）
+                                        if (inToolCallStream.get()) {
+                                            continue;
+                                        }
+                                        
                                         long now = System.currentTimeMillis();
                                         long last = lastActivityAt.get();
                                         if (now - last >= HEARTBEAT_TIMEOUT_MS) {
@@ -675,6 +683,12 @@ public class McpServer {
                                             boolean isToolCall = chunk != null
                                                 && chunk.indexOf("\"jsonrpc\"") != -1
                                                 && chunk.indexOf("\"tools/call\"") != -1;
+                                            
+                                            // 防止心跳中断工具调用 JSON 流：当检测到工具调用 JSON 时，禁用心跳
+                                            if (isToolCall) {
+                                                inToolCallStream.set(true);
+                                            }
+                                            
                                             JSONObject j = new JSONObject();
                                             j.put("content", chunk == null ? "" : chunk);
                                             j.put("round", currentRound);
@@ -689,6 +703,9 @@ public class McpServer {
                                     public void onDone(String reply) {
                                         try {
                                             roundReplyRef.set(reply);
+                                            // 工具调用 JSON 流结束，恢复心跳
+                                            inToolCallStream.set(false);
+                                            
                                             boolean isToolCall = reply != null
                                                 && reply.indexOf("\"jsonrpc\"") != -1
                                                 && reply.indexOf("\"tools/call\"") != -1;
