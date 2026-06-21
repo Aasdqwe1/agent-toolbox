@@ -9,6 +9,7 @@ import java.io.InputStreamReader;
 
 /**
  * Shell 命令执行工具
+ * 使用 sh -c 解析任意 shell 命令，支持管道、重定向等。
  */
 public class ShellTool implements Tool {
 
@@ -19,7 +20,7 @@ public class ShellTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "在 Android 系统上执行 shell 命令，返回命令输出结果";
+        return "在 Android 系统上执行 shell 命令，使用 sh -c 解析；常用命令: ls, cat, echo, rm, ps, top, df, du, grep, find, which, stat, mkdir, rmdir, chmod, chown, mv, cp, ln, touch, kill, pgrep, ifconfig, ip route 等";
     }
 
     @Override
@@ -32,7 +33,7 @@ public class ShellTool implements Tool {
 
             JSONObject command = new JSONObject();
             command.put("type", "string");
-            command.put("description", "要执行的 shell 命令，如 ls -la、ps -ef、cat /proc/cpuinfo");
+            command.put("description", "要执行的 shell 命令，如 ls -la /sdcard、rm -f /data/local/tmp/x.txt、which rm、cat /proc/cpuinfo、ps -ef");
             properties.put("command", command);
 
             JSONObject timeout = new JSONObject();
@@ -66,21 +67,27 @@ public class ShellTool implements Tool {
         if (lowerCmd.contains("reboot") || lowerCmd.contains("shutdown")
                 || lowerCmd.contains("mkfs") || lowerCmd.contains("dd if=")
                 || lowerCmd.contains("> /dev/sd")) {
-            throw new Exception("禁止执行危险命令");
+            throw new Exception("禁止执行危险命令: " + command);
         }
 
         final StringBuilder output = new StringBuilder();
         final StringBuilder errorOutput = new StringBuilder();
 
         try {
-            final Process process = Runtime.getRuntime().exec("sh -c " + command);
+            // 关键点: 使用 String[] 方式传入，避免 Java exec 的字符串版再做一次空白切分
+            // 这样 sh -c 的完整 command 会被作为单个参数传给 -c，
+            // 真正的 shell 解析（引号、管道、重定向）交给系统 sh 来处理。
+            String[] cmdArr = new String[] { "sh", "-c", command };
+
+            final Process process = Runtime.getRuntime().exec(cmdArr);
 
             // 读取输出
             Thread stdoutThread = new Thread(new Runnable() {
                 @Override
                 public void run() {
                     try {
-                        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+                        BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(process.getInputStream()));
                         try {
                             String line;
                             while ((line = reader.readLine()) != null) {
@@ -100,7 +107,8 @@ public class ShellTool implements Tool {
                 @Override
                 public void run() {
                     try {
-                        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getErrorStream()));
+                        BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(process.getErrorStream()));
                         try {
                             String line;
                             while ((line = reader.readLine()) != null) {
@@ -131,15 +139,30 @@ public class ShellTool implements Tool {
             stderrThread.join(1000);
 
             StringBuilder result = new StringBuilder();
-            result.append("命令: ").append(command).append("\n");
+            result.append("执行命令: ").append(command).append("\n");
+            result.append("命令数组: ").append(java.util.Arrays.toString(cmdArr)).append("\n");
             result.append("退出码: ").append(exitValue).append("\n\n");
 
             if (output.length() > 0) {
-                result.append("输出:\n").append(output.toString());
+                result.append("标准输出:\n").append(output.toString());
             }
 
             if (errorOutput.length() > 0) {
-                result.append("错误:\n").append(errorOutput.toString());
+                result.append("标准错误:\n").append(errorOutput.toString());
+            }
+
+            // 失败时附加诊断提示，帮助 LLM 做后续判断
+            if (exitValue != 0) {
+                result.append("\n---- 诊断提示 ----\n");
+                result.append("命令执行失败（退出码=").append(exitValue).append("）。\n");
+                result.append("建议排查方向（用 shell 工具继续执行以下命令之一）:\n");
+                result.append("  1. 确认工具存在:  which <tool>   例如: which rm\n");
+                result.append("  2. 查看工具类型:  file $(which rm)   或   ls -la /system/bin/rm\n");
+                result.append("  3. 测试基本用法:  rm --help  或  rm -?\n");
+                result.append("  4. 用 toybox/toybox 代替:  toybox rm -f /path/file\n");
+                result.append("  5. 检查权限/SELinux:  stat <path>  或  getenforce\n");
+                result.append("  6. 用重定向清空文件作为替代:  echo -n > /path/file  或  : > /path/file\n");
+                result.append("  7. 列出目录确认路径:  ls -la <dir>\n");
             }
 
             if (process.isAlive()) {
@@ -150,7 +173,8 @@ public class ShellTool implements Tool {
             return result.toString();
 
         } catch (Exception e) {
-            throw new Exception("执行命令失败: " + e.getMessage());
+            throw new Exception("执行命令失败: " + e.getMessage()
+                + "；提示: 可用 shell which <工具> 确认工具是否存在");
         }
     }
 }
