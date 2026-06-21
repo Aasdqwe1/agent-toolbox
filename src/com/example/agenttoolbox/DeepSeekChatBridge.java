@@ -399,9 +399,11 @@ public class DeepSeekChatBridge {
             "    }\n" +
             "\n" +
             "    var hasMinimumLength = reply.length > 30;\n" +
+            "    var stableEnough = sameLenStable >= 4;\n" +
             "    \n" +
-            "    // 完成判定：AI停止生成 且 内容超过30字符（非空回复）\n" +
-            "    if (!gen && hasMinimumLength) {\n" +
+            "    // 完成判定：必须同时满足三个条件\n" +
+            "    // 1. AI停止生成 2. 内容超过30字符 3. 内容稳定至少2秒\n" +
+            "    if (!gen && hasMinimumLength && stableEnough) {\n" +
             "      finish(reply);\n" +
             "      return;\n" +
             "    }\n" +
