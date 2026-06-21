@@ -293,21 +293,24 @@ public class McpServer {
                 sendNoContentResponse(out);
                 return;
             }
+
+            // 优先处理 /api/chat/ 路径（这些端点允许空 JSON 对象 {}）
+            if (path.startsWith("/api/chat/")) {
+                log("收到聊天 API 请求: " + truncateForLogging(requestBody, 4096));
+                handleChatRequest(path, requestBody, out);
+                return;
+            }
             
+            // 对于非 chat 路径，检查是否为空 JSON 对象
             if ("{}".equals(trimmedBody)) {
                 // 空 JSON 对象（可能由删除控制字符后产生），无法处理，返回 400 Bad Request
                 log("收到空 JSON 对象请求 {}，无法处理");
                 sendErrorResponse(out, 400, "Empty request object");
                 return;
             }
-            
+
             // P2 修复：截断日志防止过长
             log("收到请求: " + truncateForLogging(requestBody, 4096));
-
-            if (path.startsWith("/api/chat/")) {
-                handleChatRequest(path, requestBody, out);
-                return;
-            }
 
             String responseBody = handleJsonRpcRequest(requestBody);
             log("返回响应: " + truncateForLogging(responseBody, 4096));

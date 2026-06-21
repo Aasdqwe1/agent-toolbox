@@ -13,23 +13,86 @@
                 gfm: true          // GitHub Flavored Markdown
             });
         }
-        // 安全的 Markdown 渲染函数（兼容旧 WebView）
-        function renderMarkdown(text) {
-            if (!text) return '';
-            try {
-                if (typeof marked !== 'undefined') {
-                    // 优先使用 parseInline（同步、非 Promise）
-                    if (typeof marked.parseInline === 'function') {
-                        var inline = marked.parseInline(text);
-                        if (typeof inline === 'string' && inline.length > 0) return inline;
-                    }
-                    var parsed = marked.parse(text);
-                    if (typeof parsed === 'string') return parsed;
-                }
-            } catch (e) { }
-            // 降级：保留换行的纯文本
-            return '<pre style="white-space:pre-wrap; word-break:break-word; margin:0; padding:0; border:0; background:transparent;">' + escapeHtml(text) + '</pre>';
-        }
+        
+       // 安全的HTML标签清理函数 - 使用 allow list 方式
+       function sanitizeHtml(html) {
+           if (!html) return '';
+            
+           // 节点类型常量
+           const TEXT_NODE = 3;
+           const COMMENT_NODE = 8;
+           const ELEMENT_NODE = 1;
+            
+           // 使用 DOMParser 解析 HTML，避免在设置 innerHTML 时执行脚本
+           try {
+               const parser = new DOMParser();
+               const doc = parser.parseFromString(html, 'text/html');
+                
+               // 允许的标签（常见的Markdown输出）
+               const allowedTags = new Set(['P', 'BR', 'STRONG', 'B', 'EM', 'I', 'U', 'CODE', 'PRE', 
+                                            'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'UL', 'OL', 'LI', 
+                                            'BLOCKQUOTE', 'A', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD']);
+                
+               // 递归清理危险元素和属性
+               function cleanNode(node) {
+                   const nodeType = node.nodeType;
+                   if (nodeType === TEXT_NODE) return; // Text node: keep it
+                   if (nodeType === COMMENT_NODE) { node.remove(); return; } // Comment node: remove it
+                   if (nodeType !== ELEMENT_NODE) return; // Element node check
+                    
+                   const tagName = node.tagName;
+                   if (!allowedTags.has(tagName)) {
+                       // Not in allowlist, replace node with its children
+                       while (node.firstChild) {
+                           node.parentNode.insertBefore(node.firstChild, node);
+                       }
+                       node.remove();
+                       return;
+                   }
+                    
+                   // 移除所有属性，除了href（仅用于链接安全性检查）
+                   Array.from(node.attributes).forEach(attr => {
+                       const attrName = attr.name;
+                       if (attrName === 'href') {
+                           // 只允许 http/https/mailto 协议
+                           const href = node.getAttribute('href');
+                           if (!href || !/^(https?:|mailto:)/.test(href)) {
+                               node.removeAttribute('href');
+                           }
+                       } else {
+                           node.removeAttribute(attrName);
+                       }
+                   });
+                    
+                   // 递归处理子节点
+                   Array.from(node.childNodes).forEach(cleanNode);
+               }
+                
+               cleanNode(doc.body);
+               return doc.body.innerHTML;
+           } catch (e) {
+               // 如果 DOMParser 失败，返回纯文本
+               return escapeHtml(html);
+           }
+       }
+        
+       // 安全的 Markdown 渲染函数（兼容旧 WebView）
+       function renderMarkdown(text) {
+           if (!text) return '';
+           try {
+               if (typeof marked !== 'undefined') {
+                   // 优先使用 parseInline（同步、非 Promise）
+                   if (typeof marked.parseInline === 'function') {
+                       var inline = marked.parseInline(text);
+                       if (typeof inline === 'string' && inline.length > 0) return sanitizeHtml(inline);
+                   }
+                   var parsed = marked.parse(text);
+                   if (typeof parsed === 'string') return sanitizeHtml(parsed);
+               }
+           } catch (e) { }
+           // 降级：保留换行的纯文本
+           return '<pre style="white-space:pre-wrap; word-break:break-word; margin:0; padding:0; border:0; background:transparent;">' + escapeHtml(text) + '</pre>';
+       }
     </script>
     <style>
         /* ===== 全局重置 ===== */
@@ -1037,7 +1100,7 @@
             const div = document.createElement('div');
             div.className = 'message system';
             div.innerHTML =
-                `<div class="message-avatar">i</div><div class="message-content"><div class="message-label">系统</div><div class="message-bubble">${text}</div></div>`;
+                `<div class="message-avatar">i</div><div class="message-content"><div class="message-label">系统</div><div class="message-bubble">${renderMarkdown(text)}</div></div>`;
             chatMessages.appendChild(div);
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
@@ -1083,7 +1146,7 @@
                         <button class="copy-btn" onclick="copyResult(this)" style="float:right;">复制</button>
                     </div>
                     <div class="message-bubble" style="width:100%;">
-                        <div class="result-text">${escapeHtml(resultText)}</div>
+                        <div class="result-text">${renderMarkdown(resultText)}</div>
                     </div>
                 </div>
             `;
