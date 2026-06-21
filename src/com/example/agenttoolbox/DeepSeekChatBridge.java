@@ -400,7 +400,7 @@ public class DeepSeekChatBridge {
             "\n" +
             "    var complete = isLatestReplyComplete(latestEl);\n" +
             "    // 完成条件：有操作栏 或 (不在生成 且 长度稳定多次)\n" +
-            "    if (complete || (!gen && sameLenStable >= 4)) {\n" +
+            "    if ((!gen && complete) || sameLenStable >= 8) {\n" +
             "      finish(reply);\n" +
             "      return;\n" +
             "    }\n" +
