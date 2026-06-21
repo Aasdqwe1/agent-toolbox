@@ -3,6 +3,7 @@ package com.example.agenttoolbox.mcp;
 import android.content.Context;
 import com.example.agenttoolbox.DeepSeekChatBridge;
 import com.example.agenttoolbox.tools.ToolManager;
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import java.io.BufferedReader;
@@ -310,106 +311,67 @@ public class McpServer {
 		}
 
         /**
-         * 处理 DeepSeek 聊天请求
-         * 注意: throws JSONException 已添加，内部 try-catch 会捕获所有异常
-         */
-        /**
-         * 从回复文本中提取 JSON-RPC 工具调用
-         * @param reply AI 回复文本
-         * @return 提取到的 JSON-RPC 字符串，如果没有则返回 null
+         * 从回复文本中提取 JSON-RPC 工具调用（简单实现）
          */
         private String extractJsonRpcFromReply(String reply) {
-            if (reply == null || reply.isEmpty()) return null;
+            if (reply == null || reply.length() == 0) return null;
             
             // 查找 jsonrpc 标记
-            int jsonRpcIdx = reply.indexOf("\"jsonrpc\"");
-            if (jsonRpcIdx == -1) return null;
+            int idx = reply.indexOf("\"jsonrpc\"");
+            if (idx == -1) return null;
             
-            // 向前找到最近的 {
-            int startIdx = -1;
-            for (int i = jsonRpcIdx; i >= 0; i--) {
+            // 向前找最近的 {
+            int start = -1;
+            for (int i = idx; i >= 0; i--) {
                 if (reply.charAt(i) == '{') {
-                    startIdx = i;
+                    start = i;
                     break;
                 }
             }
-            if (startIdx == -1) return null;
+            if (start == -1) return null;
             
-            // 向后找到匹配的 }
-            int depth = 0;
-            int endIdx = -1;
-            boolean inString = false;
-            boolean escape = false;
-            
-            for (int i = startIdx; i < reply.length(); i++) {
-                char c = reply.charAt(i);
-                
-                if (escape) {
-                    escape = false;
-                    continue;
-                }
-                
-                if (c == '\\\\') {
-                    escape = true;
-                    continue;
-                }
-                
-                if (c == '"') {
-                    inString = !inString;
-                    continue;
-                }
-                
-                if (inString) continue;
-                
-                if (c == '{') {
-                    depth++;
-                } else if (c == '}') {
-                    depth--;
-                    if (depth == 0) {
-                        endIdx = i;
-                        break;
-                    }
+            // 向后找最近的 }
+            int end = -1;
+            for (int i = idx; i < reply.length(); i++) {
+                if (reply.charAt(i) == '}') {
+                    end = i;
+                    break;
                 }
             }
+            if (end == -1) return null;
             
-            if (endIdx == -1) return null;
-            
-            return reply.substring(startIdx, endIdx + 1);
+            return reply.substring(start, end + 1);
         }
         
         /**
          * 执行 JSON-RPC 工具调用并返回结果字符串
-         * @param jsonRpcStr JSON-RPC 字符串
-         * @return 工具执行结果字符串
          */
         private String executeToolCall(String jsonRpcStr) {
             try {
-                JSONObject request = new JSONObject(jsonRpcStr);
-                String method = request.optString("method", "");
-                
+                JSONObject req = new JSONObject(jsonRpcStr);
+                String method = req.optString("method", "");
                 if (!"tools/call".equals(method)) {
                     return null;
                 }
                 
-                JSONObject params = request.optJSONObject("params");
+                JSONObject params = req.optJSONObject("params");
                 if (params == null) {
                     return "错误: 缺少 params";
                 }
                 
                 String toolName = params.optString("name", "");
-                JSONObject arguments = params.optJSONObject("arguments");
-                if (arguments == null) {
-                    arguments = new JSONObject();
+                JSONObject args = params.optJSONObject("arguments");
+                if (args == null) {
+                    args = new JSONObject();
                 }
                 
-                log("执行工具调用: " + toolName);
-                JSONObject result = ToolManager.getInstance().callTool(toolName, arguments);
-                log("工具执行结果: " + result.toString());
+                log("执行工具: " + toolName);
+                JSONObject result = ToolManager.getInstance().callTool(toolName, args);
                 
-                // 构造 MCP 格式的结果文本
-                JSONArray content = result.optJSONArray("content");
-                if (content != null && content.length() > 0) {
-                    JSONObject first = content.optJSONObject(0);
+                // 提取文本结果
+                JSONArray contentArr = result.optJSONArray("content");
+                if (contentArr != null && contentArr.length() > 0) {
+                    JSONObject first = contentArr.optJSONObject(0);
                     if (first != null) {
                         return first.optString("text", "");
                     }
@@ -417,7 +379,7 @@ public class McpServer {
                 
                 return result.toString();
             } catch (Exception e) {
-                log("工具调用执行失败: " + e.getMessage());
+                log("工具调用失败: " + e.getMessage());
                 return "工具执行失败: " + e.getMessage();
             }
         }
