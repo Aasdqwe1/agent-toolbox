@@ -398,16 +398,14 @@ public class DeepSeekChatBridge {
             "      lastSeenText = reply;\n" +
             "    }\n" +
             "\n" +
-            "    var complete = isLatestReplyComplete(latestEl);\n" +
-            "    var stableEnough = sameLenStable >= 6;\n" +
-            "    var hasMinimumLength = reply.length > 30;\n" +
+            "    var stableEnough = sameLenStable >= 8;\n" +
+            "    var hasMinimumLength = reply.length > 80;\n" +
             "    \n" +
-            "    // 判定一：操作栏出现\n" +
-            "    // 判定二：内容稳定且超过30字符（不再依赖操作栏）\n" +
-            "    // 判定三：AI已停止生成，内容非空，且稳定了至少2秒\n" +
-            "    if (complete || \n" +
-            "        (stableEnough && hasMinimumLength) || \n" +
-            "        (!gen && reply.length > 10 && sameLenStable >= 4)) {\n" +
+            "    // 完成判定：完全不依赖操作栏，只靠内容稳定性判断\n" +
+            "    // 条件一：内容稳定4秒且超过80字符\n" +
+            "    // 条件二：AI已停止生成，内容超过50字符且稳定3秒\n" +
+            "    if ((stableEnough && hasMinimumLength) || \n" +
+            "        (!gen && reply.length > 50 && sameLenStable >= 6)) {\n" +
             "      finish(reply);\n" +
             "      return;\n" +
             "    }\n" +
