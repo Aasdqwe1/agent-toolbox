@@ -382,6 +382,9 @@ public class DeepSeekChatBridge {
             "  var completionReady = false;\n" +
             "  var completionStartTime = 0;\n" +
             "  var lastStatusAt = 0;\n" +
+            "  // 工具调用JSON内容增长跟踪（用于辅助判断LLM是否真的停止了）\n" +
+            "  var lastJsonLen = 0;\n" +
+            "  var jsonStableCount = 0;\n" +
             "\n" +
             "  // ===== B. 检查最新一条 AI 消息是否有操作栏 =====\n" +
             "  function isLatestReplyComplete(el) {\n" +
@@ -413,12 +416,21 @@ public class DeepSeekChatBridge {
             "    if (!sendBtn) return true;\n" +
             "    var svg = sendBtn.querySelector('svg');\n" +
             "    if (svg) {\n" +
-            "      var svgHtml = svg.innerHTML || '';\n" +
-            "      if (svgHtml.indexOf('<rect') !== -1 ||\n" +
-            "          svgHtml.indexOf('pause') !== -1 ||\n" +
-            "          svgHtml.indexOf('stop') !== -1 ||\n" +
-            "          svgHtml.indexOf('stop-circle') !== -1 ||\n" +
-            "          svgHtml.indexOf('M 4.88') !== -1) return true;\n" +
+            "      // 修复：使用 querySelector('path') + getAttribute('d') 获取SVG路径数据\n" +
+            "      // svg.innerHTML 无法正确获取SVG内部的path元素内容\n" +
+            "      var pathEl = svg.querySelector('path');\n" +
+            "      if (pathEl) {\n" +
+            "        var pathD = pathEl.getAttribute('d') || '';\n" +
+            "        // 停止图标特征：方块形状（M2 4.88 开头的矩形路径）\n" +
+            "        // 发送图标是箭头形状，路径特征不同\n" +
+            "        if (pathD.indexOf('M2 4.88') !== -1 ||\n" +
+            "            pathD.indexOf('M 2 4.88') !== -1 ||\n" +
+            "            pathD.indexOf('4.88 2') !== -1 ||\n" +
+            "            pathD.indexOf('stop') !== -1 ||\n" +
+            "            pathD.indexOf('rect') !== -1) return true;\n" +
+            "      }\n" +
+            "      // 备用：检查SVG内部是否有rect元素（有些版本可能用rect而不是path）\n" +
+            "      if (svg.querySelector('rect')) return true;\n" +
             "    }\n" +
             "    var last = document.querySelector('.ds-assistant-message-main-content:last-child');\n" +
             "    if (last) {\n" +
@@ -436,13 +448,21 @@ public class DeepSeekChatBridge {
             "    if (!sendBtn) return false;\n" +
             "    var svg = sendBtn.querySelector('svg');\n" +
             "    if (!svg) return false;\n" +
-            "    var svgHtml = svg.innerHTML || '';\n" +
-            "    if (svgHtml.indexOf('<rect') !== -1 ||\n" +
-            "        svgHtml.indexOf('pause') !== -1 ||\n" +
-            "        svgHtml.indexOf('stop') !== -1 ||\n" +
-            "        svgHtml.indexOf('stop-circle') !== -1) {\n" +
-            "      return false;\n" +
+            "    // 修复：使用 querySelector('path') + getAttribute('d') 获取SVG路径数据\n" +
+            "    var pathEl = svg.querySelector('path');\n" +
+            "    if (pathEl) {\n" +
+            "      var pathD = pathEl.getAttribute('d') || '';\n" +
+            "      // 停止图标特征：方块形状（M2 4.88 开头的矩形路径）\n" +
+            "      if (pathD.indexOf('M2 4.88') !== -1 ||\n" +
+            "          pathD.indexOf('M 2 4.88') !== -1 ||\n" +
+            "          pathD.indexOf('4.88 2') !== -1 ||\n" +
+            "          pathD.indexOf('stop') !== -1 ||\n" +
+            "          pathD.indexOf('rect') !== -1) {\n" +
+            "        return false; // 检测到停止图标，按钮未就绪\n" +
+            "      }\n" +
             "    }\n" +
+            "    // 备用：检查SVG内部是否有rect元素\n" +
+            "    if (svg.querySelector('rect')) return false;\n" +
             "    return true;\n" +
             "  }\n" +
             "\n" +
@@ -616,16 +636,32 @@ public class DeepSeekChatBridge {
             "        }\n" +
             "        sameLenStable = 0;\n" +
             "        Android.log('[DEBUG][' + __rid + '] JSON不完整，检查LLM生成状态（已检测到jsonrpc/tools/call）');\n" +
-            "        // 根本性修复：仅当LLM停止生成且JSON仍不完整时才报错\n" +
-            "        // 如果LLM还在生成，就继续等待（有10分钟的最后防护超时）\n" +
+            "        // 双重验证：UI状态检测 + 内容增长检测\n" +
+            "        // 只要内容还在增长，就说明LLM还在生成，即使UI状态检测认为已停止\n" +
+            "        var currentJsonLen = jsonStr ? jsonStr.length : 0;\n" +
+            "        var contentGrowing = currentJsonLen > lastJsonLen;\n" +
+            "        if (contentGrowing) {\n" +
+            "          jsonStableCount = 0;\n" +
+            "          lastJsonLen = currentJsonLen;\n" +
+            "        } else {\n" +
+            "          jsonStableCount++;\n" +
+            "        }\n" +
             "        var gen = isGenerating();\n" +
-            "        if (!gen) {\n" +
-            "          // LLM已停止生成，但JSON仍不完整 = 真实错误\n" +
-            "          Android.log('[DEBUG][' + __rid + '] ERROR: LLM已停止生成但JSON仍不完整（pollCount=' + pollCount + '）');\n" +
-            "          Android.onDeepSeekError(__rid, '工具调用JSON不完整（LLM已停止生成）');\n" +
-            "          if (window[__prefix + 'poll']) clearInterval(window[__prefix + 'poll']);\n" +
-            "          if (window[__prefix + 'obs']) { try { window[__prefix + 'obs'].disconnect(); } catch(_e) {} }\n" +
-            "          finished = true;\n" +
+            "        // 真正的生成状态：UI显示生成中 OR 内容还在增长\n" +
+            "        var actuallyGenerating = gen || contentGrowing;\n" +
+            "        if (!actuallyGenerating) {\n" +
+            "          // UI显示已停止 且 内容停止增长 = 大概率真的停止了\n" +
+            "          // 但为了保险，再等几轮确认（防止瞬时波动）\n" +
+            "          if (jsonStableCount >= 6) {\n" +
+            "            // 连续6轮（约3秒）内容没有增长，才认为真的停止了\n" +
+            "            Android.log('[DEBUG][' + __rid + '] ERROR: LLM已停止生成且JSON内容不再增长（pollCount=' + pollCount + ', stableCount=' + jsonStableCount + '）');\n" +
+            "            Android.onDeepSeekError(__rid, '工具调用JSON不完整（LLM已停止生成）');\n" +
+            "            if (window[__prefix + 'poll']) clearInterval(window[__prefix + 'poll']);\n" +
+            "            if (window[__prefix + 'obs']) { try { window[__prefix + 'obs'].disconnect(); } catch(_e) {} }\n" +
+            "            finished = true;\n" +
+            "          } else {\n" +
+            "            Android.log('[DEBUG][' + __rid + '] UI显示已停止但内容刚停止增长，继续观察（stableCount=' + jsonStableCount + '/6）');\n" +
+            "          }\n" +
             "        } else if (pollCount > 1200) {\n" +
             "          // 最后防护：10分钟后仍在生成状态，则强制停止（防止无限等待）\n" +
             "          Android.log('[DEBUG][' + __rid + '] TIMEOUT: LLM仍在生成但超过10分钟限制（pollCount=' + pollCount + '）');\n" +
@@ -634,8 +670,9 @@ public class DeepSeekChatBridge {
             "          if (window[__prefix + 'obs']) { try { window[__prefix + 'obs'].disconnect(); } catch(_e) {} }\n" +
             "          finished = true;\n" +
             "        } else {\n" +
-            "          // LLM还在生成中 - 继续等待（无超时限制，除非超过10分钟）\n" +
-            "          Android.log('[DEBUG][' + __rid + '] LLM仍在生成，继续等待JSON流完成（pollCount=' + pollCount + '）');\n" +
+            "          // LLM还在生成中 - 继续等待\n" +
+            "          var reason = gen ? 'UI显示生成中' : '内容仍在增长';\n" +
+            "          Android.log('[DEBUG][' + __rid + '] LLM仍在生成（' + reason + '），继续等待JSON流完成（pollCount=' + pollCount + ', len=' + currentJsonLen + '）');\n" +
             "        }\n" +
             "        return; // 跳过后续稳定判定\n" +
             "      }\n" +
