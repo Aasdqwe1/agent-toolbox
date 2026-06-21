@@ -840,18 +840,22 @@ public class DeepSeekChatBridge {
      * 提取结果会更新 replyById 并释放 latch。
      */
     private void tryExtractFromDOMAndRelease(final String requestId) {
-        // 提前捕获引用，防止 cleanupRequest 在回调前将其移除
-        final CountDownLatch l = latchById.get(requestId);
-        final AtomicReference<String> ref = replyById.get(requestId);
+        // 在 synchronized 块内一次性捕获所有引用，保证一致性。
+        // 注意：即使 cleanupRequest 随后从 map 中移除这些引用，
+        // 已捕获的对象仍然有效：l.countDown() 在 latch 已归零后是空操作，
+        // ref.set() 设置的值若无人读取也是无害的。
+        final CountDownLatch l;
+        final AtomicReference<String> ref;
         final Handler handler;
         final WebView wb;
         synchronized (this) {
+            l = latchById.get(requestId);
+            ref = replyById.get(requestId);
             handler = mainHandler;
             wb = boundWebView;
         }
         if (handler == null || wb == null) {
-            // 无法执行，直接以空回复释放 latch
-            if (ref != null && ref.get() == null) ref.set("");
+            // 无法执行，直接以 null 回复释放 latch（触发 onError 路径）
             if (l != null) l.countDown();
             return;
         }
@@ -880,18 +884,22 @@ public class DeepSeekChatBridge {
                 wb.evaluateJavascript(fallbackScript, new ValueCallback<String>() {
                     @Override
                     public void onReceiveValue(String result) {
-                        String extracted = "";
-                        if (result != null && result.length() > 2) {
-                            // evaluateJavascript 返回 JSON 字符串（带引号）
+                        String extracted = null;
+                        // evaluateJavascript 返回 JSON 编码值；使用 JSONTokener 安全解析
+                        if (result != null && result.startsWith("\"") && result.endsWith("\"")) {
                             try {
-                                extracted = new org.json.JSONObject("{\"v\":" + result + "}").getString("v");
+                                Object parsed = new org.json.JSONTokener(result).nextValue();
+                                if (parsed instanceof String) {
+                                    String s = ((String) parsed).trim();
+                                    if (!s.isEmpty()) extracted = s;
+                                }
                             } catch (Exception e) {
-                                extracted = result.replaceAll("^\"|\"$", "").replace("\\n", "\n").replace("\\\"", "\"");
+                                // 解析失败时忽略，extracted 保持 null
                             }
                         }
                         android.util.Log.d("DeepSeekChatBridge",
-                            "[" + requestId + "] 备用 DOM 提取结果长度=" + extracted.length());
-                        if (ref != null) ref.set(extracted.isEmpty() ? null : extracted);
+                            "[" + requestId + "] 备用 DOM 提取结果长度=" + (extracted == null ? 0 : extracted.length()));
+                        if (ref != null) ref.set(extracted);
                         if (l != null) l.countDown();
                     }
                 });
