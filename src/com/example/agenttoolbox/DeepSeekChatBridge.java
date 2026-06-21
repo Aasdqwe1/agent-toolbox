@@ -271,7 +271,12 @@ public class DeepSeekChatBridge {
             "  }\n" +
             "\n" +
             "  var initialMsgCount = getAssistantMessages().length;\n" +
-            "  Android.log('[DEBUG][' + __rid + '] 监听启动, 初始AI消息数=' + initialMsgCount);\n" +
+            "  var initialLastContent = '';\n" +
+            "  if (initialMsgCount > 0) {\n" +
+            "    var initialLastEl = getAssistantMessages()[initialMsgCount - 1];\n" +
+            "    initialLastContent = getAssistantReply(initialLastEl) || '';\n" +
+            "  }\n" +
+            "  Android.log('[DEBUG][' + __rid + '] 监听启动, 初始AI消息数=' + initialMsgCount + ', 最后一条长度=' + initialLastContent.length);\n" +
             "  // 输出前几条消息的预览，方便调试\n" +
             "  try {\n" +
             "    var allMsgs = getAssistantMessages();\n" +
@@ -285,6 +290,7 @@ public class DeepSeekChatBridge {
             "  var lastSeenText = '';\n" +
             "  var lastReplyLen = 0;\n" +
             "  var sameLenStable = 0;\n" +
+            "  var detectedNewMessage = false;\n" +
             "  var finished = false;\n" +
             "  var lastStatusAt = 0;\n" +
             "\n" +
@@ -376,6 +382,34 @@ public class DeepSeekChatBridge {
             "      return;\n" +
             "    }\n" +
             "    \n" +
+            "    // 检查是否有新消息（数量增加 或 最后一条内容变化）\n" +
+            "    var lastEl = list[list.length - 1];\n" +
+            "    var lastContent = getAssistantReply(lastEl) || '';\n" +
+            "    var hasNewMessage = detectedNewMessage || \n" +
+            "                       (list.length > initialMsgCount) || \n" +
+            "                       (list.length === initialMsgCount && lastContent !== initialLastContent && lastContent.length > 0);\n" +
+            "    \n" +
+            "    // 没有新消息，继续等待\n" +
+            "    if (!hasNewMessage) {\n" +
+            "      if (pollCount > 240) {\n" +
+            "        finish('');\n" +
+            "        Android.onDeepSeekError(__rid, '超时未捕获到新回复');\n" +
+            "      }\n" +
+            "      return;\n" +
+            "    }\n" +
+            "    \n" +
+            "    // 检测到新消息，设置标志\n" +
+            "    if (!detectedNewMessage) {\n" +
+            "      detectedNewMessage = true;\n" +
+            "      Android.log('[DEBUG][' + __rid + '] 检测到新消息，开始跟踪');\n" +
+            "    }\n" +
+            "    \n" +
+            "    // 更新基准\n" +
+            "    if (list.length > initialMsgCount) {\n" +
+            "      initialMsgCount = list.length;\n" +
+            "    }\n" +
+            "    initialLastContent = lastContent;\n" +
+            "    \n" +
             "    // 直接取最后一条AI消息，始终跟踪最新内容\n" +
             "    var latestEl = list[list.length - 1];\n" +
             "    var reply = getAssistantReply(latestEl);\n" +
@@ -385,7 +419,7 @@ public class DeepSeekChatBridge {
             "      var debugPreview = reply ? reply.substring(0, 80) : '';\n" +
             "      var sendReady = isSendButtonReady();\n" +
             "      Android.log('[DEBUG][' + __rid + '] 轮询#' + pollCount + \n" +
-            "        ' 消息数=' + list.length + \n" +
+            "        ' 消息数=' + list.length + '/' + initialMsgCount + \n" +
             "        ' 生成中=' + gen + \n" +
             "        ' 发送就绪=' + sendReady + \n" +
             "        ' 回复长度=' + (reply ? reply.length : 0) + \n" +
