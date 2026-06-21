@@ -491,6 +491,11 @@ public class McpServer {
                                                 writeEventChunk(out, "status", j.toString());
                                                 return;
                                             }
+                                            // 调试日志：输出到应用日志
+                                            if (chunk != null && chunk.startsWith("[DEBUG]")) {
+                                                log(chunk);
+                                                return;
+                                            }
                                             gotAnyChunk.set(true);
                                             JSONObject j = new JSONObject();
                                             j.put("content", chunk == null ? "" : chunk);

@@ -271,14 +271,14 @@ public class DeepSeekChatBridge {
             "  }\n" +
             "\n" +
             "  var baseline = getAssistantMessages().length;\n" +
-            "  Android.log('[DEBUG][' + __rid + '] 监听启动, baseline=' + baseline + ', 页面AI消息数=' + baseline);\n" +
+            "  try { Android.onDeepSeekChunk(__rid, '[DEBUG][' + __rid + '] 监听启动, baseline=' + baseline + ', 页面AI消息数=' + baseline); } catch(_e) {}\n" +
             "  // 输出前几条消息的预览，方便调试\n" +
             "  try {\n" +
             "    var allMsgs = getAssistantMessages();\n" +
             "    for (var di = 0; di < Math.min(allMsgs.length, 3); di++) {\n" +
             "      var preview = getAssistantReply(allMsgs[di]);\n" +
             "      if (preview) preview = preview.substring(0, 50);\n" +
-            "      Android.log('[DEBUG][' + __rid + '] 消息[' + di + '] 预览: ' + preview);\n" +
+            "      try { Android.onDeepSeekChunk(__rid, '[DEBUG][' + __rid + '] 消息[' + di + '] 预览: ' + preview); } catch(_e) {}\n" +
             "    }\n" +
             "  } catch(_de) {}\n" +
             "  var pollCount = 0;\n" +
@@ -339,7 +339,7 @@ public class DeepSeekChatBridge {
             "  function finish(reply) {\n" +
             "    if (finished) return;\n" +
             "    finished = true;\n" +
-            "    Android.log('[DEBUG][' + __rid + '] 监听结束, 捕获回复长度=' + (reply ? reply.length : 0));\n" +
+            "    try { Android.onDeepSeekChunk(__rid, '[DEBUG][' + __rid + '] 监听结束, 捕获回复长度=' + (reply ? reply.length : 0)); } catch(_e) {}\n" +
             "    if (window[__prefix + 'poll']) clearInterval(window[__prefix + 'poll']);\n" +
             "    if (window[__prefix + 'obs']) { try { window[__prefix + 'obs'].disconnect(); } catch(_e) {} }\n" +
             "    Android.onDeepSeekReply(__rid, reply);\n" +
@@ -358,10 +358,10 @@ public class DeepSeekChatBridge {
             "        var latestReply = getAssistantReply(latestEl);\n" +
             "        if (latestReply) debugPreview = latestReply.substring(0, 80);\n" +
             "      }\n" +
-            "      Android.log('[DEBUG][' + __rid + '] 轮询#' + pollCount + \n" +
-            "        ' 消息数=' + list.length + '/' + baseline + \n" +
-            "        ' 生成中=' + gen + \n" +
-            "        ' 最新回复预览=\"' + debugPreview + '\"');\n" +
+            "      try { Android.onDeepSeekChunk(__rid, '[DEBUG][' + __rid + '] 轮询#' + pollCount +\n" +
+            "        ' 消息数=' + list.length + '/' + baseline +\n" +
+            "        ' 生成中=' + gen +\n" +
+            "        ' 最新回复预览=\\"' + debugPreview + '\\"\"); } catch(_e) {}\n" +
             "    }\n" +
             "    if (pollCount - lastStatusAt >= 15) {\n" +
             "      lastStatusAt = pollCount;\n" +
