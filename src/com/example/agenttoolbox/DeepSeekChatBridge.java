@@ -254,20 +254,48 @@ public class DeepSeekChatBridge {
             "\n" +
             "  // ===== A. 基线：当前已有多少条 AI 消息 =====\n" +
             "  function getAssistantMessages() {\n" +
+            "    // 按优先级逐步尝试，避免备用选择器引入用户消息或 UI 元素\n" +
             "    var list = document.querySelectorAll('.ds-assistant-message-main-content');\n" +
-            "    if (!list || list.length === 0) {\n" +
-            "      list = document.querySelectorAll(\n" +
-            "        '[class*=\"assistant-message\"], [class*=\"prose\"], .whitespace-pre-wrap, ' +\n" +
-            "        '[class*=\"markdown\"], article, [role=\"article\"]'\n" +
-            "      );\n" +
-            "    }\n" +
-            "    return list;\n" +
+            "    if (list && list.length > 0) return list;\n" +
+            "    list = document.querySelectorAll('[class*=\"ds-assistant-message\"]');\n" +
+            "    if (list && list.length > 0) return list;\n" +
+            "    list = document.querySelectorAll('[class*=\"assistant-message-main\"]');\n" +
+            "    if (list && list.length > 0) return list;\n" +
+            "    list = document.querySelectorAll('.ds-markdown--block');\n" +
+            "    if (list && list.length > 0) return list;\n" +
+            "    // 最后才回退到通用选择器\n" +
+            "    return document.querySelectorAll(\n" +
+            "      '[class*=\"assistant-message\"], [class*=\"prose\"], .whitespace-pre-wrap, ' +\n" +
+            "      '[class*=\"markdown\"], article, [role=\"article\"]'\n" +
+            "    );\n" +
             "  }\n" +
             "\n" +
             "  function getAssistantReply(el) {\n" +
             "    if (!el) return null;\n" +
             "    var txt = (el.innerText || el.textContent || '').trim();\n" +
             "    return txt || null;\n" +
+            "  }\n" +
+            "\n" +
+            "  // 备用全页扫描：依次尝试多个选择器，返回最后一条非空内容\n" +
+            "  function getAssistantReplyFallback() {\n" +
+            "    var selectors = [\n" +
+            "      '.ds-assistant-message-main-content',\n" +
+            "      '[class*=\"ds-assistant-message\"]',\n" +
+            "      '[class*=\"assistant-message-main\"]',\n" +
+            "      '.ds-markdown--block',\n" +
+            "      '.ds-markdown',\n" +
+            "      '[class*=\"assistant-message\"]',\n" +
+            "      '[class*=\"markdown-content\"]',\n" +
+            "      '[class*=\"chat-message\"]'\n" +
+            "    ];\n" +
+            "    for (var si = 0; si < selectors.length; si++) {\n" +
+            "      var els = document.querySelectorAll(selectors[si]);\n" +
+            "      if (els && els.length > 0) {\n" +
+            "        var txt = getAssistantReply(els[els.length - 1]);\n" +
+            "        if (txt && txt.length > 5) return txt;\n" +
+            "      }\n" +
+            "    }\n" +
+            "    return null;\n" +
             "  }\n" +
             "\n" +
             "  var initialMsgCount = getAssistantMessages().length;\n" +
@@ -394,11 +422,29 @@ public class DeepSeekChatBridge {
             "\n" +
             "    // 没有新消息，继续等待\n" +
             "    if (!hasNewMessage) {\n" +
-            "      if (pollCount > 240) {\n" +
-            "        finish('');\n" +
-            "        Android.onDeepSeekError(__rid, '超时未捕获到新回复');\n" +
+            "      // 每4次轮询（约2秒）主动扫描，以防主选择器漏检\n" +
+            "      if (pollCount % 4 === 0) {\n" +
+            "        var forceTxt = getAssistantReplyFallback();\n" +
+            "        if (forceTxt && forceTxt !== initialLastContent) {\n" +
+            "          Android.log('[DEBUG][' + __rid + '] 强制扫描发现新内容，长度=' + forceTxt.length);\n" +
+            "          detectedNewMessage = true;\n" +
+            "          initialLastContent = forceTxt;\n" +
+            "        }\n" +
             "      }\n" +
-            "      return;\n" +
+            "      if (!detectedNewMessage) {\n" +
+            "        if (pollCount > 240) {\n" +
+            "          // 超时前最后一次备用提取\n" +
+            "          var lastTry = getAssistantReplyFallback();\n" +
+            "          if (lastTry && lastTry.length > 5) {\n" +
+            "            Android.log('[DEBUG][' + __rid + '] 超时前备用提取成功，长度=' + lastTry.length);\n" +
+            "            finish(lastTry);\n" +
+            "            return;\n" +
+            "          }\n" +
+            "          finish('');\n" +
+            "          Android.onDeepSeekError(__rid, '超时未捕获到新回复');\n" +
+            "        }\n" +
+            "        return;\n" +
+            "      }\n" +
             "    }\n" +
             "\n" +
             "    // 检测到新消息，设置标志\n" +
@@ -433,7 +479,7 @@ public class DeepSeekChatBridge {
             "    }\n" +
             "\n" +
             "    // 状态心跳\n" +
-            "    if (pollCount - lastStatusAt >= 15) {\n" +
+            "    if (pollCount - lastStatusAt >= 10) {\n" +
             "      lastStatusAt = pollCount;\n" +
             "      var statusMsg = (reply && reply.length > 0 ? '正在接收回复' : (gen ? '模型正在生成中' : '等待模型响应'));\n" +
             "      try { Android.onDeepSeekChunk(__rid, '[STATUS] ' + statusMsg); } catch(_e) {}\n" +
@@ -525,6 +571,13 @@ public class DeepSeekChatBridge {
             "    // 内容太短，继续等待\n" +
             "    if (!reply || reply.length < 2) {\n" +
             "      if (pollCount > 240) {\n" +
+            "        // 超时前尝试备用提取\n" +
+            "        var fallbackEmpty = getAssistantReplyFallback();\n" +
+            "        if (fallbackEmpty && fallbackEmpty.length > 5) {\n" +
+            "          Android.log('[DEBUG][' + __rid + '] 空内容超时前备用提取成功，长度=' + fallbackEmpty.length);\n" +
+            "          finish(fallbackEmpty);\n" +
+            "          return;\n" +
+            "        }\n" +
             "        finish('');\n" +
             "        Android.onDeepSeekError(__rid, '超时：AI消息内容为空');\n" +
             "      }\n" +
@@ -767,12 +820,91 @@ public class DeepSeekChatBridge {
 
     public void onDeepSeekReply(String requestId, String reply) {
         if (requestId == null) return;
-        CountDownLatch l = latchById.get(requestId);
+        // 若 JS 回传了空回复，先在 Java 侧做一次备用 DOM 提取再放行
+        if (reply == null || reply.isEmpty()) {
+            android.util.Log.w("DeepSeekChatBridge",
+                "[" + requestId + "] 收到空回复，触发备用 DOM 提取");
+            tryExtractFromDOMAndRelease(requestId);
+            return;
+        }
         AtomicReference<String> ref = replyById.get(requestId);
         if (ref != null) ref.set(reply);
+        CountDownLatch l = latchById.get(requestId);
         if (l != null) l.countDown();
         android.util.Log.d("DeepSeekChatBridge",
-            "[" + requestId + "] 捕获回复 (长度=" + (reply == null ? 0 : reply.length()) + ")");
+            "[" + requestId + "] 捕获回复 (长度=" + reply.length() + ")");
+    }
+
+    /**
+     * 当 JS 侧回传的 reply 为空时，在主线程重新注入 JS 做最后一次 DOM 提取，
+     * 提取结果会更新 replyById 并释放 latch。
+     */
+    private void tryExtractFromDOMAndRelease(final String requestId) {
+        // 在 synchronized 块内一次性捕获所有引用，保证一致性。
+        // 注意：即使 cleanupRequest 随后从 map 中移除这些引用，
+        // 已捕获的对象仍然有效：l.countDown() 在 latch 已归零后仍然安全（内部计数为负不会抛异常），
+        // ref.set() 设置的值若无人读取也是无害的。
+        final CountDownLatch l;
+        final AtomicReference<String> ref;
+        final Handler handler;
+        final WebView wb;
+        synchronized (this) {
+            l = latchById.get(requestId);
+            ref = replyById.get(requestId);
+            handler = mainHandler;
+            wb = boundWebView;
+        }
+        if (handler == null || wb == null) {
+            // 无法执行备用 DOM 提取：ref 保持 null，latch 释放后调用方会走"未收到回复"错误路径
+            if (l != null) l.countDown();
+            return;
+        }
+        handler.post(new Runnable() {
+            @Override
+            public void run() {
+                final String fallbackScript =
+                    "(function() {\n" +
+                    "  var selectors = [\n" +
+                    "    '.ds-assistant-message-main-content',\n" +
+                    "    '[class*=\"ds-assistant-message\"]',\n" +
+                    "    '[class*=\"assistant-message-main\"]',\n" +
+                    "    '.ds-markdown--block',\n" +
+                    "    '.ds-markdown',\n" +
+                    "    '[class*=\"assistant-message\"]'\n" +
+                    "  ];\n" +
+                    "  for (var i = 0; i < selectors.length; i++) {\n" +
+                    "    var els = document.querySelectorAll(selectors[i]);\n" +
+                    "    if (els && els.length > 0) {\n" +
+                    "      var txt = (els[els.length - 1].innerText || els[els.length - 1].textContent || '').trim();\n" +
+                    "      if (txt && txt.length > 5) return txt;\n" +
+                    "    }\n" +
+                    "  }\n" +
+                    "  return '';\n" +
+                    "})()";
+                wb.evaluateJavascript(fallbackScript, new ValueCallback<String>() {
+                    @Override
+                    public void onReceiveValue(String result) {
+                        String extracted = null;
+                        // evaluateJavascript 返回 JSON 编码的字符串值；用 JSONTokener 安全解析
+                        if (result != null && result.startsWith("\"") && result.endsWith("\"")) {
+                            try {
+                                Object parsed = new org.json.JSONTokener(result).nextValue();
+                                if (parsed instanceof String) {
+                                    String s = ((String) parsed).trim();
+                                    if (!s.isEmpty()) extracted = s;
+                                }
+                            } catch (Exception e) {
+                                // 解析失败时忽略，extracted 保持 null
+                            }
+                        }
+                        android.util.Log.d("DeepSeekChatBridge",
+                            "[" + requestId + "] 备用 DOM 提取结果长度=" + (extracted == null ? 0 : extracted.length()));
+                        if (ref != null) ref.set(extracted);
+                        if (l != null) l.countDown();
+                    }
+                });
+            }
+        });
     }
 
     public void onDeepSeekError(String requestId, String error) {
