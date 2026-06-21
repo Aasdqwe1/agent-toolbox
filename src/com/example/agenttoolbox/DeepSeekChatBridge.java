@@ -448,34 +448,56 @@ public class DeepSeekChatBridge {
             "      // 工具调用场景：必须等待 JSON 完整\n" +
             "      var jsonStr = null;\n" +
             "      var firstBrace = reply.indexOf('{');\n" +
+            "      // 从第一个 { 截到末尾；不要用 lastIndexOf('}') —— 它可能\n" +
+            "      // 只找到了 arguments 内部的某个 }，截出来反而更残缺\n" +
             "      if (firstBrace !== -1) {\n" +
-            "        var lastBrace = reply.lastIndexOf('}');\n" +
-            "        if (lastBrace !== -1 && lastBrace > firstBrace) {\n" +
-            "          jsonStr = reply.substring(firstBrace, lastBrace + 1);\n" +
-            "        } else {\n" +
-            "          // 若未找到右括号，从第一个 { 截取到末尾\n" +
-            "          jsonStr = reply.substring(firstBrace);\n" +
-            "        }\n" +
+            "        jsonStr = reply.substring(firstBrace);\n" +
             "      }\n" +
             "      var jsonComplete = false;\n" +
-            "      if (jsonStr) {\n" +
-            "        // 尝试解析；最多自动补 3 个右括号容错\n" +
-            "        var testStr = jsonStr;\n" +
-            "        for (var t = 0; t < 4; t++) {\n" +
-            "          try {\n" +
-            "            JSON.parse(testStr);\n" +
-            "            jsonStr = testStr;\n" +
-            "            jsonComplete = true;\n" +
-            "            break;\n" +
-            "          } catch(e) {\n" +
-            "            testStr = testStr + '}';\n" +
+            "      var robustCompleteAttempt = null;\n" +
+            "      if (jsonStr && typeof jsonStr === 'string') {\n" +
+            "        // 先用当前字符串本身尝试解析\n" +
+            "        try { JSON.parse(jsonStr); jsonComplete = true; } catch(e) {}\n" +
+            "        if (!jsonComplete) {\n" +
+            "          // 状态机扫描：跳过字符串字面量与转义，计算未闭合的 { 与 [\n" +
+            "          var inStr = false;\n" +
+            "          var quoteChar = '\"';\n" +
+            "          var esc = false;\n" +
+            "          var braceCount = 0;\n" +
+            "          var bracketCount = 0;\n" +
+            "          for (var si = 0; si < jsonStr.length; si++) {\n" +
+            "            var ch = jsonStr.charAt(si);\n" +
+            "            if (inStr) {\n" +
+            "              if (esc) { esc = false; continue; }\n" +
+            "              if (ch === '\\\\') { esc = true; continue; }\n" +
+            "              if (ch === quoteChar) { inStr = false; continue; }\n" +
+            "              continue;\n" +
+            "            }\n" +
+            "            if (ch === '\"' || ch === \"'\" ) { inStr = true; quoteChar = ch; continue; }\n" +
+            "            if (ch === '{') braceCount++;\n" +
+            "            else if (ch === '}') { if (braceCount > 0) braceCount--; }\n" +
+            "            else if (ch === '[') bracketCount++;\n" +
+            "            else if (ch === ']') { if (bracketCount > 0) bracketCount--; }\n" +
+            "          }\n" +
+            "          // 按扫描结果精确补全右括号与右方括号\n" +
+            "          var suffix = '';\n" +
+            "          for (var bi = 0; bi < bracketCount; bi++) suffix = suffix + ']';\n" +
+            "          for (var bj = 0; bj < braceCount; bj++) suffix = suffix + '}';\n" +
+            "          if (suffix.length > 0) {\n" +
+            "            robustCompleteAttempt = jsonStr + suffix;\n" +
+            "            try {\n" +
+            "              JSON.parse(robustCompleteAttempt);\n" +
+            "              jsonStr = robustCompleteAttempt;\n" +
+            "              jsonComplete = true;\n" +
+            "            } catch(e) { /* 补全后仍失败，继续等待流式下一批 */ }\n" +
             "          }\n" +
             "        }\n" +
             "      }\n" +
             "      if (jsonComplete) {\n" +
             "        // 验证通过：将提取的完整 JSON 作为最终回复\n" +
             "        reply = jsonStr;\n" +
-            "        Android.log('[DEBUG][' + __rid + '] 成功提取并验证JSON-RPC调用，长度=' + jsonStr.length);\n" +
+            "        Android.log('[DEBUG][' + __rid + '] 成功提取并验证JSON-RPC调用，长度=' + jsonStr.length +\n" +
+            "          (robustCompleteAttempt ? '（已通过状态机自动补全' + (robustCompleteAttempt.length - (jsonStr ? jsonStr.length : 0)) + '字符）' : ''));\n" +
             "        // 立即完成，不再等待稳定判定\n" +
             "        finish(reply);\n" +
             "        return;\n" +

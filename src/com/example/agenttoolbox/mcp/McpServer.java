@@ -281,6 +281,7 @@ public class McpServer {
             int idx = reply.indexOf("\"jsonrpc\"");
             if (idx == -1) return null;
 
+            // 从 idx 向前找最近的 { 作为起点
             int start = -1;
             for (int i = idx; i >= 0; i--) {
                 if (reply.charAt(i) == '{') {
@@ -290,21 +291,109 @@ public class McpServer {
             }
             if (start == -1) return null;
 
+            // 从 start 用状态机向后扫描，跟踪字符串/转义/嵌套，
+            // 找到与最外层 { 匹配的 } 作为结束位置。
+            // 这样能正确处理深层嵌套对象和数组，避免截断到内部的 }。
+            boolean inString = false;
+            char quoteChar = '"';
+            boolean escape = false;
+            int braceDepth = 1;    // 从 start 的 { 开始
+            int bracketDepth = 0;
             int end = -1;
-            for (int i = idx; i < reply.length(); i++) {
-                if (reply.charAt(i) == '}') {
-                    end = i;
-                    break;
+            for (int i = start + 1; i < reply.length(); i++) {
+                char c = reply.charAt(i);
+                if (inString) {
+                    if (escape) { escape = false; continue; }
+                    if (c == '\\') { escape = true; continue; }
+                    if (c == quoteChar) { inString = false; continue; }
+                    continue;
                 }
+                if (c == '"' || c == '\'') { inString = true; quoteChar = c; continue; }
+                if (c == '{') braceDepth++;
+                else if (c == '}') {
+                    braceDepth--;
+                    if (bracketDepth == 0 && braceDepth == 0) {
+                        end = i;
+                        break;
+                    }
+                } else if (c == '[') bracketDepth++;
+                else if (c == ']') { if (bracketDepth > 0) bracketDepth--; }
             }
-            if (end == -1) return null;
-
+            if (end == -1) {
+                // 扫描到末尾仍未闭合，说明 reply 本身不完整，
+                // 把从 start 到末尾返回给调用方，由后续的 robustCompleteJson 尝试补全。
+                return reply.substring(start);
+            }
             return reply.substring(start, end + 1);
         }
 
-        private String executeToolCall(String jsonRpcStr) {
+        /**
+         * 当 reply 中 JSON 不完整时，用状态机扫描统计未闭合的 { 与 [ 的数量，
+         * 按数量补齐 } 与 ] 后再 JSON.parse 验证，避免 "Unterminated object" 类错误。
+         * 返回 合法 JSON 字符串 或 null（无法补全时）。
+         */
+        private String robustCompleteJson(String partial) {
+            if (partial == null || partial.length() == 0) return null;
+
+            // 先尝试直接解析，大多数情况下本身就是完整的
             try {
-                JSONObject req = new JSONObject(jsonRpcStr);
+                new JSONObject(partial);
+                return partial;
+            } catch (Exception ignore) {}
+
+            // 状态机扫描，跳过字符串字面量与转义
+            boolean inString = false;
+            char quoteChar = '"';
+            boolean escape = false;
+            int braceDepth = 0;
+            int bracketDepth = 0;
+            int firstBrace = -1;
+            for (int i = 0; i < partial.length(); i++) {
+                char c = partial.charAt(i);
+                if (inString) {
+                    if (escape) { escape = false; continue; }
+                    if (c == '\\') { escape = true; continue; }
+                    if (c == quoteChar) { inString = false; continue; }
+                    continue;
+                }
+                if (c == '"' || c == '\'') { inString = true; quoteChar = c; continue; }
+                if (c == '{') {
+                    if (firstBrace == -1) firstBrace = i;
+                    braceDepth++;
+                } else if (c == '}') {
+                    if (braceDepth > 0) braceDepth--;
+                } else if (c == '[') {
+                    bracketDepth++;
+                } else if (c == ']') {
+                    if (bracketDepth > 0) bracketDepth--;
+                }
+            }
+            if (firstBrace == -1) return null;
+
+            String body = partial.substring(firstBrace);
+            if (bracketDepth == 0 && braceDepth == 0) {
+                // 没有需要补的
+                try { new JSONObject(body); return body; } catch (Exception ignore) {}
+                return null;
+            }
+            StringBuilder suffix = new StringBuilder();
+            for (int i = 0; i < bracketDepth; i++) suffix.append(']');
+            for (int i = 0; i < braceDepth; i++) suffix.append('}');
+            String candidate = body + suffix.toString();
+            try {
+                new JSONObject(candidate);
+                return candidate;
+            } catch (Exception e) {
+                return null;
+            }
+        }
+
+        private String executeToolCall(String jsonRpcStr) {
+            // 主路径：直接解析 JSON-RPC 调用
+            Exception firstFail = null;
+            String tryStr = jsonRpcStr;
+            try {
+                JSONObject req = new JSONObject(tryStr);
                 String method = req.optString("method", "");
                 if (!"tools/call".equals(method)) {
                     return null;
@@ -331,12 +420,37 @@ public class McpServer {
                         return first.optString("text", "");
                     }
                 }
-
                 return result.toString();
             } catch (Exception e) {
-                log("工具调用失败: " + e.getMessage());
-                return "工具执行失败: " + e.getMessage();
+                firstFail = e;
+                log("初次解析失败 (" + e.getMessage() + ")，尝试状态机自动补全");
             }
+
+            // 降级：JSON 不完整时再试 robustCompleteJson 补全
+            String completed = robustCompleteJson(tryStr);
+            if (completed != null && !completed.equals(tryStr)) {
+                try {
+                    JSONObject req = new JSONObject(completed);
+                    String method = req.optString("method", "");
+                    if (!"tools/call".equals(method)) return null;
+                    JSONObject params = req.optJSONObject("params");
+                    if (params == null) return "错误: 缺少 params";
+                    String toolName = params.optString("name", "");
+                    JSONObject args = params.optJSONObject("arguments");
+                    if (args == null) args = new JSONObject();
+                    log("（状态机补全后执行工具: " + toolName + "，补齐了 " + (completed.length() - tryStr.length()) + " 个字符");
+                    JSONObject result = ToolManager.getInstance().callTool(toolName, args);
+                    JSONArray contentArr = result.optJSONArray("content");
+                    if (contentArr != null && contentArr.length() > 0) {
+                        JSONObject first = contentArr.optJSONObject(0);
+                        if (first != null) return first.optString("text", "");
+                    }
+                    return result.toString();
+                } catch (Exception e) {
+                    log("补全后仍失败: " + e.getMessage());
+                }
+            }
+            return "工具执行失败: " + (firstFail != null ? firstFail.getMessage() : "JSON不完整且无法自动补全");
         }
 
         private void handleChatRequest(String path, String requestBody, final OutputStream out)
