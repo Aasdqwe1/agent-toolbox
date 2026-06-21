@@ -271,6 +271,16 @@ public class DeepSeekChatBridge {
             "  }\n" +
             "\n" +
             "  var baseline = getAssistantMessages().length;\n" +
+            "  Android.log('[DEBUG][' + __rid + '] 监听启动, baseline=' + baseline + ', 页面AI消息数=' + baseline);\n" +
+            "  // 输出前几条消息的预览，方便调试\n" +
+            "  try {\n" +
+            "    var allMsgs = getAssistantMessages();\n" +
+            "    for (var di = 0; di < Math.min(allMsgs.length, 3); di++) {\n" +
+            "      var preview = getAssistantReply(allMsgs[di]);\n" +
+            "      if (preview) preview = preview.substring(0, 50);\n" +
+            "      Android.log('[DEBUG][' + __rid + '] 消息[' + di + '] 预览: ' + preview);\n" +
+            "    }\n" +
+            "  } catch(_de) {}\n" +
             "  var pollCount = 0;\n" +
             "  var lastSeenText = '';\n" +
             "  var lastReplyLen = 0;\n" +
@@ -283,12 +293,15 @@ public class DeepSeekChatBridge {
             "    if (!el) return false;\n" +
             "    var container = el;\n" +
             "    for (var i = 0; i < 5 && container && container.parentElement; i++) {\n" +
-            "      if (container.querySelector && container.querySelector('.ds-button--iconLabelTertiary')) return true;\n" +
+            "      if (container.querySelector && container.querySelector('.ds-button--iconLabelTertiary')) {\n" +
+            "        return true;\n" +
+            "      }\n" +
             "      container = container.parentElement;\n" +
             "    }\n" +
             "    // 兼容：在整个文档末尾找 tertiary 按钮\n" +
             "    var terBtns = document.querySelectorAll('.ds-button--iconLabelTertiary');\n" +
-            "    return terBtns && terBtns.length > 0;\n" +
+            "    var hasTerBtns = terBtns && terBtns.length > 0;\n" +
+            "    return hasTerBtns;\n" +
             "  }\n" +
             "\n" +
             "  // ===== C. 是否仍在生成 =====\n" +
@@ -329,6 +342,7 @@ public class DeepSeekChatBridge {
             "  function finish(reply) {\n" +
             "    if (finished) return;\n" +
             "    finished = true;\n" +
+            "    Android.log('[DEBUG][' + __rid + '] 监听结束, 捕获回复长度=' + (reply ? reply.length : 0));\n" +
             "    if (window[__prefix + 'poll']) clearInterval(window[__prefix + 'poll']);\n" +
             "    if (window[__prefix + 'obs']) { try { window[__prefix + 'obs'].disconnect(); } catch(_e) {} }\n" +
             "    Android.onDeepSeekReply(__rid, reply);\n" +
@@ -339,6 +353,19 @@ public class DeepSeekChatBridge {
             "    pollCount++;\n" +
             "    var list = getAssistantMessages();\n" +
             "    var gen = isGenerating();\n" +
+            "    // 每10次轮询输出一次调试信息，避免日志太多\n" +
+            "    if (pollCount % 10 === 1 || pollCount <= 3) {\n" +
+            "      var debugPreview = '';\n" +
+            "      if (list.length > baseline) {\n" +
+            "        var latestEl = list[list.length - 1];\n" +
+            "        var latestReply = getAssistantReply(latestEl);\n" +
+            "        if (latestReply) debugPreview = latestReply.substring(0, 80);\n" +
+            "      }\n" +
+            "      Android.log('[DEBUG][' + __rid + '] 轮询#' + pollCount + \n" +
+            "        ' 消息数=' + list.length + '/' + baseline + \n" +
+            "        ' 生成中=' + gen + \n" +
+            ' 最新回复预览="' + debugPreview + '"');\n" +
+            "    }\n" +
             "    if (pollCount - lastStatusAt >= 15) {\n" +
             "      lastStatusAt = pollCount;\n" +
             "      var statusMsg = (list.length > baseline ? '正在接收回复' : (gen ? '模型正在生成中' : '等待模型响应');\n" +
@@ -390,13 +417,21 @@ public class DeepSeekChatBridge {
             "  window[__prefix + 'poll'] = setInterval(pollOnce, 500);\n" +
             "\n" +
             "  // MutationObserver 辅助通道：加速检查\n" +
+            "  var obsCount = 0;\n" +
             "  window[__prefix + 'obs'] = new MutationObserver(function() {\n" +
+            "    obsCount++;\n" +
+            "    if (obsCount % 20 === 1) {\n" +
+            "      Android.log('[DEBUG][' + __rid + '] MutationObserver 触发次数=' + obsCount);\n" +
+            "    }\n" +
             "    pollOnce();\n" +
             "  });\n" +
             "  var target = document.body || document.documentElement;\n" +
             "  if (target) {\n" +
             "    window[__prefix + 'obs'].observe(target,\n" +
             "      { childList: true, subtree: true, characterData: true, attributes: true });\n" +
+            "    Android.log('[DEBUG][' + __rid + '] MutationObserver 已启动, 目标=' + (target.tagName || 'unknown'));\n" +
+            "  } else {\n" +
+            "    Android.log('[DEBUG][' + __rid + '] MutationObserver 启动失败: 无目标元素');\n" +
             "  }\n" +
             "\n" +
             "  // 给发送脚本一个信号：监听已就绪\n" +
@@ -419,7 +454,7 @@ public class DeepSeekChatBridge {
             "      Android.onDeepSeekError(__rid, '未找到输入框');\n" +
             "      return;\n" +
             "    }\n" +
-            "    Android.log('DeepSeek: 已定位输入框 (attempt=' + attempts + ')');\n" +
+            "    Android.log('[DEBUG][' + __rid + '] 已定位输入框 (attempt=' + attempts + ', tag=' + textarea.tagName + ')');\n" +
             "    textarea.focus();\n" +
             "    try { textarea.click(); } catch(_e1) {}\n" +
             "    for (var key in textarea) {\n" +
@@ -448,6 +483,9 @@ public class DeepSeekChatBridge {
             "    } else {\n" +
             "      textarea.value = msg;\n" +
             "    }\n" +
+            "    // 校验：输入框值是否设置成功\n" +
+            "    var actualValue = textarea.value || (textarea.innerText || '');\n" +
+            "    Android.log('[DEBUG][' + __rid + '] 输入框值校验: 期望长度=' + msg.length + ', 实际长度=' + actualValue.length + ', 匹配=' + (actualValue === msg));\n" +
             "    ['input', 'change', 'blur'].forEach(function(evName) {\n" +
             "      try {\n" +
             "        var ev = new Event(evName, { bubbles: true, cancelable: true });\n" +
@@ -464,7 +502,9 @@ public class DeepSeekChatBridge {
             "    } catch(_e4) {}\n" +
             "    // ===== 点击发送按钮 =====\n" +
             "    var sendBtn = null;\n" +
+            "    var sendBtnSource = '';\n" +
             "    var roleBtns = document.querySelectorAll('div[role=\"button\"]');\n" +
+            "    Android.log('[DEBUG][' + __rid + '] 页面role=button元素数量=' + roleBtns.length);\n" +
             "    for (var i = 0; i < roleBtns.length; i++) {\n" +
             "      var rb = roleBtns[i];\n" +
             "      var cls = rb.getAttribute('class') || '';\n" +
@@ -472,6 +512,7 @@ public class DeepSeekChatBridge {
             "          cls.indexOf('ds-button--filled') !== -1 ||\n" +
             "          cls.indexOf('_52c986b') !== -1) {\n" +
             "        sendBtn = rb;\n" +
+            "        sendBtnSource = 'class_match:' + cls.substring(0, 40);\n" +
             "        break;\n" +
             "      }\n" +
             "    }\n" +
@@ -481,15 +522,28 @@ public class DeepSeekChatBridge {
             "        var tt = (all[j].innerText || all[j].textContent || '').trim();\n" +
             "        if (tt && (tt.indexOf('发送') !== -1 || tt.indexOf('Send') !== -1)) {\n" +
             "          sendBtn = all[j];\n" +
+            "          sendBtnSource = 'text_match:' + tt.substring(0, 20);\n" +
             "          break;\n" +
             "        }\n" +
             "      }\n" +
             "    }\n" +
             "    if (sendBtn) {\n" +
+            "      var btnDisabled = sendBtn.classList ? sendBtn.classList.contains('ds-button--disabled') : false;\n" +
+            "      Android.log('[DEBUG][' + __rid + '] 发送按钮定位成功: ' + sendBtnSource + ', 禁用状态=' + btnDisabled);\n" +
             "      try { sendBtn.focus(); sendBtn.click(); } catch(_e5) {}\n" +
             "      Android.log('DeepSeek: 已点击发送按钮 (msg=' + msg.substring(0, Math.min(20, msg.length)) + ')');\n" +
+            "      // 发送后校验：检查用户消息是否出现在消息列表\n" +
+            "      setTimeout(function() {\n" +
+            "        try {\n" +
+            "          var userMsgs = document.querySelectorAll('.fbb737a4');\n" +
+            "          var lastUserMsg = userMsgs.length > 0 ? userMsgs[userMsgs.length - 1] : null;\n" +
+            "          var lastUserText = lastUserMsg ? (lastUserMsg.innerText || lastUserMsg.textContent || '').trim() : '';\n" +
+            "          Android.log('[DEBUG][' + __rid + '] 发送后校验: 用户消息数=' + userMsgs.length + ', 最新用户消息预览=' + lastUserText.substring(0, 50));\n" +
+            "        } catch(_ce) {}\n" +
+            "      }, 1000);\n" +
             "      return;\n" +
             "    }\n" +
+            "    Android.log('[DEBUG][' + __rid + '] 未找到发送按钮，尝试回车发送');\n" +
             "    // 兜底：键盘 Enter\n" +
             "    try {\n" +
             "      var ke2 = new KeyboardEvent('keydown', {\n" +
