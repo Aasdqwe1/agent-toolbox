@@ -201,12 +201,17 @@ registerTool(new MyTool());
 
 ## 版本信息
 
-- **版本**：1.1.0
+- **版本**：1.2.0
 - **协议**：MCP 2024-11-05（JSON-RPC 2.0 over HTTP）
 - **最低 Android 版本**：API 21 (Android 5.0)
 - **目标 SDK**：API 30 (Android 11)
 
 ### 更新日志
+
+**v1.2.0**
+- 修复流式回复超时问题（将心跳检测超时从 8 秒调整为 30 秒）
+- 优化长时间运行工具调用的 JSON 解析（避免因心跳中断导致 JSON 不完整）
+- 改进对超过 8 秒的工具执行（如长时间 HTTP 请求、文件处理等）的支持
 
 **v1.1.0**
 - 修复 DeepSeekActivity 中「提取源码」功能超时问题（改用 evaluateJavascript 替代 alert 通信）
