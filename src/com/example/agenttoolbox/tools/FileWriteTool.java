@@ -21,9 +21,13 @@ public class FileWriteTool implements Tool {
             "/storage/emulated/0/Pictures/",
             "/storage/emulated/0/DCIM/",
             "/storage/emulated/0/Movies/",
+            "/storage/emulated/0/",
+            "/sdcard/",
             "/Download/",
             "/Documents/",
             "/Pictures/",
+            "/DCIM/",
+            "/Movies/",
     };
 
     @Override

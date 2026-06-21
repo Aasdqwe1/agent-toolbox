@@ -281,9 +281,17 @@ public class McpServer {
             
             // P3 修复：检测空请求
             String trimmedBody = requestBody.trim();
-            if (trimmedBody.isEmpty() || "{}".equals(trimmedBody)) {
-                log("收到空请求或心跳包，已忽略");
-                sendErrorResponse(out, 400, "Empty request");
+            if (trimmedBody.isEmpty()) {
+                // 完全空请求，可能是心跳包，返回 204 No Content
+                log("收到空请求（心跳包），已忽略");
+                sendNoContentResponse(out);
+                return;
+            }
+            
+            if ("{}".equals(trimmedBody)) {
+                // 空 JSON 对象，无法处理，返回 400 Bad Request
+                log("收到空 JSON 对象请求 {}，无法处理");
+                sendErrorResponse(out, 400, "Empty request object");
                 return;
             }
             
@@ -815,6 +823,15 @@ public class McpServer {
                 body;
             out.write(response.getBytes("UTF-8"));
             log("返回错误: " + code + " " + message);
+        }
+
+        private void sendNoContentResponse(OutputStream out) throws IOException {
+            String response = "HTTP/1.1 204 No Content\r\n" +
+                "Content-Length: 0\r\n" +
+                "Access-Control-Allow-Origin: *\r\n" +
+                "\r\n";
+            out.write(response.getBytes("UTF-8"));
+            log("返回心跳确认: 204 No Content");
         }
 
         private void writeChunked(OutputStream out, byte[] data) throws IOException {

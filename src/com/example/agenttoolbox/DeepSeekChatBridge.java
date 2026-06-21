@@ -820,7 +820,7 @@ public class DeepSeekChatBridge {
 
     /**
      * P2 修复：对长消息进行智能截断，便于日志记录
-     * 保留首尾内容，中间内容用省略号表示
+     * 保留首尾内容，中间内容用省略号表示，充分利用缓冲空间
      */
     private String formatLongMessageForLog(String message, int maxLen) {
         if (message == null) return "";
@@ -828,12 +828,22 @@ public class DeepSeekChatBridge {
             return message;
         }
         
-        int frontLen = maxLen / 3;
-        int backLen = maxLen / 3;
+        // 计算省略号长度
+        String ellipsis = "...[省略 " + (message.length() - maxLen + 20) + " 字符]...";
+        int ellipsisLen = ellipsis.length();
+        if (ellipsisLen >= maxLen) {
+            // 如果省略号本身太长，直接返回首部
+            return message.substring(0, maxLen);
+        }
+        
+        // 分配剩余空间给前半部分和后半部分（2:1 比例，前部分更多）
+        int availableLen = maxLen - ellipsisLen;
+        int frontLen = (availableLen * 2) / 3;
+        int backLen = availableLen - frontLen;
+        
         String front = message.substring(0, frontLen);
         String back = message.substring(message.length() - backLen);
-        int middleLen = message.length() - frontLen - backLen;
-        return front + "...[省略 " + middleLen + " 字符]..." + back;
+        return front + ellipsis + back;
     }
 
     /**
