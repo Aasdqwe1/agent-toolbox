@@ -83,12 +83,20 @@
        function renderMarkdown(text) {
            if (!text) return '';
            console.log('[renderMarkdown] 输入:', text.substring(0, 200));
+           // 内容结构快速分析（快速检测是否含各种 Markdown 结构）
+           var hasCodeBlock = (text.match(/```/g) || []).length;
+           var hasInlineCode = (text.match(/`[^`\n]+`/g) || []).length;
+           var hasHeading = (text.match(/\n#{1,6}\s/g) || []).length;
+           var hasTable = (text.match(/\|\s*[^|\n]+\s*\|\s*[^|\n]+\s*\|/g) || []).length;
+           var hasList = (text.match(/\n\s*[-*+]\s/g) || []).length;
+           var hasEntity = /&(?:amp|lt|gt|quot|#39);/.test(text);
+           console.log('[renderMarkdown] 结构分析: 代码块=' + (hasCodeBlock/2) + ' 行内代码=' + hasInlineCode
+               + ' 标题=' + hasHeading + ' 表格=' + hasTable + ' 列表项=' + hasList
+               + ' 长度=' + text.length + ' HTML实体=' + hasEntity);
            try {
-               // 先解码 HTML 实体（防止标签被转义成实体后显示为纯文本）
                var decoded = unescapeHtml(text);
                console.log('[renderMarkdown] 解码后:', decoded.substring(0, 200));
                if (typeof marked !== 'undefined') {
-                   // 优先使用 parseInline（同步、非 Promise）
                    if (typeof marked.parseInline === 'function') {
                        var inline = marked.parseInline(decoded);
                        console.log('[renderMarkdown] parseInline结果:', inline ? inline.substring(0, 200) : '(空)');
@@ -111,7 +119,6 @@
            } catch (e) {
                console.log('[renderMarkdown] 异常:', e.message);
            }
-           // 降级：保留换行的纯文本
            console.log('[renderMarkdown] 走降级分支');
            return '<pre style="white-space:pre-wrap; word-break:break-word; margin:0; padding:0; border:0; background:transparent;">' + escapeHtml(text) + '</pre>';
        }

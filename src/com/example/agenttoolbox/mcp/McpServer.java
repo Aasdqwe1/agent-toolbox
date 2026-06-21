@@ -284,6 +284,64 @@ public class McpServer {
             return text;
         }
 
+        /**
+         * 分析回复内容结构，返回可读的摘要（用于调试日志）
+         */
+        private String analyzeReplyStructure(String reply) {
+            if (reply == null || reply.isEmpty()) return "[空回复]";
+            int len = reply.length();
+            int tableCount = 0, codeBlockCount = 0, inlineCodeCount = 0;
+            int listCount = 0, headingCount = 0, boldCount = 0, italicCount = 0;
+            int linkCount = 0, lineCount = 0, paragraphBreakCount = 0;
+
+            // 统计表
+            java.util.regex.Matcher tableMatcher = java.util.regex.Pattern.compile("\\|\\s*[^|\\n]+\\s*\\|\\s*[^|\\n]+\\s*\\|").matcher(reply);
+            while (tableMatcher.find()) tableCount++;
+
+            // 统计代码块
+            java.util.regex.Matcher codeBlockMatcher = java.util.regex.Pattern.compile("```").matcher(reply);
+            while (codeBlockMatcher.find()) codeBlockCount++;
+
+            // 统计行内代码
+            java.util.regex.Matcher inlineMatcher = java.util.regex.Pattern.compile("`[^`\\n]+`").matcher(reply);
+            while (inlineMatcher.find()) inlineCodeCount++;
+
+            // 列表项
+            java.util.regex.Matcher listMatcher = java.util.regex.Pattern.compile("(^|\\n)\\s*[-*+]\\s").matcher(reply);
+            while (listMatcher.find()) listCount++;
+
+            // 标题
+            java.util.regex.Matcher headingMatcher = java.util.regex.Pattern.compile("(^|\\n)#{1,6}\\s").matcher(reply);
+            while (headingMatcher.find()) headingCount++;
+
+            // 粗体
+            java.util.regex.Matcher boldMatcher = java.util.regex.Pattern.compile("\\*\\*[^*]+\\*\\*|\\_\\_[^_]+\\_\\_").matcher(reply);
+            while (boldMatcher.find()) boldCount++;
+
+            // 斜体
+            java.util.regex.Matcher italicMatcher = java.util.regex.Pattern.compile("\\*[^*\n]+\\*|\\_[^_\n]+\\_").matcher(reply);
+            while (italicMatcher.find()) italicCount++;
+
+            // 链接
+            java.util.regex.Matcher linkMatcher = java.util.regex.Pattern.compile("\\[[^\\]]+\\]\\([^)]+\\)").matcher(reply);
+            while (linkMatcher.find()) linkCount++;
+
+            // 换行统计
+            for (char c : reply.toCharArray()) if (c == '\n') lineCount++;
+            java.util.regex.Matcher paraMatcher = java.util.regex.Pattern.compile("\\n\\s*\\n").matcher(reply);
+            while (paraMatcher.find()) paragraphBreakCount++;
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("[内容摘要 长度=").append(len);
+            sb.append(" 行数=").append(lineCount).append(" 段=").append(paragraphBreakCount);
+            sb.append(" 标题=").append(headingCount).append(" 列表项=").append(listCount);
+            sb.append(" 表格行=").append(tableCount).append(" 代码块=").append(codeBlockCount / 2);
+            sb.append(" 行内代码=").append(inlineCodeCount);
+            sb.append(" 粗体=").append(boldCount).append(" 斜体=").append(italicCount);
+            sb.append(" 链接=").append(linkCount).append("]");
+            return sb.toString();
+        }
+
         private void handlePostRequest(String path, String requestBody, OutputStream out) throws IOException {
             // P0 修复：清理空字节和控制字符
             // 注意：这可能会将某些请求转换为空 JSON 对象（例如 "{\x00}" 变成 "{}"）
@@ -749,6 +807,7 @@ public class McpServer {
                                             boolean isToolCall = isToolCallJson(reply);
                                             // P2 修复：记录 LLM 完整回复（非工具调用时），使用截断防止过长日志
                                             if (!isToolCall && reply != null && reply.length() > 0) {
+                                                log("LLM最终回复[轮次" + currentRound + "] " + analyzeReplyStructure(reply));
                                                 String logReply = truncateForLogging(reply, 4096);
                                                 log("LLM最终回复[轮次" + currentRound + "]: " + logReply);
                                             }

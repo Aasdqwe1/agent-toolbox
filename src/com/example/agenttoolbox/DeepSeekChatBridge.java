@@ -253,67 +253,90 @@ public class DeepSeekChatBridge {
             "  } catch(_e) {}\n" +
             "\n" +
             "  // ===== A. 基线：当前已有多少条 AI 消息 =====\n" +
+            "  // 选择器顺序基于解析字段对照表优化：\n" +
+            "  //   1) ds-markdown.ds-assistant-message-main-content（精确内容容器）\n" +
+            "  //   2) ds-markdown--block（块级 markdown 输出）\n" +
+            "  //   3) [class*=ds-markdown]（任意 markdown 元素）\n" +
+            "  //   4) ds-message（消息级 wrapper，内部查找 markdown）\n" +
+            "  //   5) 通用回退\n" +
             "  function getAssistantMessages() {\n" +
-            "    // 按优先级逐步尝试，避免备用选择器引入用户消息或 UI 元素\n" +
-            "    var list = document.querySelectorAll('.ds-assistant-message-main-content');\n" +
+            "    var list = document.querySelectorAll('.ds-markdown.ds-assistant-message-main-content');\n" +
+            "    if (list && list.length > 0) return list;\n" +
+            "    list = document.querySelectorAll('.ds-markdown--block');\n" +
+            "    if (list && list.length > 0) return list;\n" +
+            "    list = document.querySelectorAll('[class*=\"ds-assistant-message-main-content\"]');\n" +
+            "    if (list && list.length > 0) return list;\n" +
+            "    list = document.querySelectorAll('[class*=\"ds-markdown\"]');\n" +
             "    if (list && list.length > 0) return list;\n" +
             "    list = document.querySelectorAll('[class*=\"ds-assistant-message\"]');\n" +
             "    if (list && list.length > 0) return list;\n" +
             "    list = document.querySelectorAll('[class*=\"assistant-message-main\"]');\n" +
             "    if (list && list.length > 0) return list;\n" +
-            "    list = document.querySelectorAll('.ds-markdown--block');\n" +
-            "    if (list && list.length > 0) return list;\n" +
-            "    // 最后才回退到通用选择器\n" +
-            "    return document.querySelectorAll(\n" +
-            "      '[class*=\"assistant-message\"], [class*=\"prose\"], .whitespace-pre-wrap, ' +\n" +
-            "      '[class*=\"markdown\"], article, [role=\"article\"]'\n" +
-            "    );\n" +
+            "    return document.querySelectorAll('[class*=\"assistant-message\"], [class*=\"prose\"], .whitespace-pre-wrap, article, [role=\"article\"]');\n" +
+            "  }\n" +
+            "\n" +
+            "  // 结构化分析元素内容：统计各类标签数量，便于调试内容一致性\n" +
+            "  function analyzeContentStructure(el, reply) {\n" +
+            "    if (!el) return;\n" +
+            "    try {\n" +
+            "      var pCount = el.querySelectorAll('p').length;\n" +
+            "      var hCount = el.querySelectorAll('h1,h2,h3,h4,h5,h6').length;\n" +
+            "      var tableCount = el.querySelectorAll('table').length;\n" +
+            "      var listCount = el.querySelectorAll('ul,ol').length;\n" +
+            "      var preCount = el.querySelectorAll('pre').length;\n" +
+            "      var codeCount = el.querySelectorAll('code').length;\n" +
+            "      var spanCodeCount = el.querySelectorAll('span[class*=\"code\"],span[class*=\"ds-markdown\"]').length;\n" +
+            "      var aCount = el.querySelectorAll('a').length;\n" +
+            "      var brCount = el.querySelectorAll('br').length;\n" +
+            "      var divCount = el.querySelectorAll('div').length;\n" +
+            "      var innerTxt = (el.innerText || '').trim();\n" +
+            "      Android.log('[DEBUG-STRUCT] 内容结构: 段落=' + pCount + ' 标题=' + hCount +\n" +
+            "        ' 表格=' + tableCount + ' 列表=' + listCount + ' 代码块=' + preCount +\n" +
+            "        ' code标签=' + codeCount + ' span代码=' + spanCodeCount +\n" +
+            "        ' 链接=' + aCount + ' br=' + brCount + ' div=' + divCount +\n" +
+            "        ' innerText长度=' + innerTxt.length);\n" +
+            "      if (reply && reply.length > 0) {\n" +
+            "        Android.log('[DEBUG-STRUCT] 转换后Markdown长度=' + reply.length + ' 首行=' + reply.substring(0, Math.min(100, reply.length)));\n" +
+            "      }\n" +
+            "    } catch (_se) { Android.log('[DEBUG-STRUCT] 分析异常: ' + _se.message); }\n" +
             "  }\n" +
             "\n" +
             "  function getAssistantReply(el) {\n" +
             "    if (!el) return null;\n" +
-            "    // 尝试获取HTML内容以保持Markdown格式化\n" +
             "    var html = (el.innerHTML || '').trim();\n" +
-            "    Android.log('[DEBUG-HTML] 原始HTML长度: ' + (html ? html.length : 0));\n" +
-            "    Android.log('[DEBUG-HTML] 原始HTML前200字符: ' + (html ? html.substring(0, 200) : '(空)'));\n" +
+            "    Android.log('[DEBUG-HTML] 原始HTML长度=' + (html ? html.length : 0));\n" +
+            "    Android.log('[DEBUG-HTML] 原始HTML前200字符=' + (html ? html.substring(0, 200) : '(空)'));\n" +
             "    if (html && html.length > 0) {\n" +
-            "      // 转换HTML为Markdown格式，保持文档结构\n" +
             "      var md = htmlToMarkdown(html);\n" +
-            "      Android.log('[DEBUG-HTML] 转换后Markdown长度: ' + (md ? md.length : 0));\n" +
-            "      Android.log('[DEBUG-HTML] 转换后Markdown前200字符: ' + (md ? md.substring(0, 200) : '(空)'));\n" +
+            "      Android.log('[DEBUG-HTML] 转换后Markdown长度=' + (md ? md.length : 0));\n" +
+            "      Android.log('[DEBUG-HTML] 转换后Markdown前200字符=' + (md ? md.substring(0, 200) : '(空)'));\n" +
             "      if (md && md.length > 0) {\n" +
+            "        analyzeContentStructure(el, md);\n" +
             "        return md;\n" +
             "      }\n" +
             "    }\n" +
-            "    // 备用方案：如果HTML转换失败，使用plaintext\n" +
             "    var txt = (el.innerText || el.textContent || '').trim();\n" +
-            "    Android.log('[DEBUG-HTML] 使用备用方案innerText，长度: ' + (txt ? txt.length : 0));\n" +
+            "    Android.log('[DEBUG-HTML] 使用备用方案innerText，长度=' + (txt ? txt.length : 0));\n" +
             "    return txt || null;\n" +
             "  }\n" +
             "\n" +
-            "  // HTML到Markdown的转换函数\n" +
+            "  // HTML到Markdown的转换函数（基于解析字段对照表优化：识别 ds-markdown 内容容器内各类标签\n" +
             "  function htmlToMarkdown(html) {\n" +
             "    if (!html) return '';\n" +
             "    var md = html;\n" +
-            "    \n" +
+            "\n" +
             "    // ===== 第1步：循环解码HTML实体直到稳定（处理双重/多重编码）=====\n" +
-            "    // 关键修复：&amp; 必须在 &lt;/&gt; 之前解码，否则 &amp;lt; 只能变成 &lt; 而不是 <\n" +
-            "    // 同时循环解码，处理三重/四重编码的深度转义场景\n" +
             "    var _prevMd;\n" +
             "    var _decodeIter = 0;\n" +
             "    do {\n" +
             "      _prevMd = md;\n" +
-            "      // 1) &amp; 必须最先解码！否则 &amp;lt; 无法被后续 &lt; 匹配\n" +
             "      md = md.replace(/&amp;/g, '&');\n" +
-            "      // 2) 解码数字实体（十进制：&#60;）\n" +
             "      md = md.replace(/&#(\\d+);/g, function(m, num) {\n" +
             "        return String.fromCharCode(parseInt(num, 10));\n" +
             "      });\n" +
-            "      // 3) 解码数字实体（十六进制：&#x3C;）\n" +
             "      md = md.replace(/&#x([0-9a-fA-F]+);/g, function(m, hex) {\n" +
             "        return String.fromCharCode(parseInt(hex, 16));\n" +
             "      });\n" +
-            "      // 4) 命名实体\n" +
             "      md = md.replace(/&quot;/g, '\"');\n" +
             "      md = md.replace(/&#39;/g, \"'\");\n" +
             "      md = md.replace(/&lt;/g, '<');\n" +
@@ -321,97 +344,89 @@ public class DeepSeekChatBridge {
             "      md = md.replace(/&nbsp;/g, ' ');\n" +
             "      _decodeIter++;\n" +
             "    } while (md !== _prevMd && _decodeIter < 5 && md.length > 0);\n" +
-            "    \n" +
+            "\n" +
             "    // ===== 第2步：转换HTML标签为Markdown =====\n" +
-            "    // 保留段落之间的空行\n" +
+            "    // 先处理块级标签顺序：段落→标题→代码块→表格→列表→链接→行内代码\n" +
             "    md = md.replace(/<\\/p>/gi, '\\n\\n');\n" +
             "    md = md.replace(/<p[^>]*>/gi, '');\n" +
-            "    // 转换div标签（开和关）\n" +
             "    md = md.replace(/<div[^>]*>/gi, '');\n" +
             "    md = md.replace(/<\\/div>/gi, '\\n');\n" +
-            "    // 转换br为换行符\n" +
             "    md = md.replace(/<br\\s*\\/?>/gi, '\\n');\n" +
-            "    // 移除ol/ul标签，保留li\n" +
             "    md = md.replace(/<\\/?o?ul[^>]*>/gi, '');\n" +
-            "    // 处理列表项（使用[\\s\\S]处理跨行内容）\n" +
             "    md = md.replace(/<li[^>]*>([\\s\\S]*?)<\\/li>/gi, '- $1\\n');\n" +
-            "    // 转换加粗\n" +
             "    md = md.replace(/<strong[^>]*>([\\s\\S]*?)<\\/strong>/gi, '**$1**');\n" +
             "    md = md.replace(/<b[^>]*>([\\s\\S]*?)<\\/b>/gi, '**$1**');\n" +
-            "    // 转换斜体\n" +
             "    md = md.replace(/<em[^>]*>([\\s\\S]*?)<\\/em>/gi, '*$1*');\n" +
             "    md = md.replace(/<i[^>]*>([\\s\\S]*?)<\\/i>/gi, '*$1*');\n" +
-            "    // 转换标题\n" +
             "    md = md.replace(/<h1[^>]*>([\\s\\S]*?)<\\/h1>/gi, '# $1\\n');\n" +
             "    md = md.replace(/<h2[^>]*>([\\s\\S]*?)<\\/h2>/gi, '## $1\\n');\n" +
             "    md = md.replace(/<h3[^>]*>([\\s\\S]*?)<\\/h3>/gi, '### $1\\n');\n" +
             "    md = md.replace(/<h4[^>]*>([\\s\\S]*?)<\\/h4>/gi, '#### $1\\n');\n" +
-            "    // 转换链接\n" +
             "    md = md.replace(/<a\\s+href=[\"']([^\"']*)[\"'][^>]*>([\\s\\S]*?)<\\/a>/gi, '[$2]($1)');\n" +
-            "    // 转换代码块（必须在单行code之前）\n" +
             "    md = md.replace(/<pre[^>]*><code[^>]*>([\\s\\S]*?)<\\/code><\\/pre>/gi, '```\\n$1\\n```');\n" +
             "    md = md.replace(/<pre[^>]*>([\\s\\S]*?)<\\/pre>/gi, '```\\n$1\\n```');\n" +
-            "    // 修复：DeepSeek 可能用 span 标签代替 code 来渲染行内代码\n" +
-            "    // 匹配常见的 DeepSeek 类名：ds-markdown-code / inline-code / code 等\n" +
-            "    md = md.replace(/<span[^>]*class=\"[^\"]*(?:ds-markdown(?:--)?(?:inline-)?code|inline-code|markdown-code|code)[^\"]*\"[^>]*>([\\s\\S]*?)<\\/span>/gi, '`$1`');\n" +
+            "    // 处理 DeepSeek 常用的 span 标签作为行内代码\n" +
+            "    // 先处理带 class 的代码样式 span（同时支持单双引号：\n" +
+            "    md = md.replace(/<span[^>]*class=\"[^\"]*(?:ds-markdown(?:--)?(?:inline-)?code|inline-code|inlineCode|markdown-code|code|ds-[a-zA-Z0-9-]*)[^\"]*\"[^>]*>([\\s\\S]*?)<\\/span>/gi, '`$1`');\n" +
             "    md = md.replace(/<span[^>]*class='[^']*(?:ds-markdown(?:--)?(?:inline-)?code|inline-code|markdown-code|code)[^']*'[^>]*>([\\s\\S]*?)<\\/span>/gi, '`$1`');\n" +
             "    md = md.replace(/<code[^>]*>([\\s\\S]*?)<\\/code>/gi, '`$1`');\n" +
-            "    // 转换HTML表格为Markdown表格\\n" +
-            "    md = md.replace(/<table[^>]*>([\\s\\S]*?)<\\/table>/gi, function(match, tableContent) {\\n" +
-            "      var rows = [];\\n" +
-            "      // 提取所有行\\n" +
-            "      tableContent.replace(/<tr[^>]*>([\\s\\S]*?)<\\/tr>/gi, function(trMatch, trContent) {\\n" +
-            "        var cells = [];\\n" +
-            "        // 提取单元格（th 和 td）\\n" +
-            "        trContent.replace(/<t[hd][^>]*>([\\s\\S]*?)<\\/t[hd]>/gi, function(tdMatch, tdContent) {\\n" +
-            "          cells.push(tdContent.trim());\\n" +
-            "        });\\n" +
-            "        if (cells.length > 0) {\\n" +
-            "          rows.push(cells);\\n" +
-            "        }\\n" +
-            "        return trMatch; // 不替换，只是遍历\\n" +
-            "      });\\n" +
-            "      \\n" +
-            "      if (rows.length < 1) return '';\\n" +
-            "      \\n" +
-            "      var result = '\\n';\\n" +
-            "      // 第一行作为表头\\n" +
-            "      result += '| ' + rows[0].join(' | ') + ' |\\n';\\n" +
-            "      // 分隔线\\n" +
-            "      var separators = rows[0].map(function() { return '---'; });\\n" +
-            "      result += '| ' + separators.join(' | ') + ' |\\n';\\n" +
-            "      // 剩余行作为数据\\n" +
-            "      for (var i = 1; i < rows.length; i++) {\\n" +
-            "        result += '| ' + rows[i].join(' | ') + ' |\\n';\\n" +
-            "      }\\n" +
-            "      result += '\\n';\\n" +
-            "      \\n" +
-            "      return result;\\n" +
-            "    });\\n" +
-            "    // 移除其他HTML标签\n" +
+            "    // 改进表格为 Markdown 表格：处理 thead/tbody，并递归清理单元格内容\n" +
+            "    md = md.replace(/<table[^>]*>([\\s\\S]*?)<\\/table>/gi, function(match, tc) {\n" +
+            "      var rows = [];\n" +
+            "      // 首先剥掉 thead/tbody 包装标签，保留 tr 内容\n" +
+            "      tc = tc.replace(/<\\/?t(?:head|body)[^>]*>/gi, '');\n" +
+            "      tc.replace(/<tr[^>]*>([\\s\\S]*?)<\\/tr>/gi, function(trm, trc) {\n" +
+            "        var cells = [];\n" +
+            "        trc.replace(/<t[hd][^>]*>([\\s\\S]*?)<\\/t[hd]>/gi, function(_, cell) {\n" +
+            "          // 清理单元格内部的 span/p/div/br 等内部标签的影响（DeepSeek 常把代码样式内容放 span/p/div/br 里）\n" +
+            "          // 先把单元格内容的其他标签清理：把里面的 span/p/div/br/等\n" +
+            "          var cleanCell = (cell || '').trim();\n" +
+            "          // 递归调用内部的 span/p/div/br 的影响\n" +
+            "          cleanCell = cleanCell.replace(/<span[^>]*>([\\s\\S]*?)<\\/span>/gi, '$1');\n" +
+            "          cleanCell = cleanCell.replace(/<p[^>]*>/gi, '');\n" +
+            "          cleanCell = cleanCell.replace(/<div>/gi, ' ');\n" +
+            "          cleanCell = cleanCell.replace(/<br[^>]*>/gi, ' ');\n" +
+            "          cleanCell = cleanCell.replace(/<[^>]+>/gi, '');\n" +
+            "          cells.push(cleanCell.trim());\n" +
+            "        });\n" +
+            "        if (cells.length > 0) rows.push(cells);\n" +
+            "        return trm;\n" +
+            "      });\n" +
+            "      if (rows.length < 1) return '';\n" +
+            "      var tableOut = '\\n';\n" +
+            "      // 第一行为表头\n" +
+            "      tableOut += '| ' + rows[0].join(' | ') + ' |\\n';\n" +
+            "      var separators = rows[0].map(function() { return '---'; });\n" +
+            "      tableOut += '| ' + separators.join(' | ') + ' |\\n';\n" +
+            "      for (var ti = 1; ti < rows.length; ti++) {\n" +
+            "        tableOut += '| ' + rows[ti].join(' | ') + ' |\\n';\n" +
+            "      }\n" +
+            "      tableOut += '\\n';\n" +
+            "      return tableOut;\n" +
+            "    });\n" +
+            "    // 移除其他HTML标签（span/p/div/br 等内部标签清理\n" +
             "    md = md.replace(/<[^>]+>/gi, '');\n" +
-            "    \n" +
+            "\n" +
             "    // ===== 第3步：清理格式 =====\n" +
-            "    // 清理多余的空行（保留最多2个连续空行）\n" +
             "    md = md.replace(/\\n{3,}/g, '\\n\\n');\n" +
-            "    // 删除前后空白\n" +
             "    md = md.trim();\n" +
-            "    \n" +
-            "    // 返回非空内容或null，允许fallback机制使用innerText\n" +
             "    return md.length > 0 ? md : null;\n" +
             "  }\n" +
             "\n" +
-            "  // 备用全页扫描：依次尝试多个选择器，返回最后一条非空内容\n" +
+            "  // 备用全页扫描（选择器与 getAssistantMessages 同步优化）\n" +
             "  function getAssistantReplyFallback() {\n" +
             "    var selectors = [\n" +
+            "      '.ds-markdown.ds-assistant-message-main-content',\n" +
+            "      '.ds-markdown--block',\n" +
             "      '.ds-assistant-message-main-content',\n" +
+            "      '[class*=\"ds-markdown\"]',\n" +
             "      '[class*=\"ds-assistant-message\"]',\n" +
             "      '[class*=\"assistant-message-main\"]',\n" +
-            "      '.ds-markdown--block',\n" +
-            "      '.ds-markdown',\n" +
             "      '[class*=\"assistant-message\"]',\n" +
             "      '[class*=\"markdown-content\"]',\n" +
-            "      '[class*=\"chat-message\"]'\n" +
+            "      '[class*=\"chat-message\"]',\n" +
+            "      'article',\n" +
+            "      '[role=\"article\"]'\n" +
             "    ];\n" +
             "    for (var si = 0; si < selectors.length; si++) {\n" +
             "      var els = document.querySelectorAll(selectors[si]);\n" +
