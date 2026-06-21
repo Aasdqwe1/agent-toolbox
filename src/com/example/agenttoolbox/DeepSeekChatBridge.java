@@ -469,19 +469,28 @@ public class DeepSeekChatBridge {
             "    var isJsonRpcCall = reply.indexOf('\"jsonrpc\"') !== -1 && reply.indexOf('\"tools/call\"') !== -1;\n" +
             "    if (isJsonRpcCall) {\n" +
             "      var trimmed = reply.trim();\n" +
-            "      var isCompleteJson = trimmed.startsWith('{') && trimmed.endsWith('}');\n" +
+            "      var isCompleteJson = false;\n" +
+            "      try {\n" +
+            "        JSON.parse(trimmed);\n" +
+            "        isCompleteJson = true;\n" +
+            "      } catch(e) {\n" +
+            "        isCompleteJson = false;\n" +
+            "      }\n" +
             "      if (!isCompleteJson) {\n" +
-            "        // JSON 不完整，重置冷却，继续等待\n" +
+            "        // JSON 不完整，重置冷却并跳过完成判定\n" +
             "        if (completionReady) {\n" +
             "          completionReady = false;\n" +
             "          completionStartTime = 0;\n" +
             "          Android.log('[DEBUG][' + __rid + '] JSON不完整，重置冷却');\n" +
             "        }\n" +
-            "        // 跳过完成判定，继续等待\n" +
+            "        // 超时后报告错误，而不是强制 finish\n" +
             "        if (pollCount > 240) {\n" +
-            "          finish(reply || '');\n" +
+            "          Android.onDeepSeekError(__rid, '超时：JSON-RPC调用不完整');\n" +
+            "          if (window[__prefix + 'poll']) clearInterval(window[__prefix + 'poll']);\n" +
+            "          if (window[__prefix + 'obs']) { try { window[__prefix + 'obs'].disconnect(); } catch(_e) {} }\n" +
+            "          finished = true;\n" +
             "        }\n" +
-            "        return;\n" +
+            "        return; // 重要：跳过后续完成判定\n" +
             "      } else {\n" +
             "        Android.log('[DEBUG][' + __rid + '] 检测到完整JSON-RPC调用');\n" +
             "      }\n" +
