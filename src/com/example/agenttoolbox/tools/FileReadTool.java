@@ -13,6 +13,11 @@ import java.io.InputStreamReader;
  * 文件读取工具
  */
 public class FileReadTool implements Tool {
+    
+    // 允许的外部存储目录简写（用于路径转换）
+    private static final String[] ALLOWED_SHORTHAND_DIRS = {
+            "/Download/", "/Documents/", "/Pictures/", "/DCIM/", "/Movies/"
+    };
 
     @Override
     public String getName() {
@@ -74,9 +79,7 @@ public class FileReadTool implements Tool {
                 || path.startsWith("/external")) {
             // 外部存储完整路径
             file = new File(path);
-        } else if (path.startsWith("/Download/") || path.startsWith("/Documents/") 
-                || path.startsWith("/Pictures/") || path.startsWith("/DCIM/") 
-                || path.startsWith("/Movies/")) {
+        } else if (isShorthandExternalPath(path)) {
             // 外部存储简写路径，转换为完整路径
             file = new File(getExternalStorageDir(), path.substring(1));
         } else {
@@ -126,6 +129,18 @@ public class FileReadTool implements Tool {
     private File getAppExternalDir() {
         // 应用专属外部存储目录（不需要权限）
         return new File("/storage/emulated/0/Android/data/com.example.agenttoolbox/files");
+    }
+    
+    /**
+     * 检查是否是外部存储简写路径（/Download/...、/Documents/... 等）
+     */
+    private boolean isShorthandExternalPath(String path) {
+        for (String shorthand : ALLOWED_SHORTHAND_DIRS) {
+            if (path.startsWith(shorthand)) {
+                return true;
+            }
+        }
+        return false;
     }
 
 }
