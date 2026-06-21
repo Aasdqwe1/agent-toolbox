@@ -563,17 +563,18 @@ public class McpServer {
                                 try {
                                     int seq = 0;
                                     while (!stopHeartbeat.get()) {
-                                        Thread.sleep(15000);
+                                        Thread.sleep(8000);
                                         if (stopHeartbeat.get()) return;
                                         long now = System.currentTimeMillis();
                                         long last = lastActivityAt.get();
-                                        if (now - last >= 14000) {
+                                        if (now - last >= 7000) {
                                             seq++;
                                             JSONObject j = new JSONObject();
                                             j.put("message", "模型处理中...");
                                             j.put("seq", seq);
                                             j.put("elapsedMs", now - last);
                                             writeEventChunk(out, "status", j.toString());
+                                            log("[心跳] 模型处理中... seq=" + seq + " 已等待=" + (now - last) + "ms");
                                         }
                                     }
                                 } catch (InterruptedException ignored) {

@@ -189,7 +189,27 @@ public class DeepSeekChatBridge {
                     @Override
                     public void run() {
                         try {
-                            boolean completed = latch.await(90, TimeUnit.SECONDS);
+                            // 等待 82 秒，到时尝试备用 DOM 提取，再等 8 秒，共 90 秒
+                            boolean completed = latch.await(82, TimeUnit.SECONDS);
+                            if (!completed) {
+                                android.util.Log.w("DeepSeekChatBridge",
+                                    "[" + requestId + "] 接近超时，尝试备用DOM提取");
+                                String backup = extractCurrentDomReply();
+                                // 10 chars minimum: no initialLastContent baseline on Java side, need stricter filter
+                                if (backup != null && backup.trim().length() > 10) {
+                                    android.util.Log.d("DeepSeekChatBridge",
+                                        "[" + requestId + "] 备用DOM提取成功，长度=" + backup.trim().length());
+                                    AtomicReference<String> ref = replyById.get(requestId);
+                                    if (ref != null && ref.get() == null && latch.getCount() > 0) {
+                                        ref.set(backup.trim());
+                                        latch.countDown();
+                                        completed = true;
+                                    }
+                                }
+                                if (!completed) {
+                                    completed = latch.await(8, TimeUnit.SECONDS);
+                                }
+                            }
                             String reply = replyRef.get();
                             String err = errorRef.get();
                             StreamCallback cb = callbacksById.get(requestId);
@@ -268,6 +288,31 @@ public class DeepSeekChatBridge {
             "    if (!el) return null;\n" +
             "    var txt = (el.innerText || el.textContent || '').trim();\n" +
             "    return txt || null;\n" +
+            "  }\n" +
+            "\n" +
+            "  // 备用 DOM 查询：尝试多种选择器找到最长的 AI 回复内容\n" +
+            "  function tryBackupQuery() {\n" +
+            "    var bkSelectors = [\n" +
+            "      '.ds-assistant-message-main-content',\n" +
+            "      '[class*=\"assistant-message\"]',\n" +
+            "      '[class*=\"prose\"]',\n" +
+            "      '.whitespace-pre-wrap',\n" +
+            "      '[class*=\"markdown\"]',\n" +
+            "      'article',\n" +
+            "      '[class*=\"message-content\"]'\n" +
+            "    ];\n" +
+            "    var best = '';\n" +
+            "    for (var _bi = 0; _bi < bkSelectors.length; _bi++) {\n" +
+            "      try {\n" +
+            "        var _bels = document.querySelectorAll(bkSelectors[_bi]);\n" +
+            "        if (_bels && _bels.length > 0) {\n" +
+            "          var _btxt = (_bels[_bels.length - 1].innerText ||\n" +
+            "                       _bels[_bels.length - 1].textContent || '').trim();\n" +
+            "          if (_btxt.length > best.length) best = _btxt;\n" +
+            "        }\n" +
+            "      } catch (_be) {}\n" +
+            "    }\n" +
+            "    return (best.length > 0 && best !== initialLastContent) ? best : null;\n" +
             "  }\n" +
             "\n" +
             "  var initialMsgCount = getAssistantMessages().length;\n" +
@@ -372,6 +417,7 @@ public class DeepSeekChatBridge {
             "\n" +
             "  function pollOnce() {\n" +
             "    if (finished) return;\n" +
+            "    try {\n" +
             "    pollCount++;\n" +
             "    var list = getAssistantMessages();\n" +
             "    var gen = isGenerating();\n" +
@@ -379,8 +425,15 @@ public class DeepSeekChatBridge {
             "    // 没有任何AI消息，继续等待\n" +
             "    if (list.length === 0) {\n" +
             "      if (pollCount > 240) {\n" +
-            "        finish('');\n" +
-            "        Android.onDeepSeekError(__rid, '超时：未捕获到任何AI消息');\n" +
+            "        var _noMsgBkp = tryBackupQuery();\n" +
+            "        // > 5: tryBackupQuery already filters vs initialLastContent, so low threshold is safe\n" +
+            "        if (_noMsgBkp && _noMsgBkp.length > 5) {\n" +
+            "          Android.log('[DEBUG][' + __rid + '] 无消息超时，备用查询找到内容，长度=' + _noMsgBkp.length);\n" +
+            "          finish(_noMsgBkp);\n" +
+            "        } else {\n" +
+            "          Android.onDeepSeekError(__rid, '超时：未捕获到任何AI消息');\n" +
+            "          finish('');\n" +
+            "        }\n" +
             "      }\n" +
             "      return;\n" +
             "    }\n" +
@@ -394,9 +447,26 @@ public class DeepSeekChatBridge {
             "\n" +
             "    // 没有新消息，继续等待\n" +
             "    if (!hasNewMessage) {\n" +
+            "      // 接近超时时（约80s）尝试备用DOM查询，捕获可能已渲染但未被检测到的内容\n" +
+            "      // 160 polls × 500ms ≈ 80 seconds\n" +
+            "      if (pollCount === 160) {\n" +
+            "        var _bkp160 = tryBackupQuery();\n" +
+            "        if (_bkp160) {\n" +
+            "          Android.log('[DEBUG][' + __rid + '] 80s备用查询找到内容，长度=' + _bkp160.length + '，强制开始跟踪');\n" +
+            "          detectedNewMessage = true;\n" +
+            "          initialLastContent = _bkp160;\n" +
+            "        }\n" +
+            "      }\n" +
             "      if (pollCount > 240) {\n" +
-            "        finish('');\n" +
-            "        Android.onDeepSeekError(__rid, '超时未捕获到新回复');\n" +
+            "        var _lastBkp = tryBackupQuery();\n" +
+            "        // > 5: tryBackupQuery already filters vs initialLastContent, so low threshold is safe\n" +
+            "        if (_lastBkp && _lastBkp.length > 5) {\n" +
+            "          Android.log('[DEBUG][' + __rid + '] 超时备用查询找到内容，长度=' + _lastBkp.length);\n" +
+            "          finish(_lastBkp);\n" +
+            "        } else {\n" +
+            "          Android.onDeepSeekError(__rid, '超时未捕获到新回复');\n" +
+            "          finish('');\n" +
+            "        }\n" +
             "      }\n" +
             "      return;\n" +
             "    }\n" +
@@ -576,6 +646,9 @@ public class DeepSeekChatBridge {
             "    if (pollCount > 240) {\n" +
             "      finish(reply || '');\n" +
             "    }\n" +
+            "    } catch (_poll_err) {\n" +
+            "      Android.log('[DEBUG][' + __rid + '] pollOnce 异常: ' + _poll_err);\n" +
+            "    }\n" +
             "  }\n" +
             "\n" +
             "  window[__prefix + 'poll'] = setInterval(pollOnce, 500);\n" +
@@ -592,7 +665,7 @@ public class DeepSeekChatBridge {
             "  var target = document.body || document.documentElement;\n" +
             "  if (target) {\n" +
             "    window[__prefix + 'obs'].observe(target,\n" +
-            "      { childList: true, subtree: true, characterData: true, attributes: true });\n" +
+            "      { childList: true, subtree: true, characterData: true });\n" +
             "    Android.log('[DEBUG][' + __rid + '] MutationObserver 已启动, 目标=' + (target.tagName || 'unknown'));\n" +
             "  } else {\n" +
             "    Android.log('[DEBUG][' + __rid + '] MutationObserver 启动失败: 无目标元素');\n" +
@@ -819,6 +892,48 @@ public class DeepSeekChatBridge {
             return null;
         }
         return resultRef.get();
+    }
+
+    /**
+     * 备用 DOM 提取：在超时前直接查询 WebView 当前页面中最长的 AI 消息内容。
+     * 用于当 JS 轮询机制因某些原因未能捕获内容时的兜底方案。
+     */
+    private String extractCurrentDomReply() {
+        final String js =
+            "(function() {\n" +
+            "  var selectors = [\n" +
+            "    '.ds-assistant-message-main-content',\n" +
+            "    '[class*=\"assistant-message\"]',\n" +
+            "    '[class*=\"prose\"]',\n" +
+            "    '.whitespace-pre-wrap',\n" +
+            "    '[class*=\"markdown\"]',\n" +
+            "    'article'\n" +
+            "  ];\n" +
+            "  var best = '';\n" +
+            "  for (var i = 0; i < selectors.length; i++) {\n" +
+            "    try {\n" +
+            "      var els = document.querySelectorAll(selectors[i]);\n" +
+            "      if (els && els.length > 0) {\n" +
+            "        var last = els[els.length - 1];\n" +
+            "        var txt = (last.innerText || last.textContent || '').trim();\n" +
+            "        if (txt.length > best.length) best = txt;\n" +
+            "      }\n" +
+            "    } catch(_e) {}\n" +
+            "  }\n" +
+            "  return best;\n" +
+            "})()";
+        String raw = evaluateJsSync(js, 8);
+        if (raw == null) return null;
+        if (raw.length() >= 2 && raw.startsWith("\"") && raw.endsWith("\"")) {
+            try {
+                org.json.JSONArray arr = new org.json.JSONArray("[" + raw + "]");
+                return arr.getString(0);
+            } catch (Exception e) {
+                android.util.Log.w("DeepSeekChatBridge",
+                    "extractCurrentDomReply 解包失败: " + e.getMessage());
+            }
+        }
+        return raw;
     }
 
     /**
