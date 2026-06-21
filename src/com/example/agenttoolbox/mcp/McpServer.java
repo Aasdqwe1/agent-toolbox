@@ -615,11 +615,11 @@ public class McpServer {
                                 try {
                                     int seq = 0;
                                     while (!stopHeartbeat.get()) {
-                                        Thread.sleep(8000);
+                                        Thread.sleep(30000);
                                         if (stopHeartbeat.get()) return;
                                         long now = System.currentTimeMillis();
                                         long last = lastActivityAt.get();
-                                        if (now - last >= 8000) {
+                                        if (now - last >= 30000) {
                                             seq++;
                                             JSONObject j = new JSONObject();
                                             j.put("message", "模型处理中...");
