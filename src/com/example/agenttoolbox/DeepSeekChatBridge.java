@@ -399,15 +399,22 @@ public class DeepSeekChatBridge {
             "    }\n" +
             "\n" +
             "    var complete = isLatestReplyComplete(latestEl);\n" +
-            "    // 完成条件：内容长度连续稳定多次（5秒），避免操作栏误判\n" +
-            "    if (sameLenStable >= 10) {\n" +
+            "    var stableEnough = sameLenStable >= 6;\n" +
+            "    var hasMinimumLength = reply.length > 30;\n" +
+            "    \n" +
+            "    // 判定一：操作栏出现\n" +
+            "    // 判定二：内容稳定且超过30字符（不再依赖操作栏）\n" +
+            "    // 判定三：AI已停止生成，内容非空，且稳定了至少2秒\n" +
+            "    if (complete || \n" +
+            "        (stableEnough && hasMinimumLength) || \n" +
+            "        (!gen && reply.length > 10 && sameLenStable >= 4)) {\n" +
             "      finish(reply);\n" +
             "      return;\n" +
             "    }\n" +
             "\n" +
-            "    // 最长 240 秒超时：有部分内容就返回已有内容\n" +
-            "    if (pollCount > 480) {\n" +
-            "      finish(reply);\n" +
+            "    // 最长 90 秒超时：有部分内容就返回已有内容\n" +
+            "    if (pollCount > 180) {\n" +
+            "      finish(reply || '');\n" +
             "    }\n" +
             "  }\n" +
             "\n" +
