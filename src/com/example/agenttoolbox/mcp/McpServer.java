@@ -293,12 +293,10 @@ public class McpServer {
                 sendNoContentResponse(out);
                 return;
             }
-            
-            // P2 修复：截断日志防止过长
-            log("收到请求: " + truncateForLogging(requestBody, 4096));
 
             // 优先处理 /api/chat/ 路径（这些端点允许空 JSON 对象 {}）
             if (path.startsWith("/api/chat/")) {
+                log("收到聊天 API 请求: " + truncateForLogging(requestBody, 4096));
                 handleChatRequest(path, requestBody, out);
                 return;
             }
@@ -310,6 +308,9 @@ public class McpServer {
                 sendErrorResponse(out, 400, "Empty request object");
                 return;
             }
+
+            // P2 修复：截断日志防止过长
+            log("收到请求: " + truncateForLogging(requestBody, 4096));
 
             String responseBody = handleJsonRpcRequest(requestBody);
             log("返回响应: " + truncateForLogging(responseBody, 4096));
