@@ -172,9 +172,17 @@ public class DeepSeekChatBridge {
     }
 
     /**
-     * 向 WebView 注入 JS：先记录当前消息基线 → 填写输入框 → 点击发送
-     * requestId 用于让 JS 回调里带回来，确保 Java 侧路由到正确的请求
+     * 由 JS 桥接调用：DeepSeek 页面尚未出现新消息，但能检测到仍在生成/处理，
+     * 用于向客户端发送心跳，避免 HTTP 端误判为"超时"。
      */
+    public void onDeepSeekStatus(String requestId, String statusText) {
+        if (requestId == null) return;
+        StreamCallback cb = callbacksById.get(requestId);
+        if (cb != null) {
+            try { cb.onChunk("[STATUS] " + (statusText == null ? "" : statusText)); } catch (Exception ignored) {}
+        }
+    }
+
     private void injectChatScript(final WebView webView,
                                    final String requestId,
                                    final String message) {
@@ -224,6 +232,7 @@ public class DeepSeekChatBridge {
             "  var lastReplyLen = 0;\n" +
             "  var sameLenStable = 0;\n" +
             "  var finished = false;\n" +
+            "  var lastStatusAt = 0;\n" +
             "\n" +
             "  // ===== B. 检查最新一条 AI 消息是否有操作栏 =====\n" +
             "  function isLatestReplyComplete(el) {\n" +
@@ -242,7 +251,9 @@ public class DeepSeekChatBridge {
             "  function isGenerating() {\n" +
             "    var typing = document.querySelector('[class*=\"typing\"]') ||\n" +
             "                  document.querySelector('[class*=\"loading\"]') ||\n" +
-            "                  document.querySelector('[class*=\"thinking\"]');\n" +
+            "                  document.querySelector('[class*=\"thinking\"]') ||\n" +
+            "                  document.querySelector('[class*=\"Thinking\"]') ||\n" +
+            "                  document.querySelector('[aria-busy=\"true\"]');\n" +
             "    if (typing) return true;\n" +
             "    var circleBtns = document.querySelectorAll('div[role=\"button\"][class*=\"ds-button--circle\"]');\n" +
             "    for (var j = 0; j < circleBtns.length; j++) {\n" +
@@ -257,7 +268,15 @@ public class DeepSeekChatBridge {
             "      if (svgHtml.indexOf('<rect') !== -1 ||\n" +
             "          svgHtml.indexOf('pause') !== -1 ||\n" +
             "          svgHtml.indexOf('stop') !== -1 ||\n" +
+            "          svgHtml.indexOf('stop-circle') !== -1 ||\n" +
             "          svgHtml.indexOf('M 4.88') !== -1) return true;\n" +
+            "    }\n" +
+            "    var last = document.querySelector('.ds-assistant-message-main-content:last-child');\n" +
+            "    if (last) {\n" +
+            "      var lt = (last.innerText || '').trim();\n" +
+            "      if (lt.length > 0 && lt.length < 60) {\n" +
+            "        if (/…|\\.{2,}|正在|思考|生成|处理/.test(lt)) return true;\n" +
+            "      }\n" +
             "    }\n" +
             "    return false;\n" +
             "  }\n" +
@@ -275,18 +294,27 @@ public class DeepSeekChatBridge {
             "    if (finished) return;\n" +
             "    pollCount++;\n" +
             "    var list = getAssistantMessages();\n" +
+            "    var gen = isGenerating();\n" +
+            "    if (pollCount - lastStatusAt >= 15) {\n" +
+            "      lastStatusAt = pollCount;\n" +
+            "      var statusMsg = (list.length > baseline ? '正在接收回复' : (gen ? '模型正在生成中' : '等待模型响应');\n" +
+            "      try { Android.onDeepSeekChunk(__rid, '[STATUS] ' + statusMsg); } catch(_e) {}\n" +
+            "    }\n" +
             "    // 必须有**新增**的消息（index >= baseline）\n" +
             "    if (list.length <= baseline) {\n" +
-            "      // 超时检查：90s 仍无新消息则失败\n" +
-            "      if (pollCount > 180) {\n" +
+            "      var maxPoll = gen ? 480 : 120;\n" +
+            "      if (pollCount > maxPoll) {\n" +
             "        finish('');\n" +
-            "        Android.onDeepSeekError(__rid, '超时未捕获到新回复');\n" +
+            "        Android.onDeepSeekError(__rid, gen ? '超时：生成中但未完成（超过240秒）' : '超时未捕获到新回复');\n" +
             "      }\n" +
             "      return;\n" +
             "    }\n" +
             "    var latestEl = list[list.length - 1];\n" +
             "    var reply = getAssistantReply(latestEl);\n" +
-            "    if (!reply || reply.length < 2) return;\n" +
+            "    if (!reply || reply.length < 2) {\n" +
+            "      if (gen && pollCount < 480) return;\n" +
+            "      return;\n" +
+            "    }\n" +
             "\n" +
             "    // 流式回调：内容有增长就通知\n" +
             "    if (reply.length > lastReplyLen) {\n" +
@@ -303,15 +331,14 @@ public class DeepSeekChatBridge {
             "    }\n" +
             "\n" +
             "    var complete = isLatestReplyComplete(latestEl);\n" +
-            "    var gen = isGenerating();\n" +
             "    // 完成条件：有操作栏 或 (不在生成 且 长度稳定多次)\n" +
-            "    if (complete || (!gen && sameLenStable >= 3)) {\n" +
+            "    if (complete || (!gen && sameLenStable >= 4)) {\n" +
             "      finish(reply);\n" +
             "      return;\n" +
             "    }\n" +
             "\n" +
-            "    // 最长 90 秒超时：有部分内容就返回已有内容\n" +
-            "    if (pollCount > 180) {\n" +
+            "    // 最长 240 秒超时：有部分内容就返回已有内容\n" +
+            "    if (pollCount > 480) {\n" +
             "      finish(reply);\n" +
             "    }\n" +
             "  }\n" +
@@ -336,61 +363,62 @@ public class DeepSeekChatBridge {
         final String sendScript =
             "(function() {\n" +
             "  var msg = " + JSONObject.quote(message) + ";\n" +
-            "  var textarea = document.querySelector('textarea[name=\"search\"]') ||\n" +
-            "                 document.querySelector('textarea') ||\n" +
-            "                 document.querySelector('[contenteditable=\"true\"]');\n" +
-            "  if (!textarea) {\n" +
-            "    Android.onDeepSeekError(" + JSONObject.quote(requestId) + ", '未找到输入框');\n" +
-            "    return 'no_input';\n" +
-            "  }\n" +
-            "  Android.log('DeepSeek: 已定位输入框');\n" +
-            "  textarea.focus();\n" +
-            "  textarea.click();\n" +
-            "  var reactPropSet = false;\n" +
-            "  for (var key in textarea) {\n" +
-            "    if (key.indexOf('__react') === 0 || key.indexOf('__REACT') === 0) {\n" +
+            "  var __rid = " + JSONObject.quote(requestId) + ";\n" +
+            "  var attempts = 0;\n" +
+            "  function trySend() {\n" +
+            "    attempts++;\n" +
+            "    var textarea = document.querySelector('textarea[name=\"search\"]') ||\n" +
+            "                   document.querySelector('textarea') ||\n" +
+            "                   document.querySelector('[contenteditable=\"true\"]');\n" +
+            "    if (!textarea) {\n" +
+            "      if (attempts < 6) { setTimeout(trySend, 300); return; }\n" +
+            "      Android.onDeepSeekError(__rid, '未找到输入框');\n" +
+            "      return;\n" +
+            "    }\n" +
+            "    Android.log('DeepSeek: 已定位输入框 (attempt=' + attempts + ')');\n" +
+            "    textarea.focus();\n" +
+            "    try { textarea.click(); } catch(_e1) {}\n" +
+            "    for (var key in textarea) {\n" +
+            "      if (key.indexOf('__react') === 0 || key.indexOf('__REACT') === 0) {\n" +
+            "        try {\n" +
+            "          var internal = textarea[key];\n" +
+            "          if (internal && typeof internal.memoizedProps === 'object') {\n" +
+            "            internal.memoizedProps.value = msg;\n" +
+            "            if (typeof internal.memoizedProps.onChange === 'function') {\n" +
+            "              internal.memoizedProps.onChange({ target: { value: msg } });\n" +
+            "            }\n" +
+            "          } else if (internal && typeof internal === 'object' && internal.stateNode) {\n" +
+            "            var stateNode = internal.stateNode || internal;\n" +
+            "            if (stateNode && typeof stateNode._valueTracker !== 'undefined') {\n" +
+            "              stateNode._valueTracker = null;\n" +
+            "            }\n" +
+            "          }\n" +
+            "        } catch(_e2) {}\n" +
+            "      }\n" +
+            "    }\n" +
+            "    var descriptor = Object.getOwnPropertyDescriptor(\n" +
+            "      window.HTMLTextAreaElement.prototype, 'value') ||\n" +
+            "      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');\n" +
+            "    if (descriptor && descriptor.set) {\n" +
+            "      descriptor.set.call(textarea, msg);\n" +
+            "    } else {\n" +
+            "      textarea.value = msg;\n" +
+            "    }\n" +
+            "    ['input', 'change', 'blur'].forEach(function(evName) {\n" +
             "      try {\n" +
-            "        var internal = textarea[key];\n" +
-            "        if (internal && typeof internal.memoizedProps === 'object') {\n" +
-            "          internal.memoizedProps.value = msg;\n" +
-            "          if (typeof internal.memoizedProps.onChange === 'function') {\n" +
-            "            internal.memoizedProps.onChange({ target: { value: msg } });\n" +
-            "          }\n" +
-            "          reactPropSet = true;\n" +
-            "        } else if (internal && typeof internal === 'object' && internal.stateNode) {\n" +
-            "          var stateNode = internal.stateNode || internal;\n" +
-            "          if (stateNode && typeof stateNode._valueTracker !== 'undefined') {\n" +
-            "            stateNode._valueTracker = null;\n" +
-            "          }\n" +
-            "          reactPropSet = true;\n" +
-            "        }\n" +
-            "      } catch(e) {}\n" +
-            "    }\n" +
-            "  }\n" +
-            "  var descriptor = Object.getOwnPropertyDescriptor(\n" +
-            "    window.HTMLTextAreaElement.prototype, 'value') ||\n" +
-            "    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');\n" +
-            "  if (descriptor && descriptor.set) {\n" +
-            "    descriptor.set.call(textarea, msg);\n" +
-            "  } else {\n" +
-            "    textarea.value = msg;\n" +
-            "  }\n" +
-            "  ['input', 'change'].forEach(function(evName) {\n" +
+            "        var ev = new Event(evName, { bubbles: true, cancelable: true });\n" +
+            "        textarea.dispatchEvent(ev);\n" +
+            "      } catch(_e3) {}\n" +
+            "    });\n" +
             "    try {\n" +
-            "      var ev = new Event(evName, { bubbles: true, cancelable: true });\n" +
-            "      textarea.dispatchEvent(ev);\n" +
-            "    } catch(e) {}\n" +
-            "  });\n" +
-            "  try {\n" +
-            "    if (typeof InputEvent !== 'undefined') {\n" +
-            "      var ie = new InputEvent('input', {\n" +
-            "        bubbles: true, cancelable: true, data: msg, inputType: 'insertText'\n" +
-            "      });\n" +
-            "      textarea.dispatchEvent(ie);\n" +
-            "    }\n" +
-            "  } catch(e) {}\n" +
-            "\n" +
-            "  setTimeout(function() {\n" +
+            "      if (typeof InputEvent !== 'undefined') {\n" +
+            "        var ie = new InputEvent('input', {\n" +
+            "          bubbles: true, cancelable: true, data: msg, inputType: 'insertText'\n" +
+            "        });\n" +
+            "        textarea.dispatchEvent(ie);\n" +
+            "      }\n" +
+            "    } catch(_e4) {}\n" +
+            "    // ===== 点击发送按钮 =====\n" +
             "    var sendBtn = null;\n" +
             "    var roleBtns = document.querySelectorAll('div[role=\"button\"]');\n" +
             "    for (var i = 0; i < roleBtns.length; i++) {\n" +
@@ -413,23 +441,24 @@ public class DeepSeekChatBridge {
             "        }\n" +
             "      }\n" +
             "    }\n" +
-            "    if (!sendBtn) {\n" +
-            "      try {\n" +
-            "        var ke = new KeyboardEvent('keydown', {\n" +
-            "          key: 'Enter', code: 'Enter', keyCode: 13,\n" +
-            "          which: 13, bubbles: true, cancelable: true\n" +
-            "        });\n" +
-            "        textarea.dispatchEvent(ke);\n" +
-            "        Android.log('DeepSeek: 回车键发送');\n" +
-            "        return;\n" +
-            "      } catch(e2) {\n" +
-            "        Android.onDeepSeekError(" + JSONObject.quote(requestId) + ", '未找到发送按钮，回车发送也失败');\n" +
-            "        return;\n" +
-            "      }\n" +
+            "    if (sendBtn) {\n" +
+            "      try { sendBtn.focus(); sendBtn.click(); } catch(_e5) {}\n" +
+            "      Android.log('DeepSeek: 已点击发送按钮 (msg=' + msg.substring(0, Math.min(20, msg.length)) + ')');\n" +
+            "      return;\n" +
             "    }\n" +
-            "    sendBtn.click();\n" +
-            "    Android.log('DeepSeek: 已点击发送按钮 (msg=' + msg.substring(0, Math.min(20, msg.length)) + ')');\n" +
-            "  }, 300);\n" +
+            "    // 兜底：键盘 Enter\n" +
+            "    try {\n" +
+            "      var ke2 = new KeyboardEvent('keydown', {\n" +
+            "        key: 'Enter', code: 'Enter', keyCode: 13,\n" +
+            "        which: 13, bubbles: true, cancelable: true\n" +
+            "      });\n" +
+            "      textarea.dispatchEvent(ke2);\n" +
+            "      Android.log('DeepSeek: 回车键发送');\n" +
+            "    } catch(_e6) {\n" +
+            "      Android.onDeepSeekError(__rid, '未找到发送按钮，回车发送也失败');\n" +
+            "    }\n" +
+            "  }\n" +
+            "  trySend();\n" +
             "  return 'preparing';\n" +
             "})()";
 

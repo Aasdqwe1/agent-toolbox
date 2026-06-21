@@ -1703,23 +1703,34 @@
                         setState('开始');
                     } else if (eventName === 'chunk') {
                         if (obj && typeof obj.content === 'string') {
-                            // 服务端回传的 chunk 是当前全量文本，这里增量渲染
                             if (obj.content.length > lastLen) {
-                                if (!gotContent) {
-                                    bubbleEl.textContent = obj.content;
-                                } else {
-                                    bubbleEl.textContent = obj.content;
-                                }
+                                bubbleEl.textContent = obj.content;
                                 lastLen = obj.content.length;
                             }
                             gotContent = true;
                         }
+                    } else if (eventName === 'status') {
+                        const statusText = (obj && obj.message) ? obj.message : '模型处理中…';
+                        if (!gotContent) {
+                            bubbleEl.textContent = '… ' + statusText;
+                        }
+                        setState('生成中');
+                    } else if (eventName === 'retrying') {
+                        const retryText = (obj && obj.message) ? obj.message : '自动重试…';
+                        if (!gotContent) {
+                            bubbleEl.textContent = '… ' + retryText;
+                        }
+                        setState('重试中');
                     } else if (eventName === 'done') {
                         gotDone = true;
                         if (obj && typeof obj.content === 'string') {
                             bubbleEl.textContent = obj.content;
                         }
-                        setState('完成');
+                        if (obj && obj.mode === 'fallback-blocking') {
+                            setState('完成(降级)');
+                        } else {
+                            setState('完成');
+                        }
                     } else if (eventName === 'error') {
                         gotDone = true;
                         const errText = (obj && obj.error) ? obj.error : payload;

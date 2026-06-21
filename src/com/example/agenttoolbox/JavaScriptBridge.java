@@ -129,6 +129,29 @@ public class JavaScriptBridge {
     }
 
     /**
+     * JS 调用：DeepSeek 聊天过程中的状态更新（生成中、等待输入框等）
+     * 用于流式传输期间向 HTTP 客户端发送心跳事件，避免连接超时误判
+     */
+    @JavascriptInterface
+    public void onDeepSeekStatus(final String requestIdOrStatus, final String statusOrNull) {
+        final String requestId;
+        final String status;
+        if (statusOrNull == null || statusOrNull.isEmpty()) {
+            requestId = null;
+            status = requestIdOrStatus;
+        } else {
+            requestId = requestIdOrStatus;
+            status = statusOrNull;
+        }
+        handler.post(new Runnable() {
+            @Override
+            public void run() {
+                DeepSeekChatBridge.getInstance().onDeepSeekStatus(requestId, status);
+            }
+        });
+    }
+
+    /**
      * JS 调用：日志输出
      */
     @JavascriptInterface

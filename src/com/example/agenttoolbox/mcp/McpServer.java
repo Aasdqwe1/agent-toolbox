@@ -387,6 +387,11 @@ public class McpServer {
                     }
                 } else if ("/api/chat/send".equals(action)) {
                     // 流式发送：SSE / Transfer-Encoding: chunked
+                    // 策略：
+                    //   1. 启动心跳守护线程，每 15 秒输出一次 status 事件，避免连接被认为超时
+                    //   2. 先尝试流式请求（最长 180 秒/含降级逻辑）
+                    //   3. 若流式长时间无内容（首次 35 秒内没收到 chunk），自动重试一次
+                    //   4. 若重试后仍失败，降级到阻塞式 sendMessage
                     final String message = body != null ? body.optString("message", "").trim() : "";
                     if (message.isEmpty()) {
                         responseBody = new JSONObject()
@@ -401,7 +406,6 @@ public class McpServer {
                     } else {
                         log("DeepSeek 流式聊天请求: " + message.substring(0, Math.min(50, message.length())));
 
-                        // 写 HTTP 头（裸写，flush）
                         String header = "HTTP/1.1 200 OK\r\n" +
                             "Content-Type: text/event-stream; charset=UTF-8\r\n" +
                             "Transfer-Encoding: chunked\r\n" +
@@ -414,68 +418,209 @@ public class McpServer {
                         out.write(header.getBytes("UTF-8"));
                         out.flush();
 
-                        // 第一个事件：started
-                        writeEventChunk(out, "started", new JSONObject()
-                            .put("ok", true).toString());
+                        writeEventChunk(out, "started", new JSONObject().put("ok", true).toString());
 
-                        // 用一个 CountDownLatch 等完成
-                        final CountDownLatch doneLatch = new CountDownLatch(1);
+                        // 每 15 秒一个心跳 status 事件，避免浏览器/中间层认为超时
+                        final java.util.concurrent.atomic.AtomicReference<Long> lastActivityAt =
+                            new java.util.concurrent.atomic.AtomicReference<Long>(System.currentTimeMillis());
+                        final java.util.concurrent.atomic.AtomicReference<Thread> heartbeatThreadRef =
+                            new java.util.concurrent.atomic.AtomicReference<Thread>();
+                        final java.util.concurrent.atomic.AtomicReference<Boolean> stopHeartbeat =
+                            new java.util.concurrent.atomic.AtomicReference<Boolean>(Boolean.FALSE);
+
+                        Thread heartbeat = new Thread(new Runnable() {
+                            @Override
+                            public void run() {
+                                try {
+                                    int seq = 0;
+                                    while (!stopHeartbeat.get()) {
+                                        Thread.sleep(15000);
+                                        if (stopHeartbeat.get()) return;
+                                        long now = System.currentTimeMillis();
+                                        long last = lastActivityAt.get();
+                                        // 只有在"流式回调确实一直没 activity"时才补心跳，避免覆盖真实数据
+                                        if (now - last >= 14000) {
+                                            seq++;
+                                            JSONObject j = new JSONObject();
+                                            j.put("message", "模型处理中...");
+                                            j.put("seq", seq);
+                                            j.put("elapsedMs", now - last);
+                                            writeEventChunk(out, "status", j.toString());
+                                        }
+                                    }
+                                } catch (InterruptedException ignored) {
+                                } catch (Exception ignored) { }
+                            }
+                        }, "DeepSeekHeartbeat");
+                        heartbeat.setDaemon(true);
+                        heartbeatThreadRef.set(heartbeat);
+                        heartbeat.start();
+
+                        // ====== 执行一次流式请求的辅助方法（闭包形式放在下面的 Runnable 内） ======
                         final java.util.concurrent.atomic.AtomicReference<String> finalReplyRef =
                             new java.util.concurrent.atomic.AtomicReference<String>();
                         final java.util.concurrent.atomic.AtomicReference<String> errRef =
                             new java.util.concurrent.atomic.AtomicReference<String>();
 
-                        DeepSeekChatBridge.getInstance().sendMessageStream(message,
-                            new DeepSeekChatBridge.StreamCallback() {
-                                @Override
-                                public void onChunk(String chunk) {
-                                    try {
-                                        JSONObject j = new JSONObject();
-                                        j.put("content", chunk);
-                                        writeEventChunk(out, "chunk", j.toString());
-                                        if (chunk != null && chunk.length() > 30) {
-                                            log("流式回复片段: " + chunk.substring(0, 30) + "...");
-                                        }
-                                    } catch (Exception e) { /* ignore */ }
+                        boolean finishedNormally = false;
+                        int attempt = 0;
+                        int maxAttempts = 2;  // 第 1 次 + 1 次自动重试
+
+                        while (attempt < maxAttempts && !finishedNormally) {
+                            attempt++;
+                            final int curAttempt = attempt;
+
+                            final CountDownLatch attemptLatch = new CountDownLatch(1);
+                            final java.util.concurrent.atomic.AtomicReference<String> attemptReply =
+                                new java.util.concurrent.atomic.AtomicReference<String>();
+                            final java.util.concurrent.atomic.AtomicReference<String> attemptErr =
+                                new java.util.concurrent.atomic.AtomicReference<String>();
+                            final java.util.concurrent.atomic.AtomicReference<Boolean> gotAnyChunk =
+                                new java.util.concurrent.atomic.AtomicReference<Boolean>(Boolean.FALSE);
+
+                            DeepSeekChatBridge.getInstance().sendMessageStream(message,
+                                new DeepSeekChatBridge.StreamCallback() {
+                                    @Override
+                                    public void onChunk(String chunk) {
+                                        try {
+                                            lastActivityAt.set(System.currentTimeMillis());
+                                            // 区分心跳 STATUS 和真实内容
+                                            if (chunk != null && chunk.startsWith("[STATUS]")) {
+                                                JSONObject j = new JSONObject();
+                                                j.put("message", chunk);
+                                                writeEventChunk(out, "status", j.toString());
+                                                return;
+                                            }
+                                            gotAnyChunk.set(true);
+                                            JSONObject j = new JSONObject();
+                                            j.put("content", chunk == null ? "" : chunk);
+                                            j.put("attempt", curAttempt);
+                                            writeEventChunk(out, "chunk", j.toString());
+                                            if (chunk != null && chunk.length() > 30) {
+                                                log("流式回复片段(" + curAttempt + "): " + chunk.substring(0, 30) + "...");
+                                            }
+                                        } catch (Exception e) { /* ignore */ }
+                                    }
+                                    @Override
+                                    public void onDone(String reply) {
+                                        try {
+                                            attemptReply.set(reply);
+                                            finalReplyRef.set(reply);
+                                            JSONObject j = new JSONObject();
+                                            j.put("content", reply == null ? "" : reply);
+                                            j.put("attempt", curAttempt);
+                                            writeEventChunk(out, "done", j.toString());
+                                            log("流式回复完成(" + curAttempt + "): " +
+                                                (reply == null ? "空" : reply.length() + " 字节"));
+                                        } catch (Exception e) { /* ignore */ }
+                                        attemptLatch.countDown();
+                                    }
+                                    @Override
+                                    public void onError(String error) {
+                                        try {
+                                            attemptErr.set(error);
+                                            errRef.set(error);
+                                            JSONObject j = new JSONObject();
+                                            j.put("error", error == null ? "未知错误" : error);
+                                            j.put("attempt", curAttempt);
+                                            writeEventChunk(out, "error", j.toString());
+                                            log("流式回复错误(" + curAttempt + "): " + error);
+                                        } catch (Exception e) { /* ignore */ }
+                                        attemptLatch.countDown();
+                                    }
+                                });
+
+                            // 超时策略：首次收到内容前给 35 秒；若收到 chunk，延长到 180 秒
+                            long waited = 0;
+                            long stepMs = 1000;
+                            long softLimitMs = 35000;
+                            long hardLimitMs = 180000;
+                            boolean timedOut = false;
+                            while (waited < hardLimitMs) {
+                                // 每 1 秒轮询一次 latch，避免长时间阻塞导致无法响应中断
+                                boolean ok = false;
+                                try {
+                                    ok = attemptLatch.await(stepMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+                                } catch (InterruptedException ie) {
+                                    Thread.currentThread().interrupt();
+                                    break;
                                 }
-                                @Override
-                                public void onDone(String reply) {
+                                waited += stepMs;
+                                if (ok) break;
+                                // 若 35 秒内还没收到任何真实 chunk 且没得到 done/error，判定为需要重试
+                                if (waited >= softLimitMs && !gotAnyChunk.get() && attemptLatch.getCount() > 0) {
+                                    timedOut = true;
+                                    break;
+                                }
+                            }
+
+                            if (timedOut) {
+                                // 首次请求长时间没任何 chunk，通常是输入框没定位、按钮点击失败等
+                                log("流式请求(" + attempt + ") 长时间无内容，判定超时 " + (waited / 1000) + "s");
+                                if (attempt >= maxAttempts) {
+                                    // 最后一次也超时：降级为阻塞请求
+                                    log("已达最大重试次数，降级到阻塞式发送消息");
                                     try {
-                                        finalReplyRef.set(reply);
                                         JSONObject j = new JSONObject();
-                                        j.put("content", reply == null ? "" : reply);
+                                        j.put("message", "降级为阻塞请求：" +
+                                            (attemptLatch.getCount() > 0 ? "上次尝试仍未完成" : ""));
+                                        writeEventChunk(out, "status", j.toString());
+                                    } catch (Exception e) { /* ignore */ }
+
+                                    String fallback = DeepSeekChatBridge.getInstance().sendMessage(message);
+                                    stopHeartbeat.set(true);
+                                    if (fallback != null && fallback.length() > 0) {
+                                        JSONObject j = new JSONObject();
+                                        j.put("content", fallback);
+                                        j.put("mode", "fallback-blocking");
                                         writeEventChunk(out, "done", j.toString());
                                         endChunked(out);
-                                        log("流式回复完成: " + (reply == null ? "空" : String.valueOf(reply.length()) + " 字节"));
-                                    } catch (Exception e) { /* ignore */ }
-                                    doneLatch.countDown();
-                                }
-                                @Override
-                                public void onError(String error) {
-                                    try {
-                                        errRef.set(error);
+                                        log("阻塞请求完成：" + fallback.length() + " 字节");
+                                        finishedNormally = true;
+                                    } else {
                                         JSONObject j = new JSONObject();
-                                        j.put("error", error == null ? "未知错误" : error);
+                                        j.put("error", "请求超时且降级阻塞也无结果，请检查 DeepSeek 是否正常");
                                         writeEventChunk(out, "error", j.toString());
                                         endChunked(out);
-                                        log("流式回复错误: " + error);
+                                    }
+                                } else {
+                                    // 准备下一次重试
+                                    try {
+                                        JSONObject j = new JSONObject();
+                                        j.put("message", "首次尝试长时间无内容，准备自动重试 (" + (attempt + 1) + "/" + maxAttempts + ")");
+                                        writeEventChunk(out, "retrying", j.toString());
                                     } catch (Exception e) { /* ignore */ }
-                                    doneLatch.countDown();
                                 }
-                            });
-
-                        // HTTP 线程等待完成，最大 120 秒
-                        try {
-                            if (!doneLatch.await(120, java.util.concurrent.TimeUnit.SECONDS)) {
-                                try {
-                                    writeEventChunk(out, "error", new JSONObject()
-                                        .put("error", "等待超时").toString());
-                                    endChunked(out);
-                                } catch (Exception ex) { /* ignore */ }
+                            } else {
+                                // 正常完成（或者 onError 已被触发）：看是否有错误
+                                if (attemptErr.get() != null && attempt >= maxAttempts) {
+                                    // 明确错误且是最后一次尝试：关闭流
+                                    try { endChunked(out); } catch (Exception e) { /* ignore */ }
+                                    finishedNormally = true;
+                                } else if (finalReplyRef.get() != null) {
+                                    try { endChunked(out); } catch (Exception e) { /* ignore */ }
+                                    finishedNormally = true;
+                                } else if (attemptErr.get() != null) {
+                                    // 前面出现错误但还有重试机会（例如"输入框找不到"可重试），继续
+                                    continue;
+                                } else {
+                                    // gotAnyChunk=true 但是没 done：视为完成
+                                    try { endChunked(out); } catch (Exception e) { /* ignore */ }
+                                    finishedNormally = true;
+                                }
                             }
-                        } catch (InterruptedException ie) {
-                            Thread.currentThread().interrupt();
+                        }  // end of while attempt loop
+
+                        if (!finishedNormally) {
+                            // 保险：最终失败兜底
+                            try {
+                                JSONObject j = new JSONObject();
+                                j.put("error", "请求未能在限定时间内完成");
+                                writeEventChunk(out, "error", j.toString());
+                                endChunked(out);
+                            } catch (Exception e) { /* ignore */ }
                         }
+                        stopHeartbeat.set(true);
                         return;  // 已写入完整响应，跳出后续的统一响应写入
                     }
                 } else if ("/api/chat/status".equals(action)) {
