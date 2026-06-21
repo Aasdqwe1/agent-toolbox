@@ -21,7 +21,7 @@ public class FileReadTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "读取指定路径的文本文件内容";
+        return "读取指定路径的文本文件内容，支持内部存储路径或外部存储路径";
     }
 
     @Override
@@ -34,7 +34,7 @@ public class FileReadTool implements Tool {
             
             JSONObject path = new JSONObject();
             path.put("type", "string");
-            path.put("description", "文件相对路径（基于应用内部存储）");
+            path.put("description", "文件路径，支持：1) 相对路径（内部存储）；2) /storage/emulated/0/...（外部存储，需授权）；3) /Download/xxx.txt（外部存储 Download 目录）");
             properties.put("path", path);
             
             JSONObject encoding = new JSONObject();
@@ -62,14 +62,43 @@ public class FileReadTool implements Tool {
         String path = arguments.getString("path");
         String encoding = arguments.has("encoding") ? arguments.getString("encoding") : "UTF-8";
         
+        File file;
+        
         // 安全限制：防止路径遍历攻击
-        if (path.contains("..") || path.startsWith("/")) {
-            throw new Exception("不允许的路径格式，仅支持相对路径");
+        if (path.contains("..")) {
+            throw new Exception("不允许的路径格式，禁止使用 '..'");
         }
         
-        File file = new File(getBaseDir(), path);
+        // 解析路径类型
+        if (path.startsWith("/storage/") || path.startsWith("/sdcard") 
+                || path.startsWith("/data/") || path.startsWith("/external")) {
+            // 外部存储完整路径
+            file = new File(path);
+        } else if (path.startsWith("/Download/") || path.startsWith("/Documents/") 
+                || path.startsWith("/Pictures/") || path.startsWith("/")) {
+            // 外部存储简写路径，转换为完整路径
+            file = new File(getExternalStorageDir(), path.substring(1));
+        } else {
+            // 内部存储相对路径
+            file = new File(getBaseDir(), path);
+        }
+        
         if (!file.exists()) {
-            throw new Exception("文件不存在: " + path);
+            // 尝试应用专属外部存储目录
+            File appExternal = new File(getAppExternalDir(), path);
+            if (appExternal.exists()) {
+                file = appExternal;
+            } else {
+                throw new Exception("文件不存在: " + file.getAbsolutePath());
+            }
+        }
+        
+        if (!file.canRead()) {
+            throw new Exception("文件不可读，请检查权限，请在系统设置中授权存储权限");
+        }
+        
+        if (file.isDirectory()) {
+            throw new Exception("这是一个目录，不是文件，请使用 file_list 工具列出目录内容");
         }
         
         BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file), encoding));
@@ -80,12 +109,22 @@ public class FileReadTool implements Tool {
         }
         reader.close();
         
-        return "文件内容:\n" + content.toString();
+        return "文件内容 (" + file.getAbsolutePath() + "):\n" + content.toString();
     }
     
     private File getBaseDir() {
-        // 使用应用内部存储目录
+        // 应用内部存储目录
         return new File("/data/data/com.example.agenttoolbox/files");
+    }
+    
+    private File getExternalStorageDir() {
+        // 外部存储根目录
+        return new File("/storage/emulated/0");
+    }
+    
+    private File getAppExternalDir() {
+        // 应用专属外部存储目录（不需要权限）
+        return new File("/storage/emulated/0/Android/data/com.example.agenttoolbox/files");
     }
 
 }

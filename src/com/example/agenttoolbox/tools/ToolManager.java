@@ -21,6 +21,7 @@ public class ToolManager {
         registerTool(new HttpRequestTool());
         registerTool(new FileReadTool());
         registerTool(new FileWriteTool());
+        registerTool(new FileListTool());
     }
     
     public static synchronized ToolManager getInstance() {
