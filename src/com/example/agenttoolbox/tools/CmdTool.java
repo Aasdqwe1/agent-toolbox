@@ -77,7 +77,7 @@ public class CmdTool implements Tool {
             String cmdPrefix = System.getProperty("os.name").toLowerCase().contains("windows")
                     ? "cmd.exe /c" : "/system/bin/cmd";
 
-            Process process = Runtime.getRuntime().exec(cmdPrefix + " " + command);
+            final Process process = Runtime.getRuntime().exec(cmdPrefix + " " + command);
 
             // 读取输出
             Thread stdoutThread = new Thread(new Runnable() {

@@ -73,7 +73,7 @@ public class ShellTool implements Tool {
         final StringBuilder errorOutput = new StringBuilder();
 
         try {
-            Process process = Runtime.getRuntime().exec("sh -c " + command);
+            final Process process = Runtime.getRuntime().exec("sh -c " + command);
 
             // 读取输出
             Thread stdoutThread = new Thread(new Runnable() {

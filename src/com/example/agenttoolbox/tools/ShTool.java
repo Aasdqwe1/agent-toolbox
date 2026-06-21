@@ -128,7 +128,7 @@ public class ShTool implements Tool {
                 cmd += " " + args;
             }
 
-            Process process = Runtime.getRuntime().exec("sh -c \"" + cmd.replace("\"", "\\\"") + "\"");
+            final Process process = Runtime.getRuntime().exec("sh -c \"" + cmd.replace("\"", "\\\"") + "\"");
 
             // 读取输出
             Thread stdoutThread = new Thread(new Runnable() {

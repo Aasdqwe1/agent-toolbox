@@ -88,7 +88,7 @@ public class PythonTool implements Tool {
             }
 
             pb.redirectErrorStream(false);
-            Process process = pb.start();
+            final Process process = pb.start();
 
             // 读取输出
             Thread stdoutThread = new Thread(new Runnable() {
