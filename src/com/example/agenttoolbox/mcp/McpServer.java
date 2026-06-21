@@ -333,22 +333,41 @@ public class McpServer {
         }
 
         /**
-         * 检测文本内容是否包含工具调用 JSON（jsonrpc + tools/call）。
-         * 用于避免将工具调用 JSON 当作普通文本返回给用户。
-         * 采用启发式方法：检查 JSON-RPC 标记（"jsonrpc"）和 tools/call 方法。
-         * 虽然可能在极端情况下出现误判，但不会对功能造成负面影响（只是暂时禁用心跳）。
+         * P3 修复：改进工具调用 JSON 检测机制
+         * 
+         * 原问题：
+         * - 当 LLM 流式输出工具调用 JSON 时，可能分多个 chunk 到达
+         * - 仅当 chunk 同时包含 "jsonrpc" 和 "tools/call" 时才检测为工具调用
+         * - 这导致前几个 chunk 无法被识别为工具调用，心跳未被禁用
+         * - 心跳消息混入 JSON 流，导致 JSON 不完整
+         * 
+         * 改进方案：
+         * 1. 如果 chunk 包含 "jsonrpc": 或 "jsonrpc\": 的模式，立即认为是工具调用 JSON
+         * 2. 检查 chunk 是否以 { 开头并包含 "method" 字段
+         * 3. 检查是否包含 "tools/call" 标记
+         * 这样可以在 JSON 流的早期阶段就禁用心跳，避免被心跳中断
          */
         private boolean isToolCallJson(String text) {
             if (text == null || text.length() == 0) return false;
             
-            int jsonrpcIdx = text.indexOf("\"jsonrpc\"");
-            if (jsonrpcIdx == -1) return false;
+            // 检查 JSON-RPC 标记：查找 "jsonrpc": 或 "jsonrpc\" 的模式
+            // 这避免误匹配普通文本中的 "jsonrpc" 单词
+            if (text.indexOf("\"jsonrpc\":") != -1 || text.indexOf("\"jsonrpc\"\\") != -1) {
+                return true;
+            }
             
-            int toolsCallIdx = text.indexOf("\"tools/call\"");
-            if (toolsCallIdx == -1) return false;
+            // 检查是否以 { 开头（JSON 对象的开始）并包含 "method" 字段
+            String trimmed = text.trim();
+            if (trimmed.startsWith("{") && (text.indexOf("\"method\"") != -1 || text.indexOf("'method'") != -1)) {
+                return true;
+            }
             
-            // 确保这两个标记都在同一个 JSON 对象中（简单启发式：都在文本中）
-            return true;
+            // 显式检查完整的工具调用标记
+            if (text.indexOf("\"tools/call\"") != -1) {
+                return true;
+            }
+            
+            return false;
         }
 
         private String extractJsonRpcFromReply(String reply) {
