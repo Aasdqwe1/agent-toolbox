@@ -13,6 +13,11 @@ import java.io.InputStreamReader;
  * 文件读取工具
  */
 public class FileReadTool implements Tool {
+    
+    // 允许的外部存储目录简写（用于路径转换）
+    private static final String[] ALLOWED_SHORTHAND_DIRS = {
+            "/Download/", "/Documents/", "/Pictures/", "/DCIM/", "/Movies/"
+    };
 
     @Override
     public String getName() {
@@ -34,7 +39,7 @@ public class FileReadTool implements Tool {
             
             JSONObject path = new JSONObject();
             path.put("type", "string");
-            path.put("description", "文件路径，支持：1) 相对路径（内部存储）；2) /storage/emulated/0/...（外部存储，需授权）；3) /Download/xxx.txt（外部存储 Download 目录）");
+            path.put("description", "文件路径，支持：1) 相对路径（内部存储）；2) /storage/emulated/0/...（外部存储，需授权）；3) /Download/、/Documents/ 等简写");
             properties.put("path", path);
             
             JSONObject encoding = new JSONObject();
@@ -71,12 +76,12 @@ public class FileReadTool implements Tool {
         
         // 解析路径类型
         if (path.startsWith("/storage/") || path.startsWith("/sdcard") 
-                || path.startsWith("/data/") || path.startsWith("/external")) {
+                || path.startsWith("/external")) {
             // 外部存储完整路径
             file = new File(path);
-        } else if (path.startsWith("/Download/") || path.startsWith("/Documents/") 
-                || path.startsWith("/Pictures/") || path.startsWith("/")) {
+        } else if (isShorthandExternalPath(path)) {
             // 外部存储简写路径，转换为完整路径
+            // isShorthandExternalPath保证path长度 >= 10，可以安全调用substring(1)
             file = new File(getExternalStorageDir(), path.substring(1));
         } else {
             // 内部存储相对路径
@@ -125,6 +130,18 @@ public class FileReadTool implements Tool {
     private File getAppExternalDir() {
         // 应用专属外部存储目录（不需要权限）
         return new File("/storage/emulated/0/Android/data/com.example.agenttoolbox/files");
+    }
+    
+    /**
+     * 检查是否是外部存储简写路径（/Download/...、/Documents/... 等）
+     */
+    private boolean isShorthandExternalPath(String path) {
+        for (String shorthand : ALLOWED_SHORTHAND_DIRS) {
+            if (path.startsWith(shorthand)) {
+                return true;
+            }
+        }
+        return false;
     }
 
 }

@@ -18,6 +18,11 @@ public class FileWriteTool implements Tool {
     private static final String[] ALLOWED_DIRS = {
             "Download", "Documents", "Pictures", "DCIM", "Movies"
     };
+    
+    // 允许的外部存储目录简写（用于路径转换）
+    private static final String[] ALLOWED_SHORTHAND_DIRS = {
+            "/Download/", "/Documents/", "/Pictures/", "/DCIM/", "/Movies/"
+    };
 
     // 允许写入的外部存储路径白名单（完整路径）
     private static final String[] ALLOWED_EXTERNAL_PREFIXES = {
@@ -40,7 +45,7 @@ public class FileWriteTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "向指定路径写入文本内容。支持：1) 相对路径（基于应用内部存储）；2) /storage/emulated/0/Download/xxx.txt（外部公共存储）；3) /Download/xxx.txt（外部下载目录简写）";
+        return "向指定路径写入文本内容。支持：1) 相对路径（基于应用内部存储）；2) /storage/emulated/0/Download/xxx.txt（外部公共存储）；3) /Download/、/Documents/、/Pictures/、/DCIM/、/Movies/ 等简写路径";
     }
 
     @Override
@@ -53,7 +58,7 @@ public class FileWriteTool implements Tool {
             
             JSONObject path = new JSONObject();
             path.put("type", "string");
-            path.put("description", "文件路径：1) 相对路径（内部存储）；2) /storage/emulated/0/Download/...（外部存储）；3) /Download/...（外部下载目录快捷方式）");
+            path.put("description", "文件路径：1) 相对路径（内部存储）；2) /storage/emulated/0/Download/...（外部存储）；3) /Download/...（外部下载目录简写）；4) /Documents/...、/Pictures/...（其他简写）");
             properties.put("path", path);
             
             JSONObject content = new JSONObject();
@@ -93,18 +98,25 @@ public class FileWriteTool implements Tool {
         
         File file;
         
-        // 判断是外部存储路径还是内部存储路径
+        // 解析路径类型
         if (isExternalStoragePath(path)) {
-            // 外部存储路径，需要路径白名单验证
+            // 外部存储完整路径
             if (!isAllowedExternalPath(path)) {
                 throw new Exception("不允许的外部存储路径，仅支持 Download/Documents/Pictures/DCIM/Movies 等公共目录");
             }
-            
-            // 已验证为允许的外部存储路径
             file = new File(path);
+        } else if (isShorthandExternalPath(path)) {
+            // 外部存储简写路径（如 /Download/xxx、/Documents/xxx）
+            // 移除前导斜杠后获取完整路径（isShorthandExternalPath保证path长度 >= 10）
+            String relativePath = path.substring(1);
+            String fullPath = new File(getExternalStorageDir(), relativePath).getAbsolutePath();
+            if (!isAllowedExternalPath(fullPath)) {
+                throw new Exception("不允许的外部存储路径，仅支持 Download/Documents/Pictures/DCIM/Movies 等公共目录");
+            }
+            file = new File(fullPath);
         } else if (path.startsWith("/")) {
             // 其他绝对路径被拒绝
-            throw new Exception("不允许的路径格式，仅支持相对路径或 /storage/emulated/0/Download 等完整外部存储路径");
+            throw new Exception("不允许的路径格式，支持: 1) 相对路径（内部存储）; 2) /storage/emulated/0/Download/...（外部存储）; 3) /Download/...（简写）");
         } else {
             // 相对路径，使用内部存储
             file = new File(getBaseDir(), path);
@@ -136,6 +148,18 @@ public class FileWriteTool implements Tool {
     }
     
     /**
+     * 检查是否是外部存储简写路径（/Download/...、/Documents/... 等）
+     */
+    private boolean isShorthandExternalPath(String path) {
+        for (String shorthand : ALLOWED_SHORTHAND_DIRS) {
+            if (path.startsWith(shorthand)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    /**
      * 检查外部存储路径是否在白名单中
      */
     private boolean isAllowedExternalPath(String path) {
@@ -150,6 +174,11 @@ public class FileWriteTool implements Tool {
     private File getBaseDir() {
         // 使用应用内部存储目录
         return new File("/data/data/com.example.agenttoolbox/files");
+    }
+    
+    private File getExternalStorageDir() {
+        // 外部存储根目录
+        return new File("/storage/emulated/0");
     }
 
 }
