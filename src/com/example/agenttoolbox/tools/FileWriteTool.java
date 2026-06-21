@@ -40,7 +40,7 @@ public class FileWriteTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "向指定路径写入文本内容。支持：1) 相对路径（基于应用内部存储）；2) /storage/emulated/0/Download/xxx.txt（外部公共存储）；3) /Download/xxx.txt（外部下载目录简写）";
+        return "向指定路径写入文本内容。支持：1) 相对路径（基于应用内部存储）；2) /storage/emulated/0/Download/xxx.txt（外部公共存储）；3) /Download/、/Documents/、/Pictures/、/DCIM/、/Movies/ 等简写路径";
     }
 
     @Override

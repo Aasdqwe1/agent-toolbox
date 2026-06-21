@@ -56,12 +56,12 @@ public class FileListTool implements Tool {
             
             // 解析路径类型
             if (path.startsWith("/storage/") || path.startsWith("/sdcard") 
-                    || path.startsWith("/data/") || path.startsWith("/external")) {
+                    || path.startsWith("/external")) {
                 // 外部存储完整路径
                 dir = new File(path);
             } else if (path.startsWith("/Download/") || path.startsWith("/Documents/") 
                     || path.startsWith("/Pictures/") || path.startsWith("/DCIM/") 
-                    || path.startsWith("/Movies/") || path.startsWith("/")) {
+                    || path.startsWith("/Movies/")) {
                 // 外部存储简写路径
                 dir = new File(getExternalStorageDir(), path.substring(1));
             } else {
