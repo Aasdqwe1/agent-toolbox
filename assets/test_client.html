@@ -5,6 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes" />
     <title>MCP 工具箱</title>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+        // marked.js 配置：长文本用 parseInline 避免返回 Promise
+        if (typeof marked !== 'undefined') {
+            marked.setOptions({
+                breaks: true,      // 换行自动转 <br>
+                gfm: true          // GitHub Flavored Markdown
+            });
+        }
+        // 安全的 Markdown 渲染函数
+        function renderMarkdown(text) {
+            if (!text) return '';
+            try {
+                if (typeof marked !== 'undefined') {
+                    var parsed = marked.parse(text);
+                    // marked.parse 可能返回 Promise（长文本）
+                    if (typeof parsed === 'string') return parsed;
+                    // 如果返回 Promise，降级为纯文本
+                    return '<pre style="white-space:pre-wrap;">' + escapeHtml(text) + '</pre>';
+                }
+            } catch (e) { }
+            return escapeHtml(text);
+        }
+    </script>
     <style>
         /* ===== 全局重置 ===== */
         * {
@@ -1766,7 +1789,7 @@
                     if (data && (data.success !== false) && (data.reply || (data.data && data.data.reply))) {
                         const reply = data.reply || (data.data && data.data.reply) || '';
                         // Markdown 渲染（非流式直接渲染）
-                        bubbleEl.innerHTML = '<div class="md-body">' + (typeof marked !== 'undefined' ? marked.parse(reply) : escapeHtml(reply)) + '</div>';
+                        bubbleEl.innerHTML = '<div class="md-body">' + renderMarkdown(reply) + '</div>';
                         setState('完成');
                     } else {
                         bubbleEl.textContent = '';
@@ -1874,6 +1897,9 @@
                 }
                 // 处理末尾可能剩余不完整块
                 if (buffer.length > 0) {
+                    // 关键：重置状态后再处理
+                    eventName = '';
+                    dataLines = [];
                     const lines = buffer.split('\n');
                     for (let li = 0; li < lines.length; li++) {
                         const line = lines[li];
@@ -1897,7 +1923,7 @@
                 } else {
                     // 流结束后：用 Markdown 渲染最终内容
                     if (finalContent) {
-                        bubbleEl.innerHTML = '<div class="md-body">' + (typeof marked !== 'undefined' ? marked.parse(finalContent) : escapeHtml(finalContent)) + '</div>';
+                        bubbleEl.innerHTML = '<div class="md-body">' + renderMarkdown(finalContent) + '</div>';
                     }
                 }
             } catch (e) {
