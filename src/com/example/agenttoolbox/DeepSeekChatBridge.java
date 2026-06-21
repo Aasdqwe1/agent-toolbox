@@ -270,8 +270,8 @@ public class DeepSeekChatBridge {
             "    return txt || null;\n" +
             "  }\n" +
             "\n" +
-            "  var baseline = getAssistantMessages().length;\n" +
-            "  Android.log('[DEBUG][' + __rid + '] 监听启动, baseline=' + baseline + ', 页面AI消息数=' + baseline);\n" +
+            "  var initialMsgCount = getAssistantMessages().length;\n" +
+            "  Android.log('[DEBUG][' + __rid + '] 监听启动, 初始AI消息数=' + initialMsgCount);\n" +
             "  // 输出前几条消息的预览，方便调试\n" +
             "  try {\n" +
             "    var allMsgs = getAssistantMessages();\n" +
@@ -350,50 +350,44 @@ public class DeepSeekChatBridge {
             "    pollCount++;\n" +
             "    var list = getAssistantMessages();\n" +
             "    var gen = isGenerating();\n" +
-            "    // 每10次轮询输出一次调试信息，避免日志太多\n" +
-            "    if (pollCount % 10 === 1 || pollCount <= 3) {\n" +
-            "      var debugPreview = '';\n" +
-            "      if (list.length > baseline) {\n" +
-            "        var latestEl = list[list.length - 1];\n" +
-            "        var latestReply = getAssistantReply(latestEl);\n" +
-            "        if (latestReply) debugPreview = latestReply.substring(0, 80);\n" +
-            "      }\n" +
-            "      Android.log('[DEBUG][' + __rid + '] 轮询#' + pollCount + \n" +
-            "        ' 消息数=' + list.length + '/' + baseline + \n" +
-            "        ' 生成中=' + gen + \n" +
-            "        ' 最新回复预览=\"' + debugPreview + '\"');\n" +
-            "    }\n" +
-            "    if (pollCount - lastStatusAt >= 15) {\n" +
-            "      lastStatusAt = pollCount;\n" +
-            "      var statusMsg = (list.length > baseline ? '正在接收回复' : (gen ? '模型正在生成中' : '等待模型响应'));\n" +
-            "      try { Android.onDeepSeekChunk(__rid, '[STATUS] ' + statusMsg); } catch(_e) {}\n" +
-            "    }\n" +
-            "    // 必须有**新增**的消息（index >= baseline）\n" +
-            "    if (list.length <= baseline) {\n" +
-            "      // 兜底检测：如果最后一条消息内容足够长，可能是页面未触发新增事件\n" +
-            "      if (list.length > 0) {\n" +
-            "        var lastEl = list[list.length - 1];\n" +
-            "        var lastReply = getAssistantReply(lastEl);\n" +
-            "        if (lastReply && lastReply.length > 80) {\n" +
-            "          Android.log('[DEBUG][' + __rid + '] 兜底检测：直接完成，长度=' + lastReply.length);\n" +
-            "          finish(lastReply);\n" +
-            "          return;\n" +
-            "        }\n" +
-            "      }\n" +
-            "      // 超时处理：统一90秒\n" +
+            "    \n" +
+            "    // 没有任何AI消息，继续等待\n" +
+            "    if (list.length === 0) {\n" +
             "      if (pollCount > 180) {\n" +
             "        finish('');\n" +
-            "        Android.onDeepSeekError(__rid, '超时未捕获到新回复');\n" +
+            "        Android.onDeepSeekError(__rid, '超时：未捕获到任何AI消息');\n" +
             "      }\n" +
             "      return;\n" +
-            "    } else {\n" +
-            "      // 检测到新消息，更新baseline\n" +
-            "      baseline = list.length;\n" +
             "    }\n" +
+            "    \n" +
+            "    // 直接取最后一条AI消息，始终跟踪最新内容\n" +
             "    var latestEl = list[list.length - 1];\n" +
             "    var reply = getAssistantReply(latestEl);\n" +
+            "    \n" +
+            "    // 每10次轮询输出一次调试信息\n" +
+            "    if (pollCount % 10 === 1 || pollCount <= 3) {\n" +
+            "      var debugPreview = reply ? reply.substring(0, 80) : '';\n" +
+            "      Android.log('[DEBUG][' + __rid + '] 轮询#' + pollCount + \n" +
+            "        ' 消息数=' + list.length + \n" +
+            "        ' 生成中=' + gen + \n" +
+            "        ' 回复长度=' + (reply ? reply.length : 0) + \n" +
+            "        ' 稳定次数=' + sameLenStable + \n" +
+            "        ' 预览=\"' + debugPreview + '\"');\n" +
+            "    }\n" +
+            "    \n" +
+            "    // 状态心跳\n" +
+            "    if (pollCount - lastStatusAt >= 15) {\n" +
+            "      lastStatusAt = pollCount;\n" +
+            "      var statusMsg = (reply && reply.length > 0 ? '正在接收回复' : (gen ? '模型正在生成中' : '等待模型响应'));\n" +
+            "      try { Android.onDeepSeekChunk(__rid, '[STATUS] ' + statusMsg); } catch(_e) {}\n" +
+            "    }\n" +
+            "    \n" +
+            "    // 内容太短，继续等待\n" +
             "    if (!reply || reply.length < 2) {\n" +
-            "      if (gen && pollCount < 480) return;\n" +
+            "      if (pollCount > 180) {\n" +
+            "        finish('');\n" +
+            "        Android.onDeepSeekError(__rid, '超时：AI消息内容为空');\n" +
+            "      }\n" +
             "      return;\n" +
             "    }\n" +
             "\n" +
@@ -411,12 +405,10 @@ public class DeepSeekChatBridge {
             "      lastSeenText = reply;\n" +
             "    }\n" +
             "\n" +
+            "    // 完成判定：操作栏出现 或 (内容稳定4秒且超过50字符)\n" +
             "    var complete = isLatestReplyComplete(latestEl);\n" +
             "    var stableEnough = sameLenStable >= 8;\n" +
             "    var hasMinimumLength = reply.length > 50;\n" +
-            "    \n" +
-            "    // 完成判定：操作栏出现 或 (内容稳定4秒且超过50字符)\n" +
-            "    // 完全不依赖 gen，避免 isGenerating() 误判\n" +
             "    if (complete || (stableEnough && hasMinimumLength)) {\n" +
             "      finish(reply);\n" +
             "      return;\n" +
