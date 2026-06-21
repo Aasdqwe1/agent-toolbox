@@ -563,11 +563,11 @@ public class McpServer {
                                 try {
                                     int seq = 0;
                                     while (!stopHeartbeat.get()) {
-                                        Thread.sleep(15000);
+                                        Thread.sleep(8000);
                                         if (stopHeartbeat.get()) return;
                                         long now = System.currentTimeMillis();
                                         long last = lastActivityAt.get();
-                                        if (now - last >= 14000) {
+                                        if (now - last >= 7000) {
                                             seq++;
                                             JSONObject j = new JSONObject();
                                             j.put("message", "模型处理中...");
@@ -690,6 +690,7 @@ public class McpServer {
 
                             String reply = roundReplyRef.get();
                             if (reply == null || reply.isEmpty()) {
+                                log("轮次 " + round + " 回复为空，结束对话");
                                 break;
                             }
 
