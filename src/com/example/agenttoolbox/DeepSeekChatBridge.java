@@ -364,11 +364,11 @@ public class DeepSeekChatBridge {
             "      Android.log('[DEBUG][' + __rid + '] 轮询#' + pollCount + \n" +
             "        ' 消息数=' + list.length + '/' + baseline + \n" +
             "        ' 生成中=' + gen + \n" +
-            ' 最新回复预览="' + debugPreview + '"');\n" +
+            "        ' 最新回复预览=\"' + debugPreview + '\"');\n" +
             "    }\n" +
             "    if (pollCount - lastStatusAt >= 15) {\n" +
             "      lastStatusAt = pollCount;\n" +
-            "      var statusMsg = (list.length > baseline ? '正在接收回复' : (gen ? '模型正在生成中' : '等待模型响应');\n" +
+            "      var statusMsg = (list.length > baseline ? '正在接收回复' : (gen ? '模型正在生成中' : '等待模型响应'));\n" +
             "      try { Android.onDeepSeekChunk(__rid, '[STATUS] ' + statusMsg); } catch(_e) {}\n" +
             "    }\n" +
             "    // 必须有**新增**的消息（index >= baseline）\n" +
