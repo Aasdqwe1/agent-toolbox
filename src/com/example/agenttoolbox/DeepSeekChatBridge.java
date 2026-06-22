@@ -138,9 +138,10 @@ public class DeepSeekChatBridge {
         });
 
         try {
-            if (!latch.await(180, java.util.concurrent.TimeUnit.SECONDS)) {
+            // 延长到 1800 秒（30 分钟），给 LLM 足够时间处理复杂任务
+            if (!latch.await(1800, java.util.concurrent.TimeUnit.SECONDS)) {
                 android.util.Log.w("DeepSeekChatBridge",
-                    "sendMessage 超时，message=" + (message == null ? "" : message.substring(0, Math.min(40, message.length()))));
+                    "sendMessage 超时（1800s），message=" + (message == null ? "" : message.substring(0, Math.min(40, message.length()))));
                 return null;
             }
         } catch (InterruptedException ie) {
@@ -189,12 +190,14 @@ public class DeepSeekChatBridge {
                     @Override
                     public void run() {
                         try {
-                            boolean completed = latch.await(90, TimeUnit.SECONDS);
+                            // 延长到 3600 秒（1 小时），让 JavaScript 轮询循环的动态超时真正控制
+                            // JavaScript 端已有 pollCount 检查（600/900/1800 = 5/7.5/15 分钟）
+                            boolean completed = latch.await(3600, TimeUnit.SECONDS);
                             String reply = replyRef.get();
                             String err = errorRef.get();
                             StreamCallback cb = callbacksById.get(requestId);
                             if (!completed) {
-                                if (cb != null) cb.onError("流式等待超时（90s）");
+                                if (cb != null) cb.onError("流式等待超时（3600s，JavaScript 端未触发完成）");
                             } else if (err != null) {
                                 if (cb != null) cb.onError(err);
                             } else if (reply != null) {
