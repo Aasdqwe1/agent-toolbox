@@ -436,39 +436,42 @@ public class McpServer {
             boolean hasToolsCall = text.indexOf("\"tools/call\"") != -1 || text.indexOf("'tools/call'") != -1;
             boolean hasMethod = text.indexOf("\"method\"") != -1 || text.indexOf("'method'") != -1;
             
-            if (hasJsonrpc && hasMethod) return true;
-            if (hasJsonrpc && hasToolsCall) return true;
-            if (hasMethod && hasToolsCall) return true;
-            
-            // 检测是否为部分流式 JSON（例如只有 "jsonrpc":"2.0","id":"..."）
-            if (hasJsonrpc && text.indexOf("\"id\"") != -1) return true;
-            if (hasJsonrpc && text.indexOf("'id'") != -1) return true;
-            
-            // 检测是否包含具体工具名（LLM 可能分段输出）
-            // 例如 "params":{"name":"file_write","arguments":{...}}
-            String[] toolNames = {"file_write", "file_read", "file_list", "python",
-                                   "shell", "http_request", "math_calculator", "cmd",
-                                   "web"};
-            for (String toolName : toolNames) {
-                if (text.indexOf("\"" + toolName + "\"") != -1
-                    || text.indexOf("name\":\"" + toolName + "\"") != -1
-                    || text.indexOf("name\": \"" + toolName + "\"") != -1) {
-                    // 必须同时有一些 JSON 结构标记，避免普通文本中的工具名误匹配
-                    if (text.indexOf("{") != -1 || text.indexOf("\"") != -1) {
-                        return true;
-                    }
+            // 必须同时包含 jsonrpc 和 (tools/call 或 method)，避免误检测普通文本
+            if (hasJsonrpc && (hasToolsCall || hasMethod)) {
+                // 进一步验证：确保能找到有效的 JSON 对象
+                // 检查是否存在 "jsonrpc":"2.0" 模式（严格的 JSON-RPC 格式）
+                if (text.indexOf("\"jsonrpc\"") != -1 && 
+                    (text.indexOf("\"jsonrpc\":\"2.0\"") != -1 || text.indexOf("\"jsonrpc\": \"2.0\"") != -1)) {
+                    return true;
+                }
+                // 或者检查是否包含明确的工具调用标记和 method 字段
+                if (hasToolsCall && hasMethod) {
+                    return true;
                 }
             }
             
-            // 检测是否以 { 开头（JSON 对象的开始）并包含 "method" 字段
+            // 检测是否为部分流式 JSON（例如只有 "jsonrpc":"2.0","id":"..."）
+            // 但要更严格：必须有清晰的 jsonrpc 版本标记
+            if (hasJsonrpc && text.indexOf("\"id\"") != -1) {
+                if (text.indexOf("\"jsonrpc\":\"2.0\"") != -1 || text.indexOf("\"jsonrpc\": \"2.0\"") != -1) {
+                    return true;
+                }
+            }
+            
+            // 注意：不再进行工具名检测（这导致了误检测）
+            // 工具名检测太容易匹配普通文本中的 "math_calculator" 等词语
+            
+            // 检测是否以 { 开头（JSON 对象的开始）并包含完整的 JSON-RPC 标记
             String trimmed = text.trim();
             // 跳过中文前缀后检查是否以 { 开头
             int braceIdx = trimmed.indexOf('{');
             if (braceIdx != -1) {
                 String afterPrefix = trimmed.substring(braceIdx);
-                if (afterPrefix.indexOf("\"jsonrpc\"") != -1 || afterPrefix.indexOf("\"method\"") != -1
-                    || afterPrefix.indexOf("\"tools/call\"") != -1) {
-                    return true;
+                // 必须包含严格的 jsonrpc 版本标记
+                if (afterPrefix.indexOf("\"jsonrpc\":\"2.0\"") != -1) {
+                    if (afterPrefix.indexOf("\"method\"") != -1 || afterPrefix.indexOf("\"tools/call\"") != -1) {
+                        return true;
+                    }
                 }
             }
             
@@ -1027,6 +1030,11 @@ public class McpServer {
 
                             String toolJson = extractJsonRpcFromReply(reply);
                             if (toolJson == null) {
+                                // 检查：如果 chunks 中被检测到工具调用但最终无法提取，需要警告
+                                if (reply.indexOf("\"jsonrpc\"") != -1 || reply.indexOf("\"method\"") != -1 || reply.indexOf("\"tools/call\"") != -1) {
+                                    log("  [轮次" + currentRound + "] ⚠ 警告: 回复中检测到工具调用标记但无法提取有效JSON");
+                                    log("  [轮次" + currentRound + "]   └─ 回复内容: " + truncateForLogging(reply, 500));
+                                }
                                 finalDone = true;
                                 log("  [轮次" + currentRound + "] ═══ 对话完成，无更多工具调用 ═══");
                                 break;
