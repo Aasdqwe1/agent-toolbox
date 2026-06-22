@@ -1199,7 +1199,9 @@ public class McpServer {
                 return message.contains("Socket closed") || 
                        message.contains("Connection reset") ||
                        message.contains("Broken pipe") ||
-                       message.contains("Connection closed");
+                       message.contains("Connection closed") ||
+                       message.contains("Connection timed out") ||
+                       message.contains("Timed out");
             }
             return e instanceof java.net.SocketException;
         }
