@@ -252,7 +252,7 @@ public class MainActivity extends Activity {
             }, 100);
 
         } catch (Exception e) {
-            String error = "启动服务异常: " + e.getClass().getName() + "\n" + e.getMessage();
+            String error = "启动服务异常: " + e.getClass().getName() + "\n" + e.getMessage() + "\n\n堆栈:\n" + android.util.Log.getStackTraceString(e);
             appendLog(error);
             copyToClipboard(error);
         }

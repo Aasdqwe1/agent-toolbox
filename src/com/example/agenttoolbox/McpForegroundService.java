@@ -66,25 +66,28 @@ public class McpForegroundService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        Log.i(TAG, "onStartCommand, intent=" + intent);
-        
-        // 重新获取WakeLock
-        if (wakeLock != null && !wakeLock.isHeld()) {
-            wakeLock.acquire(10 * 60 * 60 * 1000L); // 10小时
-        }
+        Log.i(TAG, "onStartCommand, intent=" + intent + ", flags=" + flags + ", startId=" + startId);
 
-        // 启动MCP服务器
-        if (mcpServer == null) {
-            Log.i(TAG, "Creating McpServer");
-            mcpServer = new McpServer(8080, this);
-            try {
+        try {
+            // 重新获取WakeLock
+            if (wakeLock != null && !wakeLock.isHeld()) {
+                wakeLock.acquire(10 * 60 * 60 * 1000L); // 10小时
+                Log.i(TAG, "WakeLock acquired");
+            }
+
+            // 启动MCP服务器
+            if (mcpServer == null) {
+                Log.i(TAG, "Creating McpServer");
+                mcpServer = new McpServer(8080, this);
+                Log.i(TAG, "McpServer created, calling start()");
                 mcpServer.start();
                 Log.i(TAG, "McpServer started successfully");
                 Toast.makeText(this, "MCP服务启动成功", Toast.LENGTH_SHORT).show();
-            } catch (IOException e) {
-                Log.e(TAG, "Failed to start McpServer: " + e.getMessage());
-                Toast.makeText(this, "启动MCP服务失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
             }
+        } catch (Exception e) {
+            String error = "McpForegroundService异常: " + e.getClass().getName() + "\n" + e.getMessage() + "\n\n堆栈:\n" + android.util.Log.getStackTraceString(e);
+            Log.e(TAG, error);
+            Toast.makeText(this, error, Toast.LENGTH_LONG).show();
         }
 
         // START_STICKY确保服务被杀死后能重新启动
