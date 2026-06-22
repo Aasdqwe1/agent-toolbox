@@ -34,9 +34,12 @@ public class McpServer {
     private static final Pattern CONTROL_CHARS_PATTERN = 
         Pattern.compile("[\\x00\\x01-\\x08\\x0B-\\x0C\\x0E-\\x1F\\x7F-\\x9F]");
 
-    // 心跳检测超时时间（毫秒），用于长时间运行的工具调用
-    // 从 8 秒调整为 30 秒以支持长时间工具执行（如 HTTP 请求、文件操作、命令执行等）
+    // Heartbeat detection timeout (milliseconds) for long-running tool calls
+    // Adjusted from 8 seconds to 30 seconds to support long tool execution (HTTP requests, file operations, command execution, etc.)
     private static final long HEARTBEAT_TIMEOUT_MS = 30000L;
+    
+    // Timeout for waiting on heartbeat thread shutdown during exception recovery
+    private static final long HEARTBEAT_THREAD_JOIN_TIMEOUT_MS = 2000L;
 
     private int port;
     private ServerSocket serverSocket;
@@ -681,6 +684,9 @@ public class McpServer {
         private void handleChatRequest(String path, String requestBody, final OutputStream out)
                 throws IOException {
             String responseBody = "";
+            boolean isStreamingPath = false;
+            Thread heartbeatThread = null;
+            boolean streamingCompleted = false;
 
             try {
                 JSONObject body = requestBody != null && requestBody.length() > 2
@@ -779,6 +785,9 @@ public class McpServer {
                             "\r\n";
                         out.write(header.getBytes("UTF-8"));
                         out.flush();
+                        
+                        // Mark that we have entered the streaming path - for cleanup during exception handling
+                        isStreamingPath = true;
 
                         writeEventChunk(out, "started", new JSONObject().put("ok", true).toString());
 
@@ -820,8 +829,11 @@ public class McpServer {
                         }, "DeepSeekHeartbeat");
                         heartbeat.setDaemon(true);
                         heartbeat.start();
+                        
+                        // Save heartbeat thread reference for cleanup during exception handling
+                        heartbeatThread = heartbeat;
 
-                        // 对话循环
+                        // Conversation loop
                         String currentMessage = message;
                         int maxRounds = 10;
                         int round = 0;
@@ -1064,8 +1076,9 @@ public class McpServer {
                         // 然后发送 chunked 编码终止符
                         endChunked(out);
                         stopHeartbeat.set(true);
-                        log("══════════ 对话结束，共 " + round + " 轮 ══════════");
-                        return; // 流式路径结束，直接返回
+                        streamingCompleted = true;  // Mark that streaming completed normally
+                        log("=========== Conversation ended, total " + round + " rounds ===========");
+                        return; // Streaming path ended, return
                     } // end of send success block
                 } else if ("/api/chat/status".equals(action)) {
                     boolean registered = DeepSeekChatBridge.getInstance().isRegistered();
@@ -1081,17 +1094,65 @@ public class McpServer {
                         .toString();
                 }
             } catch (Exception e) {
-                log("聊天请求处理异常: "
-                    + "类型=" + e.getClass().getName()
-                    + " msg=" + (e.getMessage() == null ? "(null)" : e.getMessage()));
-                log("聊天请求处理异常: 堆栈: " + android.util.Log.getStackTraceString(e));
-                try {
-                    responseBody = new JSONObject()
-                        .put("success", false)
-                        .put("error", e.getMessage() != null ? e.getMessage() : "未知错误")
-                        .toString();
-                } catch (JSONException je) {
-                    responseBody = "{\"success\":false,\"error\":\"内部错误\"}";
+                log("Chat request processing exception: "
+                    + "type=" + e.getClass().getName()
+                    + " message=" + (e.getMessage() == null ? "(null)" : e.getMessage()));
+                log("Chat request processing exception: Stack trace: " + android.util.Log.getStackTraceString(e));
+                
+                // If exception occurred while in streaming path, need to terminate streaming
+                if (isStreamingPath) {
+                    log("Chat exception occurred while in streaming path, preparing to clean up resources...");
+                } else {
+                    try {
+                        responseBody = new JSONObject()
+                            .put("success", false)
+                            .put("error", e.getMessage() != null ? e.getMessage() : "Unknown error")
+                            .toString();
+                    } catch (JSONException je) {
+                        responseBody = "{\"success\":false,\"error\":\"Internal error\"}";
+                    }
+                }
+            } finally {
+                // If entered streaming path but didn't complete normally, ensure streaming properly terminates
+                if (isStreamingPath && !streamingCompleted) {
+                    log("Entering exception recovery process (streaming did not complete normally)");
+                    try {
+                        // Stop heartbeat thread
+                        Thread hb = heartbeatThread;
+                        if (hb != null) {
+                            log("Shutting down heartbeat thread...");
+                            // Stop heartbeat thread via interrupt (more reliable method)
+                            hb.interrupt();
+                            // Wait for thread to end, but set timeout to prevent deadlock
+                            try {
+                                hb.join(HEARTBEAT_THREAD_JOIN_TIMEOUT_MS);
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                            }
+                        }
+                    } catch (Exception ex) {
+                        log("Exception shutting down heartbeat thread ("
+                            + ex.getClass().getName() + "): " + ex.getMessage());
+                    }
+                    
+                    try {
+                        // Flush all pending write tasks in the buffer
+                        flushWriteHandler();
+                    } catch (Exception ex) {
+                        log("Exception flushing write handler ("
+                            + ex.getClass().getName() + "): " + ex.getMessage());
+                    }
+                    
+                    try {
+                        // Send chunked encoding terminator
+                        log("Sending streaming terminator...");
+                        endChunked(out);
+                    } catch (Exception ex) {
+                        log("Exception sending terminator ("
+                            + ex.getClass().getName() + "): " + ex.getMessage());
+                    }
+                    
+                    return; // Streaming path ended, return
                 }
             }
 
