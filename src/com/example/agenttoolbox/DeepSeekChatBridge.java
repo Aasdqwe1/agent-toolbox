@@ -768,9 +768,9 @@ public class DeepSeekChatBridge {
             "    }\n" +
             "\n" +
             "    // ========== 工具调用优先检测 ==========\n" +
+            "    // 修复：只要包含 \"jsonrpc\" 就视为工具调用，不再要求 \"tools/call\"\n" +
             "    var isToolCall = (typeof reply === 'string') &&\n" +
-            "                     reply.indexOf('\"jsonrpc\"') !== -1 &&\n" +
-            "                     reply.indexOf('\"tools/call\"') !== -1;\n" +
+            "                     (reply.indexOf('\"jsonrpc\"') !== -1 || reply.indexOf('\"jsonrpc\":') !== -1);\n" +
             "\n" +
             "    if (isToolCall) {\n" +
             "      // 工具调用场景：必须等待 JSON 完整\n" +
