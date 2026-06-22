@@ -41,6 +41,31 @@ public class McpServer {
     // Timeout for waiting on heartbeat thread shutdown during exception recovery
     private static final long HEARTBEAT_THREAD_JOIN_TIMEOUT_MS = 2000L;
 
+    // ════════════════════════════════════════════════════════════
+    // Enhanced Debug Configuration - 增强调试配置
+    // ════════════════════════════════════════════════════════════
+    
+    // Log truncation control - 日志截断控制
+    // Default truncation length for regular logs (characters)
+    private static final int DEFAULT_LOG_TRUNCATE_LENGTH = 4096;
+    
+    // Maximum length for tool call logs (set to 0 to disable truncation for tool calls)
+    // Tool calls are especially important for debugging, so we keep full logs
+    private static final int TOOL_CALL_LOG_TRUNCATE_LENGTH = 0;  // 0 = no truncation
+    
+    // Maximum length for streaming chunk logs
+    private static final int CHUNK_LOG_TRUNCATE_LENGTH = 500;
+    
+    // Timeout multipliers for different conversation phases
+    private static final long FIRST_ROUND_TIMEOUT_MS = 600000L;  // 10 minutes for first round
+    private static final long TOOL_CALL_TIMEOUT_MS = 1800000L;   // 30 minutes for tool calls
+    
+    // Enable detailed stream debugging (logs streaming lifecycle events)
+    private static final boolean ENABLE_STREAM_DEBUG = true;
+    
+    // Enable JSON state machine debugging (logs each character during parsing)
+    private static final boolean ENABLE_JSON_DEBUG = false;
+
     private int port;
     private ServerSocket serverSocket;
     private boolean running = false;
@@ -71,6 +96,56 @@ public class McpServer {
         if (logListener != null) {
             logListener.onLog(message);
         }
+    }
+
+    /**
+     * Enhanced truncation method with support for tool calls
+     * @param text text to truncate
+     * @param maxLen maximum length (if 0, no truncation)
+     * @return truncated text with metadata
+     */
+    private String smartTruncate(String text, int maxLen) {
+        if (text == null) return "";
+        if (maxLen == 0) {
+            // No truncation
+            return text;
+        }
+        if (text.length() > maxLen) {
+            return text.substring(0, maxLen) + "... (共 " + text.length() + " 字符)";
+        }
+        return text;
+    }
+
+    /**
+     * Log with context about whether truncation occurred
+     */
+    private String logWithTruncation(String text, int maxLen) {
+        if (text == null) return "[null]";
+        if (maxLen == 0) {
+            return text;  // No truncation indicator needed
+        }
+        if (text.length() > maxLen) {
+            return text.substring(0, maxLen) + "\n... (内容已截断，共 " + text.length() + " 字符)";
+        }
+        return text;
+    }
+
+    /**
+     * Hexdump helper for debugging incomplete JSON
+     */
+    private String toHexDump(String text, int maxChars) {
+        if (text == null || text.isEmpty()) return "[empty]";
+        StringBuilder sb = new StringBuilder();
+        int len = Math.min(text.length(), maxChars);
+        for (int i = 0; i < len; i++) {
+            char c = text.charAt(i);
+            if (i > 0 && i % 16 == 0) sb.append("\n");
+            sb.append(String.format("%02X ", (int)c));
+        }
+        if (text.length() > maxChars) {
+            sb.append("\n... (共 ").append(text.length()).append(" 字符)");
+        }
+        return sb.toString();
     }
 
     public void start() throws IOException {
@@ -539,15 +614,32 @@ public class McpServer {
          * 当 reply 中 JSON 不完整时，用状态机扫描统计未闭合的 { 与 [ 的数量，
          * 按数量补齐 } 与 ] 后再 JSON.parse 验证，避免 "Unterminated object" 类错误。
          * 返回 合法 JSON 字符串 或 null（无法补全时）。
+         * 
+         * Enhanced with detailed logging for debugging truncation issues.
          */
         private String robustCompleteJson(String partial) {
-            if (partial == null || partial.length() == 0) return null;
+            if (partial == null || partial.length() == 0) {
+                log("    [robustCompleteJson] 输入为空，返回null");
+                return null;
+            }
+
+            if (ENABLE_JSON_DEBUG) {
+                log("    [robustCompleteJson] 开始处理不完整JSON，长度=" + partial.length());
+                log("      └─ 输入前200字符: " + logWithTruncation(partial, 200));
+            }
 
             // 先尝试直接解析，大多数情况下本身就是完整的
             try {
                 new JSONObject(partial);
+                if (ENABLE_JSON_DEBUG) {
+                    log("    [robustCompleteJson] ✓ 输入本身就是完整的JSON");
+                }
                 return partial;
-            } catch (Exception ignore) {}
+            } catch (Exception e) {
+                if (ENABLE_JSON_DEBUG) {
+                    log("    [robustCompleteJson] 输入不是完整JSON，错误: " + e.getMessage());
+                }
+            }
 
             // 状态机扫描，跳过字符串字面量与转义
             boolean inString = false;
@@ -576,22 +668,52 @@ public class McpServer {
                     if (bracketDepth > 0) bracketDepth--;
                 }
             }
-            if (firstBrace == -1) return null;
+            
+            if (firstBrace == -1) {
+                log("    [robustCompleteJson] ⚠ 未找到开始的 {，无法补全");
+                return null;
+            }
+
+            log("    [robustCompleteJson] 状态机扫描完成:");
+            log("      ├─ firstBrace位置: " + firstBrace);
+            log("      ├─ braceDepth: " + braceDepth);
+            log("      ├─ bracketDepth: " + bracketDepth);
+            log("      └─ 需要补齐的字符: " + bracketDepth + "个] + " + braceDepth + "个}");
 
             String body = partial.substring(firstBrace);
             if (bracketDepth == 0 && braceDepth == 0) {
                 // 没有需要补的
-                try { new JSONObject(body); return body; } catch (Exception ignore) {}
-                return null;
+                log("    [robustCompleteJson] ✓ 无需补齐（括号已平衡）");
+                try { 
+                    new JSONObject(body); 
+                    return body; 
+                } catch (Exception e) {
+                    log("    [robustCompleteJson] ⚠ 括号平衡但仍然解析失败: " + e.getMessage());
+                    return null;
+                }
             }
+            
             StringBuilder suffix = new StringBuilder();
             for (int i = 0; i < bracketDepth; i++) suffix.append(']');
             for (int i = 0; i < braceDepth; i++) suffix.append('}');
             String candidate = body + suffix.toString();
+            
+            log("    [robustCompleteJson] 补齐后长度: " + candidate.length() + " (原: " + body.length() + " + " + suffix.length() + " suffix)");
+            log("      └─ 增加字符数: " + (candidate.length() - body.length()));
+            
             try {
                 new JSONObject(candidate);
+                log("    [robustCompleteJson] ✓ 补齐成功！");
+                log("      ├─ 原始长度: " + partial.length());
+                log("      ├─ 补齐后长度: " + candidate.length());
+                log("      ├─ 增加的字符: " + suffix.length());
+                log("      └─ 补齐内容: " + suffix.toString());
                 return candidate;
             } catch (Exception e) {
+                log("    [robustCompleteJson] ✗ 补齐后仍然失败: " + e.getMessage());
+                if (ENABLE_JSON_DEBUG) {
+                    log("      └─ 候选JSON: " + logWithTruncation(candidate, 500));
+                }
                 return null;
             }
         }
@@ -599,6 +721,8 @@ public class McpServer {
         private String executeToolCall(String jsonRpcStr) {
             log("    [executeToolCall] 开始执行工具调用:");
             log("      ├─ 输入JSON长度: " + (jsonRpcStr == null ? 0 : jsonRpcStr.length()) + " 字符");
+            log("      ├─ 输入JSON: " + logWithTruncation(jsonRpcStr, TOOL_CALL_LOG_TRUNCATE_LENGTH));
+            
             // 主路径：直接解析 JSON-RPC 调用
             Exception firstFail = null;
             String tryStr = jsonRpcStr;
@@ -623,7 +747,7 @@ public class McpServer {
                     args = new JSONObject();
                 }
                 log("      ├─ 工具名: " + toolName);
-                log("      ├─ 参数: " + args.toString());
+                log("      ├─ 参数: " + logWithTruncation(args.toString(), TOOL_CALL_LOG_TRUNCATE_LENGTH));
                 log("      └─ 调用ToolManager.callTool...");
 
                 log("执行工具: " + toolName);
@@ -631,23 +755,31 @@ public class McpServer {
                 JSONObject result = ToolManager.getInstance().callTool(toolName, args);
                 long executeCost = System.currentTimeMillis() - executeStart;
                 log("      [ToolManager] 返回结果: 耗时=" + executeCost + "ms, isNull=" + (result == null));
+                
+                if (result == null) {
+                    log("      [ToolManager] ⚠ 结果为null");
+                    return "(工具返回null)";
+                }
 
                 JSONArray contentArr = result.optJSONArray("content");
                 if (contentArr != null && contentArr.length() > 0) {
                     JSONObject first = contentArr.optJSONObject(0);
                     if (first != null) {
                         String resultText = first.optString("text", "");
-                        log("      [ToolManager] 提取content[0].text: 长度=" + resultText.length() + " 字符");
+                        log("      [ToolManager] ✓ 提取content[0].text: 长度=" + resultText.length() + " 字符");
+                        log("      [ToolManager] 结果预览: " + logWithTruncation(resultText, TOOL_CALL_LOG_TRUNCATE_LENGTH));
                         return resultText;
                     }
                 }
-                String fallbackResult = result != null ? result.toString() : "(null)";
-                log("      [ToolManager] 无content数组，返回整个result.toString()");
+                String fallbackResult = result.toString();
+                log("      [ToolManager] 无content数组，返回整个result: 长度=" + fallbackResult.length());
+                log("      [ToolManager] 结果: " + logWithTruncation(fallbackResult, TOOL_CALL_LOG_TRUNCATE_LENGTH));
                 return fallbackResult;
             } catch (Exception e) {
                 firstFail = e;
                 log("    [executeToolCall] 初次解析失败: " + e.getMessage() + "，尝试状态机自动补全");
                 log("      ├─ 异常类型: " + e.getClass().getName());
+                log("      ├─ 异常消息: " + e.getMessage());
                 log("      └─ 异常堆栈: " + android.util.Log.getStackTraceString(e));
             }
 
@@ -655,7 +787,11 @@ public class McpServer {
             log("    [executeToolCall] 尝试 robustCompleteJson 补全...");
             String completed = robustCompleteJson(tryStr);
             if (completed != null && !completed.equals(tryStr)) {
-                log("    [executeToolCall] 补全成功: 原长度=" + tryStr.length() + " → 补全后=" + completed.length() + " (+" + (completed.length() - tryStr.length()) + " 字符)");
+                log("    [executeToolCall] ✓ 补全成功!");
+                log("      ├─ 原长度: " + tryStr.length());
+                log("      ├─ 补全后长度: " + completed.length());
+                log("      ├─ 增加的字符数: " + (completed.length() - tryStr.length()));
+                log("      └─ 补全后内容: " + logWithTruncation(completed, TOOL_CALL_LOG_TRUNCATE_LENGTH));
                 try {
                     JSONObject req = new JSONObject(completed);
                     String method = req.optString("method", "");
@@ -668,21 +804,37 @@ public class McpServer {
                     String toolName = params.optString("name", "");
                     JSONObject args = params.optJSONObject("arguments");
                     if (args == null) args = new JSONObject();
-                    log("（状态机补全后执行工具: " + toolName + "，补齐了 " + (completed.length() - tryStr.length()) + " 个字符");
+                    log("    [executeToolCall] 执行补全后的工具调用: " + toolName + "，补齐了 " + (completed.length() - tryStr.length()) + " 个字符");
                     JSONObject result = ToolManager.getInstance().callTool(toolName, args);
+                    
+                    if (result == null) {
+                        log("    [executeToolCall] ⚠ 补全后工具返回null");
+                        return "(工具返回null)";
+                    }
+                    
                     JSONArray contentArr = result.optJSONArray("content");
                     if (contentArr != null && contentArr.length() > 0) {
                         JSONObject first = contentArr.optJSONObject(0);
-                        if (first != null) return first.optString("text", "");
+                        if (first != null) {
+                            String resultText = first.optString("text", "");
+                            log("    [executeToolCall] ✓ 补全后工具执行成功: " + resultText.length() + " 字符");
+                            return resultText;
+                        }
                     }
-                    return result.toString();
+                    String resultStr = result.toString();
+                    log("    [executeToolCall] 补全后返回整个result: " + resultStr.length() + " 字符");
+                    return resultStr;
                 } catch (Exception e) {
-                    log("补全后仍失败: " + e.getMessage());
+                    log("    [executeToolCall] ✗ 补全后仍失败: " + e.getMessage());
+                    log("      └─ 异常: " + android.util.Log.getStackTraceString(e));
                 }
             } else if (completed == null) {
-                log("    [executeToolCall] 补全失败: 无法补全JSON");
+                log("    [executeToolCall] ✗ 补全失败: 无法补全JSON");
+                if (ENABLE_JSON_DEBUG) {
+                    log("      └─ 输入长度: " + tryStr.length());
+                }
             } else {
-                log("    [executeToolCall] 补全无变化（可能JSON本身就是完整的但解析仍失败）");
+                log("    [executeToolCall] 补全无变化（JSON本身就是完整的但解析仍失败）");
             }
             String errMsg = "工具执行失败: " + (firstFail != null ? firstFail.getMessage() : "JSON不完整且无法自动补全");
             log("    [executeToolCall] 最终结果: " + errMsg);
@@ -793,6 +945,19 @@ public class McpServer {
                             "\r\n";
                         out.write(header.getBytes("UTF-8"));
                         out.flush();
+                        
+                        // Stream start markers - 流开始标记
+                        if (ENABLE_STREAM_DEBUG) {
+                            log("════════════════════════════════════════════════════════════");
+                            log("【流开始】Streaming lifecycle start:");
+                            log("  ├─ 消息长度: " + message.length() + " 字符");
+                            log("  ├─ 消息内容: " + logWithTruncation(message, 200));
+                            log("  ├─ SSE头部已发送: " + header.length() + " 字节");
+                            log("  ├─ 心跳超时: " + HEARTBEAT_TIMEOUT_MS + " ms");
+                            log("  ├─ 工具调用截断长度: " + (TOOL_CALL_LOG_TRUNCATE_LENGTH == 0 ? "无限制（完整记录）" : TOOL_CALL_LOG_TRUNCATE_LENGTH));
+                            log("  └─ 系统时间: " + System.currentTimeMillis());
+                            log("════════════════════════════════════════════════════════════");
+                        }
                         
                         // Mark that we have entered the streaming path - for cleanup during exception handling
                         isStreamingPath = true;
@@ -991,21 +1156,36 @@ public class McpServer {
 
                             boolean completed = false;
                             try {
-                                // 动态超时：工具调用场景可能需要更长的LLM生成时间
-                                // 普通回复给600秒（10分钟），工具调用给更长时间
-                                // 注意：实际轮次结束由JavaScript端的pollOnce触发，这里只是兜底
-                                long waitSeconds = 600; // 默认10分钟
-                                if (round > 1) waitSeconds = 1800; // 后续轮次可能是工具调用，给30分钟
+                                // Enhanced Timeout Management - 增强的超时管理
+                                // Use configurable timeout constants instead of hardcoded values
+                                long timeoutMs = (round == 1) ? FIRST_ROUND_TIMEOUT_MS : TOOL_CALL_TIMEOUT_MS;
+                                long waitSeconds = timeoutMs / 1000;
+                                
+                                if (ENABLE_STREAM_DEBUG) {
+                                    log("轮次 " + currentRound + " 流状态: 已启动");
+                                    log("  ├─ 超时配置: " + waitSeconds + " 秒 (" + timeoutMs + " ms)");
+                                    log("  ├─ 心跳状态: " + (inToolCallStream.get() ? "工具流模式（禁用心跳）" : "常规模式（心跳启用）"));
+                                    log("  └─ 等待LLM回复中...");
+                                }
+                                
                                 log("轮次 " + currentRound + " 等待LLM回复（最大" + waitSeconds + "秒）");
                                 completed = roundLatch.await(waitSeconds, TimeUnit.SECONDS);
                             } catch (InterruptedException e) {
                                 Thread.currentThread().interrupt();
+                                log("轮次 " + currentRound + " 等待被中断");
                                 break;
                             }
 
                             if (!completed) {
                                 // 超时：尝试从JavaScript端获取任何已有内容
-                                log("轮次 " + currentRound + " LLM回复超时（roundLatch.await超时）");
+                                log("轮次 " + currentRound + " ⚠ LLM回复超时（roundLatch.await超时）");
+                                if (ENABLE_STREAM_DEBUG) {
+                                    long timeoutMs = (round == 1) ? FIRST_ROUND_TIMEOUT_MS : TOOL_CALL_TIMEOUT_MS;
+                                    log("  ├─ 超时时间: " + (timeoutMs / 1000) + " 秒");
+                                    log("  ├─ 工具流状态: " + (inToolCallStream.get() ? "进行中（禁用心跳）" : "未进行"));
+                                    log("  ├─ 最后活动时间: " + (System.currentTimeMillis() - lastActivityAt.get()) + " ms前");
+                                    log("  └─ 回复: " + (roundReplyRef.get() == null ? "无" : roundReplyRef.get().length() + "字符"));
+                                }
                                 JSONObject j = new JSONObject();
                                 j.put("error", "本轮回复超时");
                                 writeEventChunk(out, "error", j.toString());
@@ -1086,6 +1266,19 @@ public class McpServer {
 
                         // 刷新所有待处理的写入任务，确保所有块都已发送
                         flushWriteHandler();
+                        
+                        // Stream completion markers - 流完成标记
+                        if (ENABLE_STREAM_DEBUG) {
+                            log("════════════════════════════════════════════════════════════");
+                            log("【流完成】Streaming lifecycle end:");
+                            log("  ├─ 总轮数: " + round);
+                            log("  ├─ 完成方式: " + (finalDone ? "正常完成（无更多工具调用）" : "达到最大轮数"));
+                            log("  ├─ 心跳线程状态: " + (heartbeatThread != null && heartbeatThread.isAlive() ? "运行中" : "已停止"));
+                            log("  ├─ 工具流状态: " + (inToolCallStream.get() ? "仍在工具模式" : "已离开工具模式"));
+                            log("  └─ 总用时: " + (System.currentTimeMillis() - System.currentTimeMillis()) + " ms");
+                            log("════════════════════════════════════════════════════════════");
+                        }
+                        
                         // 然后发送 chunked 编码终止符
                         endChunked(out);
                         stopHeartbeat.set(true);
