@@ -376,8 +376,39 @@ public class DeepSeekChatBridge {
             "    md = md.replace(/<h3[^>]*>([\\s\\S]*?)<\\/h3>/gi, '### $1\\n');\n" +
             "    md = md.replace(/<h4[^>]*>([\\s\\S]*?)<\\/h4>/gi, '#### $1\\n');\n" +
             "    md = md.replace(/<a\\s+href=[\"']([^\"']*)[\"'][^>]*>([\\s\\S]*?)<\\/a>/gi, '[$2]($1)');\n" +
-            "    md = md.replace(/<pre[^>]*><code[^>]*>([\\s\\S]*?)<\\/code><\\/pre>/gi, '```\\n$1\\n```');\n" +
-            "    md = md.replace(/<pre[^>]*>([\\s\\S]*?)<\\/pre>/gi, '```\\n$1\\n```');\n" +
+            "    // ===== 第2.5步：处理 DeepSeek 的复制/下载按钮 =====\n" +
+            "    // 目标：按钮保留但不混入代码块内容，转换为可点击格式\n" +
+            "    // 按钮出现场景：\n" +
+            "    //   1) <code>复制</code> / <code>下载</code> 作为独立段落\n" +
+            "    //   2) <button> 或 <div> 的复制/下载按钮 UI\n" +
+            "    // 先处理按钮文字：转为可点击的 Markdown 格式\n" +
+            "    md = md.replace(/<code[^>]*>(复制|下载|copy|download)<\\/code>/gi, '[**$1**]');\n" +
+            "    // 处理按钮作为独立段落：转为行内按钮（去除多余的 <p> 换行）\n" +
+            "    md = md.replace(/<p[^>]*>\\s*\\[\\*\\*(复制|下载|copy|download)\\*\\*\\]\\s*<\\/p>/gi, ' [**$1**]\\n');\n" +
+            "    // 按钮元素（button/div/span）：提取其中文字转为 Markdown 按钮格式\n" +
+            "    md = md.replace(/<button[^>]*class=\"[^\"]*copy[^\"]*\"[^>]*>([\\s\\S]*?)<\\/button>/gi, '[**复制**]');\n" +
+            "    md = md.replace(/<button[^>]*class=\"[^\"]*download[^\"]*\"[^>]*>([\\s\\S]*?)<\\/button>/gi, '[**下载**]');\n" +
+            "    md = md.replace(/<button[^>]*>[\\s\\S]*?(复制|下载)[\\s\\S]*?<\\/button>/gi, '[**$1**]');\n" +
+            "    md = md.replace(/<div[^>]*class=\"[^\"]*copy[^\"]*\"[^>]*>([\\s\\S]*?)<\\/div>/gi, '[**复制**]');\n" +
+            "    md = md.replace(/<div[^>]*class=\"[^\"]*download[^\"]*\"[^>]*>([\\s\\S]*?)<\\/div>/gi, '[**下载**]');\n" +
+            "    md = md.replace(/<span[^>]*class=\"[^\"]*copy[^\"]*\"[^>]*>([\\s\\S]*?)<\\/span>/gi, '[**复制**]');\n" +
+            "    md = md.replace(/<span[^>]*class=\"[^\"]*download[^\"]*\"[^>]*>([\\s\\S]*?)<\\/span>/gi, '[**下载**]');\n" +
+            "    // 处理代码块：先移除/替换内部按钮，再提取纯代码内容\n" +
+            "    md = md.replace(/<pre[^>]*>([\\s\\S]*?)<\\/pre>/gi, function(m, preContent) {\n" +
+            "      var clean = preContent\n" +
+            "        .replace(/<button[^>]*>[\\s\\S]*?<\\/button>/gi, '')\n" +
+            "        .replace(/<div[^>]*class=\"[^\"]*copy[^\"]*\"[^>]*>[\\s\\S]*?<\\/div>/gi, '')\n" +
+            "        .replace(/<div[^>]*class=\"[^\"]*download[^\"]*\"[^>]*>[\\s\\S]*?<\\/div>/gi, '')\n" +
+            "        .replace(/<span[^>]*>[\\s\\S]*?(复制|下载)[\\s\\S]*?<\\/span>/gi, '')\n" +
+            "        .replace(/<code[^>]*>(复制|下载)<\\/code>/gi, '');\n" +
+            "      return '```\\n' + clean.trim() + '\\n```';\n" +
+            "    });\n" +
+            "    md = md.replace(/<pre[^>]*><code[^>]*>([\\s\\S]*?)<\\/code><\\/pre>/gi, function(m, codeContent) {\n" +
+            "      var clean = codeContent\n" +
+            "        .replace(/<button[^>]*>[\\s\\S]*?<\\/button>/gi, '')\n" +
+            "        .replace(/<span[^>]*>[\\s\\S]*?(复制|下载)[\\s\\S]*?<\\/span>/gi, '');\n" +
+            "      return '```\\n' + clean.trim() + '\\n```';\n" +
+            "    });\n" +
             "    // 处理 DeepSeek 常用的 span 标签作为行内代码\n" +
             "    // 先处理带 class 的代码样式 span（同时支持单双引号：\n" +
             "    md = md.replace(/<span[^>]*class=\"[^\"]*(?:ds-markdown(?:--)?(?:inline-)?code|inline-code|inlineCode|markdown-code|code|ds-[a-zA-Z0-9-]*)[^\"]*\"[^>]*>([\\s\\S]*?)<\\/span>/gi, '`$1`');\n" +
