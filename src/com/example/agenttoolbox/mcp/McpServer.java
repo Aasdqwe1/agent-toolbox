@@ -1380,6 +1380,7 @@ public class McpServer {
                 "\r\n" +
                 responseBody;
             out.write(response.getBytes("UTF-8"));
+            out.flush();
         }
 
         private void handleOptionsRequest(OutputStream out) throws IOException {
