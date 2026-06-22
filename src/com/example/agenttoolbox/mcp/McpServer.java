@@ -833,7 +833,7 @@ public class McpServer {
                         // Save heartbeat thread reference for cleanup during exception handling
                         heartbeatThread = heartbeat;
 
-                        // 对话循环
+                        // Conversation loop
                         String currentMessage = message;
                         int maxRounds = 10;
                         int round = 0;
@@ -1077,8 +1077,8 @@ public class McpServer {
                         endChunked(out);
                         stopHeartbeat.set(true);
                         streamingCompleted = true;  // Mark that streaming completed normally
-                        log("══════════ 对话结束，共 " + round + " 轮 ══════════");
-                        return; // 流式路径结束，直接返回
+                        log("=========== Conversation ended, total " + round + " rounds ===========");
+                        return; // Streaming path ended, return
                     } // end of send success block
                 } else if ("/api/chat/status".equals(action)) {
                     boolean registered = DeepSeekChatBridge.getInstance().isRegistered();
@@ -1094,10 +1094,10 @@ public class McpServer {
                         .toString();
                 }
             } catch (Exception e) {
-                log("聊天请求处理异常: "
-                    + "类型=" + e.getClass().getName()
-                    + " msg=" + (e.getMessage() == null ? "(null)" : e.getMessage()));
-                log("聊天请求处理异常: 堆栈: " + android.util.Log.getStackTraceString(e));
+                log("Chat request processing exception: "
+                    + "type=" + e.getClass().getName()
+                    + " message=" + (e.getMessage() == null ? "(null)" : e.getMessage()));
+                log("Chat request processing exception: Stack trace: " + android.util.Log.getStackTraceString(e));
                 
                 // If exception occurred while in streaming path, need to terminate streaming
                 if (isStreamingPath) {
