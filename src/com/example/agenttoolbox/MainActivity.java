@@ -177,6 +177,21 @@ public class MainActivity extends Activity {
                 appendLog("存储权限：被拒绝，外部文件工具可能受限");
                 Toast.makeText(this, "未获得存储权限，部分功能受限", Toast.LENGTH_LONG).show();
             }
+        } else if (requestCode == 1003) {
+            // 通知权限结果，继续启动服务
+            appendLog("通知权限请求完成，继续启动服务");
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                appendLog("通知权限已授予");
+            } else {
+                appendLog("通知权限被拒绝，但继续启动服务");
+            }
+            // 延迟一点再启动，让权限对话框完全关闭
+            handler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    startServer();
+                }
+            }, 500);
         }
     }
 
@@ -202,6 +217,17 @@ public class MainActivity extends Activity {
     private void startServer() {
         try {
             appendLog("正在启动MCP服务...");
+
+            // Android 13+需要请求通知权限
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    appendLog("请求通知权限...");
+                    requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1003);
+                    return;
+                }
+                appendLog("通知权限已授予");
+            }
+
             Intent intent = new Intent(MainActivity.this, McpForegroundService.class);
             appendLog("intent创建成功: " + intent);
             appendLog("Build.VERSION: " + Build.VERSION.SDK_INT);
