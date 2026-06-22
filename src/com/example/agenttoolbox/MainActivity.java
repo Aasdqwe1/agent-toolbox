@@ -202,10 +202,17 @@ public class MainActivity extends Activity {
         try {
             appendLog("正在启动MCP服务...");
             Intent intent = new Intent(MainActivity.this, McpForegroundService.class);
+            appendLog("intent创建成功: " + intent);
+            appendLog("Build.VERSION: " + Build.VERSION.SDK_INT);
+            appendLog("Build.VERSION_CODES.O: " + Build.VERSION_CODES.O);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(intent);
+                appendLog("调用startForegroundService");
+                ComponentName result = startForegroundService(intent);
+                appendLog("startForegroundService返回: " + (result == null ? "null" : result.getClassName()));
             } else {
-                startService(intent);
+                appendLog("调用startService");
+                ComponentName result = startService(intent);
+                appendLog("startService返回: " + (result == null ? "null" : result.getClassName()));
             }
             appendLog("startForegroundService已调用");
 
