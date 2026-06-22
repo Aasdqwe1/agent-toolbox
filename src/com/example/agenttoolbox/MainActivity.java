@@ -2,6 +2,9 @@ package com.example.agenttoolbox;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -197,15 +200,19 @@ public class MainActivity extends Activity {
      */
     private void startServer() {
         try {
+            appendLog("正在启动MCP服务...");
             Intent intent = new Intent(MainActivity.this, McpForegroundService.class);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(intent);
             } else {
                 startService(intent);
             }
+            appendLog("startForegroundService已调用");
 
-            // 等待服务启动
-            handler.postDelayed(new Runnable() {
+            // 等待服务启动，最多等待5秒
+            final long startTime = System.currentTimeMillis();
+            final long timeout = 5000;
+            handler.post(new Runnable() {
                 @Override
                 public void run() {
                     McpForegroundService service = McpForegroundService.getInstance();
@@ -226,14 +233,35 @@ public class MainActivity extends Activity {
                         tvAddress.setText("监听地址：http://" + mcpServer.getLocalIpAddress() + ":" + PORT);
                         btnStart.setEnabled(false);
                         btnStop.setEnabled(true);
-                    } else {
+                        appendLog("MCP服务启动成功");
+                    } else if (System.currentTimeMillis() - startTime < timeout) {
                         handler.postDelayed(this, 100);
+                    } else {
+                        String error = "服务启动超时(5秒)，instance=" + (service == null ? "null" : "not null");
+                        appendLog(error);
+                        copyToClipboard(error);
                     }
                 }
             }, 100);
 
         } catch (Exception e) {
-            appendLog("启动服务失败: " + e.getMessage());
+            String error = "启动服务异常: " + e.getClass().getName() + "\n" + e.getMessage();
+            appendLog(error);
+            copyToClipboard(error);
+        }
+    }
+
+    /**
+     * 复制文本到剪贴板
+     */
+    private void copyToClipboard(String text) {
+        try {
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            ClipData clip = ClipData.newPlainText("MCP Error", text);
+            clipboard.setPrimaryClip(clip);
+            Toast.makeText(this, "错误信息已复制到剪贴板", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "复制失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
     
