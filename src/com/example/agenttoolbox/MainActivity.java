@@ -212,7 +212,7 @@ public class MainActivity extends Activity {
             // 等待服务启动，最多等待5秒
             final long startTime = System.currentTimeMillis();
             final long timeout = 5000;
-            handler.post(new Runnable() {
+            handler.postDelayed(new Runnable() {
                 @Override
                 public void run() {
                     McpForegroundService service = McpForegroundService.getInstance();
