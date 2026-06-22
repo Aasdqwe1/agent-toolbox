@@ -772,12 +772,7 @@ public class McpServer {
                     }
                 }
                 
-                // Handle result being null or missing content
-                if (result == null) {
-                    log("      [ToolManager] ⚠ 结果为null，返回空");
-                    return "(工具返回null)";
-                }
-                
+                // No content array or empty - return whole result
                 String fallbackResult = result.toString();
                 log("      [ToolManager] 无content数组，返回整个result: 长度=" + fallbackResult.length());
                 log("      [ToolManager] 结果: " + logWithTruncation(fallbackResult, TOOL_CALL_LOG_TRUNCATE_LENGTH));
@@ -1165,7 +1160,8 @@ public class McpServer {
                                 });
 
                             boolean completed = false;
-                            long timeoutMs = 0;  // Declare here for use in both try and catch blocks
+                            // Initialize with first round timeout as default, will be overwritten based on round
+                            long timeoutMs = FIRST_ROUND_TIMEOUT_MS;
                             try {
                                 // Enhanced Timeout Management - 增强的超时管理
                                 // Use configurable timeout constants instead of hardcoded values
