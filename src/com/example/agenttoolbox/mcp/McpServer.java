@@ -1136,6 +1136,21 @@ public class McpServer {
             log("返回心跳确认: 204 No Content");
         }
 
+        /**
+         * Check if an IOException is due to socket being closed.
+         * Socket closure is expected behavior when client disconnects.
+         */
+        private boolean isSocketClosed(IOException e) {
+            String message = e.getMessage();
+            if (message != null) {
+                return message.contains("Socket closed") || 
+                       message.contains("Connection reset") ||
+                       message.contains("Broken pipe") ||
+                       message.contains("Connection closed");
+            }
+            return e instanceof java.net.SocketException;
+        }
+
         private void writeEventChunk(final OutputStream out, final String type, final String jsonData) {
             writeHandler.post(new Runnable() {
                 @Override
@@ -1151,7 +1166,10 @@ public class McpServer {
                             out.flush();
                         }
                     } catch (IOException e) {
-                        log("SSE写入异常: " + e.getMessage());
+                        // Socket closed is expected when client disconnects, only log other IOExceptions
+                        if (!isSocketClosed(e)) {
+                            log("SSE写入异常: " + e.getMessage());
+                        }
                     }
                 }
             });
@@ -1167,7 +1185,10 @@ public class McpServer {
                             out.flush();
                         }
                     } catch (IOException e) {
-                        log("SSE结束写入异常: " + e.getMessage());
+                        // Socket closed is expected when client disconnects, only log other IOExceptions
+                        if (!isSocketClosed(e)) {
+                            log("SSE结束写入异常: " + e.getMessage());
+                        }
                     }
                 }
             });
