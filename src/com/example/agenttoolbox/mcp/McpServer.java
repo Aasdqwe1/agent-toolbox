@@ -22,6 +22,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 
+import android.os.Handler;
+import android.os.HandlerThread;
+
 /**
  * MCP 服务端 - 基于HTTP的JSON-RPC 2.0服务 + 静态网页服务
  */
@@ -158,6 +161,8 @@ public class McpServer {
 
     private class ClientHandler implements Runnable {
         private Socket clientSocket;
+        private Handler writeHandler;
+        private HandlerThread writeThread;
 
         public ClientHandler(Socket socket) {
             this.clientSocket = socket;
@@ -170,8 +175,13 @@ public class McpServer {
                     new InputStreamReader(clientSocket.getInputStream()));
                 OutputStream out = clientSocket.getOutputStream();
 
+                writeThread = new HandlerThread("SSE-WriteThread");
+                writeThread.start();
+                writeHandler = new Handler(writeThread.getLooper());
+
                 String requestLine = in.readLine();
                 if (requestLine == null) {
+                    writeThread.quitSafely();
                     clientSocket.close();
                     return;
                 }
@@ -207,6 +217,7 @@ public class McpServer {
                 out.flush();
                 in.close();
                 out.close();
+                writeThread.quitSafely();
                 clientSocket.close();
 
             } catch (Exception e) {
@@ -217,6 +228,9 @@ public class McpServer {
                     }
                 } catch (IOException ex) {
                     // ignore
+                }
+                if (writeThread != null) {
+                    writeThread.quitSafely();
                 }
             }
         }
@@ -1122,23 +1136,41 @@ public class McpServer {
             log("返回心跳确认: 204 No Content");
         }
 
-        private void writeChunked(OutputStream out, byte[] data) throws IOException {
-            if (data == null || data.length == 0) return;
-            out.write(Integer.toHexString(data.length).getBytes("UTF-8"));
-            out.write("\r\n".getBytes("UTF-8"));
-            out.write(data);
-            out.write("\r\n".getBytes("UTF-8"));
-            out.flush();
+        private void writeEventChunk(final OutputStream out, final String type, final String jsonData) {
+            writeHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        synchronized (out) {
+                            String event = "event: " + type + "\n" + "data: " + jsonData + "\n\n";
+                            byte[] data = event.getBytes("UTF-8");
+                            out.write(Integer.toHexString(data.length).getBytes("UTF-8"));
+                            out.write("\r\n".getBytes("UTF-8"));
+                            out.write(data);
+                            out.write("\r\n".getBytes("UTF-8"));
+                            out.flush();
+                        }
+                    } catch (IOException e) {
+                        log("SSE写入异常: " + e.getMessage());
+                    }
+                }
+            });
         }
 
-        private void writeEventChunk(OutputStream out, String type, String jsonData) throws IOException {
-            String event = "event: " + type + "\n" + "data: " + jsonData + "\n\n";
-            writeChunked(out, event.getBytes("UTF-8"));
-        }
-
-        private void endChunked(OutputStream out) throws IOException {
-            out.write("0\r\n\r\n".getBytes("UTF-8"));
-            out.flush();
+        private void endChunked(final OutputStream out) {
+            writeHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        synchronized (out) {
+                            out.write("0\r\n\r\n".getBytes("UTF-8"));
+                            out.flush();
+                        }
+                    } catch (IOException e) {
+                        log("SSE结束写入异常: " + e.getMessage());
+                    }
+                }
+            });
         }
 
         private String handleJsonRpcRequest(String requestBody) {
