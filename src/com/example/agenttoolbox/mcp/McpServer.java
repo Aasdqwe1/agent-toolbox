@@ -771,6 +771,13 @@ public class McpServer {
                         return resultText;
                     }
                 }
+                
+                // Handle result being null or missing content
+                if (result == null) {
+                    log("      [ToolManager] ⚠ 结果为null，返回空");
+                    return "(工具返回null)";
+                }
+                
                 String fallbackResult = result.toString();
                 log("      [ToolManager] 无content数组，返回整个result: 长度=" + fallbackResult.length());
                 log("      [ToolManager] 结果: " + logWithTruncation(fallbackResult, TOOL_CALL_LOG_TRUNCATE_LENGTH));
@@ -1158,10 +1165,11 @@ public class McpServer {
                                 });
 
                             boolean completed = false;
+                            long timeoutMs = 0;  // Declare here for use in both try and catch blocks
                             try {
                                 // Enhanced Timeout Management - 增强的超时管理
                                 // Use configurable timeout constants instead of hardcoded values
-                                long timeoutMs = (round == 1) ? FIRST_ROUND_TIMEOUT_MS : TOOL_CALL_TIMEOUT_MS;
+                                timeoutMs = (round == 1) ? FIRST_ROUND_TIMEOUT_MS : TOOL_CALL_TIMEOUT_MS;
                                 long waitSeconds = timeoutMs / 1000;
                                 
                                 if (ENABLE_STREAM_DEBUG) {
@@ -1183,7 +1191,6 @@ public class McpServer {
                                 // 超时：尝试从JavaScript端获取任何已有内容
                                 log("轮次 " + currentRound + " ⚠ LLM回复超时（roundLatch.await超时）");
                                 if (ENABLE_STREAM_DEBUG) {
-                                    long timeoutMs = (round == 1) ? FIRST_ROUND_TIMEOUT_MS : TOOL_CALL_TIMEOUT_MS;
                                     log("  ├─ 超时时间: " + (timeoutMs / 1000) + " 秒");
                                     log("  ├─ 工具流状态: " + (inToolCallStream.get() ? "进行中（禁用心跳）" : "未进行"));
                                     log("  ├─ 最后活动时间: " + (System.currentTimeMillis() - lastActivityAt.get()) + " ms前");
