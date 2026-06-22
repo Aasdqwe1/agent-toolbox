@@ -210,9 +210,30 @@ public class McpServer {
                 if ("GET".equalsIgnoreCase(method)) {
                     handleGetRequest(path, out);
                 } else if ("POST".equalsIgnoreCase(method)) {
-                    char[] body = new char[contentLength];
-                    in.read(body, 0, contentLength);
-                    String requestBody = new String(body);
+                    // Fix: BufferedReader.read() may not read all content in one call
+                    // Must use a loop to ensure all content is read
+                    StringBuilder bodyBuilder = new StringBuilder();
+                    char[] buffer = new char[8192];
+                    int totalRead = 0;
+                    int charsRead;
+                    
+                    log("[DEBUG] 开始读取POST请求体，期望内容长度: " + contentLength + " 字节");
+                    
+                    try {
+                        while (totalRead < contentLength && (charsRead = in.read(buffer, 0, Math.min(buffer.length, contentLength - totalRead))) != -1) {
+                            bodyBuilder.append(buffer, 0, charsRead);
+                            totalRead += charsRead;
+                            log("[DEBUG] 读取进度: " + totalRead + "/" + contentLength + " (本次读取: " + charsRead + " 字符)");
+                        }
+                    } catch (IOException e) {
+                        log("[DEBUG] 读取请求体异常: " + e.getMessage() + " (已读: " + totalRead + "/" + contentLength + " 字符)");
+                    }
+                    
+                    String requestBody = bodyBuilder.toString();
+                    log("[DEBUG] 最终读取到请求体长度: " + requestBody.length() + " 字符 (期望: " + contentLength + ")");
+                    if (requestBody.length() < contentLength) {
+                        log("[WARNING] 警告：读取到的内容少于Content-Length声明的长度！");
+                    }
                     handlePostRequest(path, requestBody, out);
                 } else if ("OPTIONS".equalsIgnoreCase(method)) {
                     handleOptionsRequest(out);
