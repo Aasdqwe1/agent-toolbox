@@ -322,18 +322,33 @@ public class DeepSeekChatBridge {
             "    var html = (el.innerHTML || '').trim();\n" +
             "    Android.log('[DEBUG-HTML] 原始HTML长度=' + (html ? html.length : 0));\n" +
             "    Android.log('[DEBUG-HTML] 原始HTML前200字符=' + (html ? html.substring(0, 200) : '(空)'));\n" +
+            "    var result = null;\n" +
             "    if (html && html.length > 0) {\n" +
             "      var md = htmlToMarkdown(html);\n" +
             "      Android.log('[DEBUG-HTML] 转换后Markdown长度=' + (md ? md.length : 0));\n" +
             "      Android.log('[DEBUG-HTML] 转换后Markdown前200字符=' + (md ? md.substring(0, 200) : '(空)'));\n" +
             "      if (md && md.length > 0) {\n" +
             "        analyzeContentStructure(el, md);\n" +
-            "        return md;\n" +
+            "        result = md;\n" +
             "      }\n" +
             "    }\n" +
-            "    var txt = (el.innerText || el.textContent || '').trim();\n" +
-            "    Android.log('[DEBUG-HTML] 使用备用方案innerText，长度=' + (txt ? txt.length : 0));\n" +
-            "    return txt || null;\n" +
+            "    if (!result || result.length === 0) {\n" +
+            "      result = (el.innerText || el.textContent || '').trim();\n" +
+            "      Android.log('[DEBUG-HTML] 使用备用方案innerText，长度=' + (result ? result.length : 0));\n" +
+            "    }\n" +
+            "    // 强制扫描所有 <pre> 标签，提取纯净的 JSON 替换混合内容\n" +
+            "    var pres = el.querySelectorAll('pre');\n" +
+            "    if (pres && pres.length > 0) {\n" +
+            "      for (var pi = 0; pi < pres.length; pi++) {\n" +
+            "        var preTxt = (pres[pi].innerText || pres[pi].textContent || '').trim();\n" +
+            "        if (preTxt && preTxt.indexOf('\"jsonrpc\"') !== -1) {\n" +
+            "          Android.log('[DEBUG-HTML] 从 <pre> 提取到工具调用JSON，长度=' + preTxt.length);\n" +
+            "          result = preTxt;\n" +
+            "          break;\n" +
+            "        }\n" +
+            "      }\n" +
+            "    }\n" +
+            "    return result || null;\n" +
             "  }\n" +
             "\n" +
             "  // ===== HTML到Markdown的转换函数（P3修复：JSON保护+完整JSON提取）=====\n" +
@@ -744,6 +759,18 @@ public class DeepSeekChatBridge {
             "    // 直接取最后一条AI消息，始终跟踪最新内容\n" +
             "    var latestEl = list[list.length - 1];\n" +
             "    var reply = getAssistantReply(latestEl);\n" +
+            "    // 强制扫描 <pre> 代码块：当存在 <pre> 标签时，提取纯净的 JSON 替换混合内容\n" +
+            "    var preEls = latestEl.querySelectorAll('pre');\n" +
+            "    if (preEls && preEls.length > 0) {\n" +
+            "      for (var pi = 0; pi < preEls.length; pi++) {\n" +
+            "        var preTxt = (preEls[pi].innerText || preEls[pi].textContent || '').trim();\n" +
+            "        if (preTxt && preTxt.indexOf('\"jsonrpc\"') !== -1) {\n" +
+            "          reply = preTxt;\n" +
+            "          Android.log('[DEBUG][' + __rid + '] 从 <pre> 提取到工具调用JSON, len=' + preTxt.length);\n" +
+            "          break;\n" +
+            "        }\n" +
+            "      }\n" +
+            "    }\n" +
             "\n" +
             "    // 每10次轮询输出一次调试信息\n" +
             "    if (pollCount % 10 === 1 || pollCount <= 3) {\n" +
@@ -934,10 +961,15 @@ public class DeepSeekChatBridge {
             "    }\n" +
             "\n" +
             "    // 完成判定：采用冷却机制，内容稳定后再等待（更长观察期，避免偶发卡顿导致过早结束）\n" +
+            "    // 修复：当消息中有 <pre> 代码块但内容不含 jsonrpc 时，可能工具调用JSON还在渲染，延迟完成\n" +
+            "    var hasPreBlock = latestEl && latestEl.querySelector('pre') !== null;\n" +
+            "    var jsonInContent = reply && (reply.indexOf('\"jsonrpc\"') !== -1 || reply.indexOf('\"jsonrpc\":') !== -1);\n" +
             "    var MIN_LENGTH = 5;\n" +
             "    var STABLE_WAIT_MS = 3500;\n" +
-            "    var stableLong = sameLenStable >= 16 && reply.length > MIN_LENGTH; // 16次=8秒稳定\n" +
-            "    var stableShort = sameLenStable >= 6 && reply.length > 200;         // 6次=3秒，但内容必须足够长\n" +
+            "    // 有 <pre> 但 JSON 不在内容中时，需要更长稳定期等待代码块渲染完成\n" +
+            "    var stableThreshold = (hasPreBlock && !jsonInContent) ? 40 : 16;\n" +
+            "    var stableLong = sameLenStable >= stableThreshold && reply.length > MIN_LENGTH;\n" +
+            "    var stableShort = sameLenStable >= 6 && reply.length > 200;\n" +
             "\n" +
             "    // 关键增强：如果UI仍显示生成中，且内容仍在增长，不要提前结束\n" +
             "    var shouldFinish = false;\n" +
