@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Markdown 实时编辑器</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #1e1e2e; color: #cdd6f4; height: 100vh; display: flex;
+        }
+        .pane { flex: 1; display: flex; flex-direction: column; }
+        .pane-header {
+            padding: 10px 16px; font-size: 13px; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 1px;
+            background: #181825; border-bottom: 1px solid #313244;
+        }
+        .editor-pane .pane-header { color: #89b4fa; }
+        .preview-pane .pane-header { color: #a6e3a1; }
+        textarea {
+            flex: 1; padding: 16px; font-size: 15px; font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            line-height: 1.6; border: none; outline: none; resize: none;
+            background: #1e1e2e; color: #cdd6f4;
+        }
+        textarea::placeholder { color: #6c7086; }
+        .preview-content {
+            flex: 1; padding: 16px 24px; overflow-y: auto; line-height: 1.7;
+        }
+        .preview-content h1 { font-size: 1.8em; margin: 16px 0 10px; color: #f5c2e7; border-bottom: 2px solid #313244; padding-bottom: 8px; }
+        .preview-content h2 { font-size: 1.5em; margin: 14px 0 8px; color: #f5c2e7; border-bottom: 1px solid #313244; padding-bottom: 6px; }
+        .preview-content h3 { font-size: 1.25em; margin: 12px 0 6px; color: #cba6f7; }
+        .preview-content h4, .preview-content h5, .preview-content h6 { margin: 10px 0 5px; color: #cba6f7; }
+        .preview-content p { margin: 8px 0; }
+        .preview-content a { color: #89b4fa; text-decoration: none; }
+        .preview-content a:hover { text-decoration: underline; }
+        .preview-content code {
+            background: #313244; padding: 2px 6px; border-radius: 4px;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.9em;
+        }
+        .preview-content pre {
+            background: #11111b; padding: 16px; border-radius: 8px;
+            overflow-x: auto; margin: 10px 0; border: 1px solid #313244;
+        }
+        .preview-content pre code { background: none; padding: 0; }
+        .preview-content blockquote {
+            border-left: 3px solid #f5c2e7; padding-left: 14px; margin: 10px 0;
+            color: #a6adc8; font-style: italic;
+        }
+        .preview-content ul, .preview-content ol { padding-left: 24px; margin: 8px 0; }
+        .preview-content li { margin: 4px 0; }
+        .preview-content table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+        .preview-content th, .preview-content td {
+            border: 1px solid #45475a; padding: 8px 12px; text-align: left;
+        }
+        .preview-content th { background: #313244; font-weight: 600; }
+        .preview-content img { max-width: 100%; border-radius: 6px; margin: 8px 0; }
+        .preview-content hr { border: none; border-top: 1px solid #313244; margin: 16px 0; }
+        .divider { width: 2px; background: #313244; }
+        @media (max-width: 768px) {
+            body { flex-direction: column; }
+            .divider { width: 100%; height: 2px; }
+        }
+        .status-bar {
+            padding: 6px 16px; font-size: 12px; color: #6c7086;
+            background: #181825; border-top: 1px solid #313244;
+            display: flex; justify-content: space-between;
+        }
+    </style>
+</head>
+<body>
+    <div class="pane editor-pane">
+        <div class="pane-header">📝 Markdown 编辑</div>
+        <textarea id="editor" placeholder="在此输入 Markdown 文本...&#10;&#10;# 欢迎使用 Markdown 编辑器&#10;&#10;## 功能特性&#10;&#10;- **实时预览**&#10;- *语法高亮*&#10;- `代码支持`&#10;&#10;> 开始输入即可看到效果"># 欢迎使用 Markdown 实时编辑器
+
+## 🚀 功能特性
+
+- **粗体文本**
+- *斜体文本*
+- ~~删除线~~
+- `行内代码`
+
+## 📊 代码块
+
+```python
+def hello():
+    print("Hello, World!")
+```
+
+## 📋 列表
+
+1. 第一项
+2. 第二项
+3. 第三项
+
+## 💬 引用
+
+> 这是一段引用文字
+> 可以多行展示
+
+## 📊 表格
+
+| 功能 | 支持 | 说明 |
+|------|------|------|
+| 实时预览 | ✅ | 边输入边看效果 |
+| 语法高亮 | ✅ | 代码块自动高亮 |
+| 响应式 | ✅ | 手机端适配 |
+
+## 🔗 链接
+
+[Markdown 语法指南](https://markdown.com.cn)
+
+---
+
+*开始编辑左侧文本，预览实时更新 ✨*</textarea>
+        <div class="status-bar">
+            <span id="char-count">字符: 0</span>
+            <span id="word-count">字数: 0</span>
+            <span id="line-count">行数: 0</span>
+        </div>
+    </div>
+    <div class="divider"></div>
+    <div class="pane preview-pane">
+        <div class="pane-header">👁 实时预览</div>
+        <div class="preview-content" id="preview"></div>
+        <div class="status-bar">
+            <span>Powered by marked.js</span>
+            <span id="render-time">渲染: 0ms</span>
+        </div>
+    </div>
+
+    <script>
+        const editor = document.getElementById('editor');
+        const preview = document.getElementById('preview');
+        const charCount = document.getElementById('char-count');
+        const wordCount = document.getElementById('word-count');
+        const lineCount = document.getElementById('line-count');
+        const renderTime = document.getElementById('render-time');
+
+        function updatePreview() {
+            const start = performance.now();
+            const markdown = editor.value;
+            preview.innerHTML = marked.parse(markdown);
+            const end = performance.now();
+            
+            charCount.textContent = '字符: ' + markdown.length;
+            wordCount.textContent = '字数: ' + (markdown.trim() ? markdown.trim().split(/\s+/).length : 0);
+            lineCount.textContent = '行数: ' + (markdown ? markdown.split('\n').length : 0);
+            renderTime.textContent = '渲染: ' + (end - start).toFixed(1) + 'ms';
+        }
+
+        editor.addEventListener('input', updatePreview);
+        updatePreview();
+    </script>
+</body>
+</html>
