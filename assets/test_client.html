@@ -1813,170 +1813,131 @@
 
             // 工具分类
             const categories = {
-                '📁 文件操作': ['file_list', 'file_read', 'file_write'],
-                '🌐 网络请求': ['http_request', 'web'],
-                '⚙️ 命令执行': ['shell', 'cmd', 'python', 'sh'],
-                '🔢 计算工具': ['math_calculator']
+                '📁 文件': ['file_list', 'file_read', 'file_write'],
+                '🌐 网络': ['http_request', 'web'],
+                '⚙️ 命令': ['shell', 'cmd', 'python', 'sh'],
+                '🔢 计算': ['math_calculator']
             };
 
-            let toolList = '';
-            let categoryIndex = 0;
+            // 生成工具表格
+            let toolTable = '| 分类 | 工具 | 功能 |\n|------|------|------|\n';
             for (const [catName, catTools] of Object.entries(categories)) {
-                categoryIndex++;
-                toolList += '\n' + categoryIndex + '. **' + catName + '**\n\n';
-                let toolIdx = 0;
+                let firstRow = true;
                 for (const toolName of catTools) {
                     const t = tools.find(x => x.name === toolName);
                     if (!t) continue;
-                    toolIdx++;
-                    let schemaStr = '';
-                    if (t.inputSchema && t.inputSchema.properties) {
-                        const props = t.inputSchema.properties;
-                        const keys = Object.keys(props);
-                        for (let k = 0; k < keys.length; k++) {
-                            const p = props[keys[k]];
-                            const typeStr = p.type || 'any';
-                            const required = t.inputSchema.required &&
-                                Array.isArray(t.inputSchema.required) &&
-                                t.inputSchema.required.indexOf(keys[k]) !== -1;
-                            schemaStr += '       - ' + keys[k] +
-                                ' (' + typeStr +
-                                (required ? '，必填' : '') +
-                                (p.description ? '：' + p.description : '') + ')\n';
-                        }
-                    }
-                    toolList += '   ' + toolIdx + '. `' + t.name + '`\n' +
-                        '      - 描述: ' + (t.description || '(无描述)') + '\n' +
-                        (schemaStr ? '      - 参数:\n' + schemaStr : '');
+                    const catCell = firstRow ? catName : '';
+                    toolTable += '| ' + catCell + ' | `' + t.name + '` | ' + (t.description || '') + ' |\n';
+                    firstRow = false;
                 }
             }
 
-            // file_write 模式速查表
-            const fileWriteModes = `
-**📝 file_write 操作模式详解**
-
-| 模式 | 说明 | 必填参数 |
-|------|------|----------|
-| \`write\` | 全量写入/覆盖/追加（默认） | path, content |
-| \`insert\` | 在指定行**前**插入内容 | path, content, line |
-| \`replace\` | 替换指定行范围的内容 | path, content, line, end_line |
-| \`delete\` | 删除指定行范围 | path, line, end_line |
-| \`append_line\` | 在文件末尾追加内容 | path, content |
-| \`prepend_line\` | 在文件开头插入内容 | path, content |
-
-> 💡 行号从 1 开始。\`end_line\` 可选，不填则默认与 \`line\` 相同（单行操作）。\`content\` 可用 \\n 实现多行插入/替换。
-
-**📖 file_read 行号读取**
-
-- \`line\`：起始行号（从1开始）
-- \`end_line\`：结束行号（包含），不填则读到末尾
-- \`show_line_numbers\`：是否显示行号，默认 false
-
-> 💡 推荐先 \`file_read\` 带 \`show_line_numbers: true\` 查看行号，再用 \`file_write\` 的 insert/replace/delete 精确定位操作。
-`;
-
-            // shell 工具说明
-            const shellNote = `
-**💻 Shell 命令说明**
-
-- \`shell\` 工具使用 \`sh -c\` 执行，支持管道、重定向、通配符等
-- 常用命令：ls, cat, echo, rm, ps, top, df, du, grep, find, which, stat, mkdir, mv, cp, kill, ifconfig
-- 危险命令（reboot/shutdown/mkfs 等）已被禁止
-- 命令默认超时 30 秒，可通过 timeout 参数调整
-`;
-
             return '【环境初始化 · MCP 工具箱 v2】\n' +
                 '\n' +
-                '你（LLM）正处于一个 Android 端的 MCP 工具执行环境。用户的任务应优先使用工具完成，而不是只依赖自身知识。\n' +
+                '你是一个运行在 Android 端的 MCP 工具执行环境。优先使用工具完成任务，无法用工具完成或已获得足够信息时，直接用自然语言回答。\n' +
                 '\n' +
                 '---\n' +
                 '\n' +
-                '**一、工具总览（共 ' + tools.length + ' 个）**' +
-                toolList +
+                '**工具列表**\n' +
+                '\n' +
+                toolTable +
                 '\n' +
                 '---\n' +
                 '\n' +
-                '**二、核心工具进阶用法**\n' +
-                fileWriteModes +
+                '**file_write 模式速查**\n' +
                 '\n' +
-                shellNote +
+                '| 模式 | 作用 |\n|------|------|\n' +
+                '| `write` | 覆盖写入整个文件 |\n' +
+                '| `insert` | 在指定行后插入文本 |\n' +
+                '| `replace` | 替换指定行的内容 |\n' +
+                '| `delete` | 删除指定行 |\n' +
+                '| `append_line` | 在文件末尾追加一行 |\n' +
+                '| `prepend_line` | 在文件开头插入一行 |\n' +
+                '\n' +
+                '> 💡 行号从 1 开始。`end_line` 可选，不填则默认与 `line` 相同（单行操作）。\n' +
+                '\n' +
                 '---\n' +
                 '\n' +
-                '**三、调用格式（JSON-RPC 2.0）**\n' +
-                '需要调用工具时，**输出且仅输出一个**严格合法的 JSON 对象（可放在 ```json 代码块中，也可单独一行）。**不需要调用工具时，直接用自然语言回答，不要输出任何 JSON。**\n' +
+                '**核心规则（严格遵守）**\n' +
                 '\n' +
-                '> ⚠️ **严格限制：每次只能输出一个 JSON-RPC 请求，绝对不允许同时输出多个 JSON 对象或 JSON 数组。** 需要多步操作时，等上一个工具返回结果后再输出下一个。\n' +
+                '1. **调用工具时，必须输出一个严格的 JSON-RPC 2.0 请求，每次只能输出一个。**\n' +
+                '   - 格式模板：\n' +
+                '     ```json\n' +
+                '     {\n' +
+                '       "jsonrpc": "2.0",\n' +
+                '       "id": "1",\n' +
+                '       "method": "tools/call",\n' +
+                '       "params": {\n' +
+                '         "name": "工具名",\n' +
+                '         "arguments": { ... }\n' +
+                '       }\n' +
+                '     }\n' +
+                '     ```\n' +
+                '   - id 用递增数字（1, 2, 3…）。\n' +
+                '   - 不要添加 result 等其他字段。\n' +
+                '2. **绝对禁止同时输出多个 JSON 对象或 JSON 数组。**\n' +
+                '   - ❌ `{"jsonrpc":"2.0",...} {"jsonrpc":"2.0",...}`\n' +
+                '   - ❌ `[{"jsonrpc":"2.0",...}, {...}]`\n' +
+                '3. **不需要调用工具时，直接用自然语言回答，禁止输出任何 JSON。**\n' +
+                '   - 例如：问候、解释、基于工具返回结果直接给出最终答案。\n' +
+                '4. **多步操作需串行执行：**输出一个 JSON 请求后，等待系统返回结果，再决定下一步或给出最终回答。不可一次性输出多个调用。\n' +
+                '5. **文件路径安全限制：**\n' +
+                '   - 允许的写入路径仅限：`/sdcard/Download/`、`/sdcard/Documents/`、`/sdcard/Pictures/`、`/sdcard/DCIM/`、`/sdcard/Movies/` 及其子目录。\n' +
+                '   - 路径中禁止包含 `..`，不可进行路径遍历。\n' +
+                '6. **错误处理：**若工具返回 `isError: true`，应向用户说明错误原因，并根据提示修正参数后重试，不要忽略错误继续调用新工具。\n' +
+                '\n' +
+                '---\n' +
+                '\n' +
+                '**工具返回结果读取**\n' +
+                '\n' +
+                '- 结果内容在 `result.content[].text` 中。\n' +
+                '- `result.isError` 为 true 表示失败，`text` 中包含错误详情。\n' +
+                '\n' +
+                '---\n' +
+                '\n' +
+                '**交互示例**\n' +
+                '\n' +
+                '用户：下载 https://example.com/data.txt 并保存为 /sdcard/Documents/data.txt\n' +
+                '\n' +
+                '助手（第一步，抓取网页）：\n' +
                 '\n' +
                 '```json\n' +
-                '{"jsonrpc":"2.0","id":"唯一ID","method":"tools/call","params":{"name":"工具名","arguments":{...参数}}}\n' +
+                '{\n' +
+                '  "jsonrpc": "2.0",\n' +
+                '  "id": "1",\n' +
+                '  "method": "tools/call",\n' +
+                '  "params": {\n' +
+                '    "name": "web",\n' +
+                '    "arguments": { "url": "https://example.com/data.txt" }\n' +
+                '  }\n' +
+                '}\n' +
                 '```\n' +
                 '\n' +
-                '❌ 错误（多个 JSON 对象）：\n' +
-                '```\n' +
-                '{"jsonrpc":"2.0","id":"1","method":"tools/call",...}\n' +
-                '{"jsonrpc":"2.0","id":"2","method":"tools/call",...}\n' +
-                '```\n' +
+                '系统返回（假设成功，内容在 result.content[0].text 中为 "文件内容..."）\n' +
                 '\n' +
-                '❌ 错误（JSON 数组）：\n' +
-                '```\n' +
-                '[{"jsonrpc":"2.0",...}, {"jsonrpc":"2.0",...}]\n' +
-                '```\n' +
+                '助手（第二步，写入文件）：\n' +
                 '\n' +
-                '✅ 正确（单个 JSON 对象）：\n' +
-                '\n' +
-                '**示例 1：数学计算**\n' +
                 '```json\n' +
-                '{"jsonrpc":"2.0","id":"calc_1","method":"tools/call","params":{"name":"math_calculator","arguments":{"expression":"(123 + 456) * 7"}}}\n' +
+                '{\n' +
+                '  "jsonrpc": "2.0",\n' +
+                '  "id": "2",\n' +
+                '  "method": "tools/call",\n' +
+                '  "params": {\n' +
+                '    "name": "file_write",\n' +
+                '    "arguments": {\n' +
+                '      "path": "/sdcard/Documents/data.txt",\n' +
+                '      "content": "文件内容...",\n' +
+                '      "mode": "write"\n' +
+                '    }\n' +
+                '  }\n' +
+                '}\n' +
                 '```\n' +
                 '\n' +
-                '**示例 2：读取文件并显示行号**\n' +
-                '```json\n' +
-                '{"jsonrpc":"2.0","id":"read_1","method":"tools/call","params":{"name":"file_read","arguments":{"path":"test.txt","show_line_numbers":true}}}\n' +
-                '```\n' +
-                '\n' +
-                '**示例 3：在第 5 行前插入代码**\n' +
-                '```json\n' +
-                '{"jsonrpc":"2.0","id":"ins_1","method":"tools/call","params":{"name":"file_write","arguments":{"path":"test.txt","mode":"insert","line":5,"content":"// 新插入的一行\\n// 第二行"}}}\n' +
-                '```\n' +
-                '\n' +
-                '**示例 4：替换第 3-5 行**\n' +
-                '```json\n' +
-                '{"jsonrpc":"2.0","id":"rep_1","method":"tools/call","params":{"name":"file_write","arguments":{"path":"test.txt","mode":"replace","line":3,"end_line":5,"content":"替换后的新内容"}}}\n' +
-                '```\n' +
+                '系统返回 isError: false → 助手最终回答："文件已保存到 /sdcard/Documents/data.txt"。\n' +
                 '\n' +
                 '---\n' +
                 '\n' +
-                '**四、返回结果读取**\n' +
-                '工具执行结果结构：\n' +
-                '- \`result.content[].text\`：工具输出文本\n' +
-                '- \`result.isError\`：是否失败（true/false）\n' +
-                '- 若失败，输出中包含错误原因和诊断提示\n' +
-                '\n' +
-                '基于返回结果继续推理；如需多步操作，继续输出下一个 JSON-RPC 请求。\n' +
-                '\n' +
-                '---\n' +
-                '\n' +
-                '**五、交互流程**\n' +
-                '1. 用户提问 → 你判断是否需要工具\n' +
-                '2. 需要时，输出一个 JSON-RPC 请求（每次一个）\n' +
-                '3. 系统执行工具并返回结果\n' +
-                '4. 你基于结果继续推理或给出最终回答\n' +
-                '5. 无需工具时直接回答用户\n' +
-                '\n' +
-                '---\n' +
-                '\n' +
-                '**六、重要约束**\n' +
-                '- **每次只能输出一个 JSON-RPC 请求，严禁一次输出多个 JSON 或 JSON 数组**\n' +
-                '- 需要多步操作时，等上一个工具返回结果后再输出下一个调用\n' +
-                '- **不需要调用工具时，直接用自然语言回答用户，绝对不要输出任何 JSON 内容**\n' +
-                '- JSON 必须完全合法：双引号、括号匹配、字符串转义正确\n' +
-                '- 工具名和参数名必须与列表完全一致\n' +
-                '- 文件路径禁止使用 `..` 进行路径遍历\n' +
-                '- 外部存储仅允许 Download/Documents/Pictures/DCIM/Movies 目录\n' +
-                '\n' +
-                '---\n' +
-                '\n' +
-                '如果你理解了以上协议，请回复"已接收工具协议，可以开始任务"。我将继续提供用户的问题，请按协议执行。';
+                '请回复"已接收工具协议，可以开始任务"，继续接收用户问题。';
         }
 
         async function selectDeepSeekSession(sessionId) {
