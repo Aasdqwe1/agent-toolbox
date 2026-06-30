@@ -2052,6 +2052,7 @@
                 var dataLines = [];
                 var finalContent = '';
                 var gotDone = false;
+                var canContinue = false;
 
                 var flushEvent = function() {
                     if (dataLines.length === 0) {
@@ -2072,6 +2073,9 @@
                         gotDone = true;
                         if (obj && typeof obj.content === 'string') {
                             finalContent = obj.content;
+                        }
+                        if (obj && obj.canContinue === true) {
+                            finalCanContinue = true;
                         }
                     }
                     eventName = '';
@@ -2114,7 +2118,9 @@
                 var displayText = finalContent ? (lastText + finalContent) : streamContent;
                 if (displayText && displayText !== lastText) {
                     bubbleEl.innerHTML = '<div class="md-body">' + renderMarkdown(displayText) + '</div>';
-                    addContinueButton(contentEl, displayText);
+                    if (canContinue) {
+                        addContinueButton(contentEl, displayText);
+                    }
                 }
 
                 setState('完成');
@@ -2201,6 +2207,7 @@
                 let gotContent = false;
                 let gotDone = false;
                 let finalContent = '';
+                let finalCanContinue = false;
                 let finalToolCall = '';
                 let hasToolCallDetected = false;
                 let streamContent = '';
@@ -2289,15 +2296,16 @@
                             const isToolCall = obj.isToolCall === true
                                 || (obj.content.indexOf('"jsonrpc"') !== -1 && obj.content.indexOf('"tools/call"') !== -1);
                             if (isToolCall) {
-                                // 工具调用那轮的 done：保存 JSON 供用户参考，不作为最终文本
                                 finalToolCall = obj.content;
                             } else if (obj.content.length > 0) {
-                                // 非工具调用那轮的 done：作为最终用户可见文本
                                 finalContent = obj.content;
                                 bubbleEl.textContent = finalContent;
                                 gotContent = true;
                                 setState('完成');
                             }
+                        }
+                        if (obj && obj.canContinue === true) {
+                            canContinue = true;
                         }
                     } else if (eventName === 'error') {
                         gotDone = true;
@@ -2374,7 +2382,9 @@
                 let displayText = finalContent || streamContent;
                 if (displayText && displayText.indexOf('🔧') !== 0) {
                     bubbleEl.innerHTML = '<div class="md-body">' + renderMarkdown(displayText) + '</div>';
-                    addContinueButton(contentEl, displayText);
+                    if (finalCanContinue) {
+                        addContinueButton(contentEl, displayText);
+                    }
                 }
                 chatMessages.scrollTop = chatMessages.scrollHeight;
             } catch (e) {

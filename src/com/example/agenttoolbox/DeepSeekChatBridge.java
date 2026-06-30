@@ -678,14 +678,26 @@ public class DeepSeekChatBridge {
             "  }\n" +
             "\n" +
             "  // ===== D. 主循环：每 500ms 检查是否新增了 AI 消息 =====\n" +
+            "  function hasContinueButton() {\n" +
+            "    try {\n" +
+            "      var btns = document.querySelectorAll('.ds-button__content');\n" +
+            "      for (var bi = 0; bi < btns.length; bi++) {\n" +
+            "        if (btns[bi].textContent.trim() === '继续生成') return true;\n" +
+            "      }\n" +
+            "    } catch(_e) {}\n" +
+            "    return false;\n" +
+            "  }\n" +
             "  function finish(reply) {\n" +
             "    if (finished) return;\n" +
             "    finished = true;\n" +
-            "    Android.log('[DEBUG][' + __rid + '] 监听结束, 捕获回复长度=' + (reply ? reply.length : 0));\n" +
+            "    var canContinue = hasContinueButton();\n" +
+            "    Android.log('[DEBUG][' + __rid + '] 监听结束, 捕获回复长度=' + (reply ? reply.length : 0) + ', canContinue=' + canContinue);\n" +
             "    Android.log('[DEBUG][' + __rid + '] 完整回复: ' + (reply || '(空)'));\n" +
             "    if (window[__prefix + 'poll']) clearInterval(window[__prefix + 'poll']);\n" +
             "    if (window[__prefix + 'obs']) { try { window[__prefix + 'obs'].disconnect(); } catch(_e) {} }\n" +
-            "    Android.onDeepSeekReply(__rid, reply);\n" +
+            "    var finalReply = reply || '';\n" +
+            "    if (canContinue) finalReply = finalReply + '\\n__CAN_CONTINUE__';\n" +
+            "    Android.onDeepSeekReply(__rid, finalReply);\n" +
             "  }\n" +
             "\n" +
             "  function pollOnce() {\n" +

@@ -897,7 +897,6 @@ public class McpServer {
                                     @Override
                                     public void onDone(String reply) {
                                         try {
-                                            roundReplyRef.set(reply);
                                             log("  [轮次" + currentRound + "] onDone 触发:");
                                             log("    ├─ 回复长度: " + (reply == null ? 0 : reply.length()) + " 字符");
                                             log("    ├─ 回复是否为空: " + (reply == null || reply.isEmpty() ? "是" : "否"));
@@ -916,19 +915,31 @@ public class McpServer {
                                                 + " (method=" + (reply != null && reply.indexOf("\"method\"") != -1) + ")"
                                                 + " (tools/call=" + (reply != null && reply.indexOf("\"tools/call\"") != -1) + ")");
 
+                                            // 解析 canContinue 标记（DeepSeek网页显示"继续生成"按钮）
+                                            String cleanReply = reply == null ? "" : reply;
+                                            boolean canContinue = false;
+                                            if (cleanReply.endsWith("\n__CAN_CONTINUE__")) {
+                                                canContinue = true;
+                                                cleanReply = cleanReply.substring(0, cleanReply.length() - "__CAN_CONTINUE__".length() - 1);
+                                            }
+                                            String finalReply = cleanReply;
+                                            roundReplyRef.set(finalReply);
+
                                             // P2 修复：记录 LLM 完整回复（非工具调用时），使用截断防止过长日志
-                                            if (!isToolCall && reply != null && reply.length() > 0) {
-                                                log("  [轮次" + currentRound + "] LLM最终回复结构: " + analyzeReplyStructure(reply));
-                                                String logReply = truncateForLogging(reply, 4096);
+                                            if (!isToolCall && finalReply.length() > 0) {
+                                                log("  [轮次" + currentRound + "] LLM最终回复结构: " + analyzeReplyStructure(finalReply));
+                                                String logReply = truncateForLogging(finalReply, 4096);
                                                 log("  [轮次" + currentRound + "] LLM最终回复内容: " + logReply);
                                             }
                                             JSONObject j = new JSONObject();
-                                            j.put("content", reply == null ? "" : reply);
+                                            j.put("content", finalReply);
                                             j.put("round", currentRound);
                                             j.put("isToolCall", isToolCall);
+                                            j.put("canContinue", canContinue);
                                             writeEventChunk(out, "done", j.toString());
-                                            log("  [轮次" + currentRound + "] 轮次完成: 长度=" + (reply == null ? 0 : reply.length())
-                                                + " 类型=" + (isToolCall ? "【工具调用】" : "【文本回复】"));
+                                            log("  [轮次" + currentRound + "] 轮次完成: 长度=" + finalReply.length()
+                                                + " 类型=" + (isToolCall ? "【工具调用】" : "【文本回复】")
+                                                + " canContinue=" + canContinue);
                                         } catch (Exception e) {
                                             log("  [轮次" + currentRound + "] onDone处理异常: "
                                                 + "类型=" + e.getClass().getName()
