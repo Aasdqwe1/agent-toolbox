@@ -79,7 +79,6 @@
            }
        }
         
-       // 安全的 Markdown 渲染函数（优先使用 marked.parse 以支持表格、列表、代码块等块级元素）
        function renderMarkdown(text) {
            if (!text) return '';
            try {
@@ -92,32 +91,6 @@
                console.warn('[renderMarkdown] error:', e.message);
            }
            return '<pre style="white-space:pre-wrap; word-break:break-word; margin:0;">' + escapeHtml(text) + '</pre>';
-       }
-                   }
-                   // fallback: 先尝试 parseInline
-                   if (typeof marked.parseInline === 'function') {
-                       var inline = marked.parseInline(decoded);
-                       if (typeof inline === 'string' && inline.length > 0) {
-                           console.log('[renderMarkdown] parseInline结果:', inline.substring(0, 200));
-                           var sanitized3 = sanitizeHtml(inline);
-                           return sanitized3;
-                       }
-                   }
-                   // 最后兜底: parse
-                   var parsed2 = marked.parse(decoded);
-                   if (typeof parsed2 === 'string') {
-                       console.log('[renderMarkdown] 兜底 parse结果:', parsed2.substring(0, 200));
-                       var sanitized2 = sanitizeHtml(parsed2);
-                       return sanitized2;
-                   }
-               } else {
-                   console.log('[renderMarkdown] marked未定义');
-               }
-           } catch (e) {
-               console.log('[renderMarkdown] 异常:', e.message);
-           }
-           console.log('[renderMarkdown] 走降级分支');
-           return '<pre style="white-space:pre-wrap; word-break:break-word; margin:0; padding:0; border:0; background:transparent;">' + escapeHtml(text) + '</pre>';
        }
     </script>
     <style>
