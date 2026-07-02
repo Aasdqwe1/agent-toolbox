@@ -2108,14 +2108,15 @@
                             const isToolCall = obj.isToolCall === true
                                 || (content.indexOf('"jsonrpc"') !== -1 && content.indexOf('"tools/call"') !== -1);
 
-                            // 轮次切换时重置 lastLen，避免后续较短回复被丢弃
+                            // 轮次切换时重置状态
                             if (round !== currentRound) {
                                 currentRound = round;
                                 lastLen = 0;
+                                streamContent = '';
+                                hasToolCallDetected = false;
                             }
 
                             if (isToolCall) {
-                                // 工具调用：仅在首次时提示用户，避免 JSON 刷屏
                                 if (!hasToolCallDetected) {
                                     hasToolCallDetected = true;
                                     finalToolCall = content;
@@ -2127,23 +2128,17 @@
                                 if (content.length >= lastLen) {
                                     streamContent = content;
                                     lastLen = content.length;
+                                    gotContent = true;
                                     scheduleRender();
                                 }
-                                gotContent = true;
                             }
                         }
                     } else if (eventName === 'status') {
-                        const statusText = (obj && obj.message) ? obj.message : '模型处理中…';
-                        if (!gotContent && !hasToolCallDetected) {
-                            bubbleEl.textContent = '… ' + statusText;
-                        }
                         setState('生成中');
+                        // 不再修改 bubbleEl，避免覆盖内容
                     } else if (eventName === 'retrying') {
-                        const retryText = (obj && obj.message) ? obj.message : '自动重试…';
-                        if (!gotContent) {
-                            bubbleEl.textContent = '… ' + retryText;
-                        }
                         setState('重试中');
+                        // 不再修改 bubbleEl
                     } else if (eventName === 'done') {
                         gotDone = true;
                         if (obj && typeof obj.content === 'string') {
@@ -2153,7 +2148,6 @@
                                 finalToolCall = obj.content;
                             } else if (obj.content.length > 0) {
                                 finalContent = obj.content;
-                                // 不直接设textContent，避免覆盖已渲染的Markdown，等最终统一渲染
                                 gotContent = true;
                                 setState('完成');
                             }
@@ -2164,11 +2158,10 @@
                     } else if (eventName === 'error') {
                         gotDone = true;
                         const errText = (obj && obj.error) ? obj.error : payload;
-                        if (!gotContent) bubbleEl.textContent = '';
                         addSystemMessage('流式回复失败: ' + escapeHtml(errText));
                         setState('错误');
                     }
-                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                    // 删除每次事件后的滚动，只在 scheduleRender 中滚动
                     eventName = '';
                 };
 
