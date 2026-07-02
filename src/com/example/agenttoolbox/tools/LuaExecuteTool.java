@@ -25,13 +25,17 @@ public class LuaExecuteTool implements Tool {
 
     @Override
     public JSONObject getInputSchema() {
-        JSONObject schema = new JSONObject();
-        JSONObject properties = new JSONObject();
-        properties.put("script", new JSONObject().put("type", "string").put("description", "Lua 脚本内容"));
-        schema.put("type", "object");
-        schema.put("properties", properties);
-        schema.put("required", new org.json.JSONArray().put("script"));
-        return schema;
+        try {
+            JSONObject schema = new JSONObject();
+            JSONObject properties = new JSONObject();
+            properties.put("script", new JSONObject().put("type", "string").put("description", "Lua 脚本内容"));
+            schema.put("type", "object");
+            schema.put("properties", properties);
+            schema.put("required", new org.json.JSONArray().put("script"));
+            return schema;
+        } catch (Exception e) {
+            return new JSONObject();
+        }
     }
 
     @Override

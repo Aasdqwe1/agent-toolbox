@@ -25,8 +25,12 @@ public class ProcessListTool implements Tool {
 
     @Override
     public JSONObject getInputSchema() {
-        JSONObject schema = new JSONObject();
-        return schema;
+        try {
+            JSONObject schema = new JSONObject();
+            return schema;
+        } catch (Exception e) {
+            return new JSONObject();
+        }
     }
 
     @Override

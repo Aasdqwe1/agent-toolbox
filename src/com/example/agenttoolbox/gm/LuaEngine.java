@@ -121,7 +121,7 @@ public class LuaEngine {
             @Override
             public void run() {
                 try {
-                    android.widget.EditText editText = new android.widget.EditText(ctx);
+                    final android.widget.EditText editText = new android.widget.EditText(ctx);
                     editText.setText(defaultValue);
                     android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(ctx);
                     builder.setTitle(title)

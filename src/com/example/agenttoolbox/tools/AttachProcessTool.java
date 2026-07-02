@@ -17,13 +17,17 @@ public class AttachProcessTool implements Tool {
 
     @Override
     public JSONObject getInputSchema() {
-        JSONObject schema = new JSONObject();
-        JSONObject properties = new JSONObject();
-        properties.put("pid", new JSONObject().put("type", "integer").put("description", "进程ID"));
-        schema.put("type", "object");
-        schema.put("properties", properties);
-        schema.put("required", new org.json.JSONArray().put("pid"));
-        return schema;
+        try {
+            JSONObject schema = new JSONObject();
+            JSONObject properties = new JSONObject();
+            properties.put("pid", new JSONObject().put("type", "integer").put("description", "进程ID"));
+            schema.put("type", "object");
+            schema.put("properties", properties);
+            schema.put("required", new org.json.JSONArray().put("pid"));
+            return schema;
+        } catch (Exception e) {
+            return new JSONObject();
+        }
     }
 
     @Override

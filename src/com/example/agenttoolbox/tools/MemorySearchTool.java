@@ -18,14 +18,18 @@ public class MemorySearchTool implements Tool {
 
     @Override
     public JSONObject getInputSchema() {
-        JSONObject schema = new JSONObject();
-        JSONObject properties = new JSONObject();
-        properties.put("value", new JSONObject().put("type", "string").put("description", "要搜索的数值"));
-        properties.put("type", new JSONObject().put("type", "string").put("description", "数据类型：byte/word/dword/qword/float/double，默认dword").put("default", "dword"));
-        schema.put("type", "object");
-        schema.put("properties", properties);
-        schema.put("required", new org.json.JSONArray().put("value"));
-        return schema;
+        try {
+            JSONObject schema = new JSONObject();
+            JSONObject properties = new JSONObject();
+            properties.put("value", new JSONObject().put("type", "string").put("description", "要搜索的数值"));
+            properties.put("type", new JSONObject().put("type", "string").put("description", "数据类型：byte/word/dword/qword/float/double，默认dword").put("default", "dword"));
+            schema.put("type", "object");
+            schema.put("properties", properties);
+            schema.put("required", new org.json.JSONArray().put("value"));
+            return schema;
+        } catch (Exception e) {
+            return new JSONObject();
+        }
     }
 
     @Override

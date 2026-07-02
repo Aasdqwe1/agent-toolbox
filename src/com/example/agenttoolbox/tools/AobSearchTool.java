@@ -18,13 +18,17 @@ public class AobSearchTool implements Tool {
 
     @Override
     public JSONObject getInputSchema() {
-        JSONObject schema = new JSONObject();
-        JSONObject properties = new JSONObject();
-        properties.put("pattern", new JSONObject().put("type", "string").put("description", "特征码模式（如 48 8B 05 ?? ?? ?? ??）或内存地址（如 0x7FFFFFFF）"));
-        schema.put("type", "object");
-        schema.put("properties", properties);
-        schema.put("required", new org.json.JSONArray().put("pattern"));
-        return schema;
+        try {
+            JSONObject schema = new JSONObject();
+            JSONObject properties = new JSONObject();
+            properties.put("pattern", new JSONObject().put("type", "string").put("description", "特征码模式（如 48 8B 05 ?? ?? ?? ??）或内存地址（如 0x7FFFFFFF）"));
+            schema.put("type", "object");
+            schema.put("properties", properties);
+            schema.put("required", new org.json.JSONArray().put("pattern"));
+            return schema;
+        } catch (Exception e) {
+            return new JSONObject();
+        }
     }
 
     @Override
