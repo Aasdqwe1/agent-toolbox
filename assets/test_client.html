@@ -2123,7 +2123,8 @@
                                     setState('工具调用中');
                                 }
                             } else {
-                                if (content.length > lastLen || content.length >= lastLen - 20) {
+                                // 只接受更长或等长的内容，防止回撤
+                                if (content.length >= lastLen) {
                                     streamContent = content;
                                     lastLen = content.length;
                                     scheduleRender();
@@ -2152,7 +2153,7 @@
                                 finalToolCall = obj.content;
                             } else if (obj.content.length > 0) {
                                 finalContent = obj.content;
-                                bubbleEl.textContent = finalContent;
+                                // 不直接设textContent，避免覆盖已渲染的Markdown，等最终统一渲染
                                 gotContent = true;
                                 setState('完成');
                             }
