@@ -28,6 +28,9 @@ build.gradle~
 *.ear
 *.nar
 
+# 但保留 libs 目录下的库
+!libs/*.jar
+
 # 日志
 *.log
 
