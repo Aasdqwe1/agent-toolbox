@@ -66,9 +66,11 @@ public class MemoryFreezer {
         List<Map<String, Object>> list = new ArrayList<>();
         for (Map.Entry<Long, FreezeItem> entry : frozenItems.entrySet()) {
             FreezeItem item = entry.getValue();
-            list.add(java.util.Collections.singletonMap(
-                "address", "0x" + Long.toHexString(item.address).toUpperCase()
-            ));
+            Map<String, Object> map = new java.util.HashMap<>();
+            map.put("address", "0x" + Long.toHexString(item.address).toUpperCase());
+            map.put("type", item.type);
+            map.put("value", item.value != null ? item.value.toString() : "");
+            list.add(map);
         }
         return list;
     }
