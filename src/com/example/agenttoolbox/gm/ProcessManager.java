@@ -140,17 +140,20 @@ public class ProcessManager {
             } catch (Exception e) {}
         }
 
-        list.sort((a, b) -> {
-            try {
-                String nameA = a.getString("processName");
-                String nameB = b.getString("processName");
-                boolean isChineseA = !nameA.isEmpty() && nameA.charAt(0) > 127;
-                boolean isChineseB = !nameB.isEmpty() && nameB.charAt(0) > 127;
-                if (isChineseA && !isChineseB) return -1;
-                if (!isChineseA && isChineseB) return 1;
-                return nameA.compareTo(nameB);
-            } catch (Exception e) {
-                return 0;
+        list.sort(new java.util.Comparator<JSONObject>() {
+            @Override
+            public int compare(JSONObject a, JSONObject b) {
+                try {
+                    String nameA = a.getString("processName");
+                    String nameB = b.getString("processName");
+                    boolean isChineseA = !nameA.isEmpty() && nameA.charAt(0) > 127;
+                    boolean isChineseB = !nameB.isEmpty() && nameB.charAt(0) > 127;
+                    if (isChineseA && !isChineseB) return -1;
+                    if (!isChineseA && isChineseB) return 1;
+                    return nameA.compareTo(nameB);
+                } catch (Exception e) {
+                    return 0;
+                }
             }
         });
 

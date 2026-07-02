@@ -124,7 +124,12 @@ public class MemoryEngine {
             regions.add(new MemRegion(startAddr, endAddr, priority));
         }
 
-        regions.sort((a, b) -> Integer.compare(b.priority, a.priority));
+        regions.sort(new java.util.Comparator<MemRegion>() {
+            @Override
+            public int compare(MemRegion a, MemRegion b) {
+                return Integer.compare(b.priority, a.priority);
+            }
+        });
         return regions;
     }
 
