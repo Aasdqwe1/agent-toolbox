@@ -1761,144 +1761,6 @@
             }
         }
 
-        // 构建 MCP 工具初始化消息：告诉 LLM 当前有哪些工具、如何调用
-        function buildMcpInitMessage() {
-            if (!tools || tools.length === 0) {
-                return '【环境初始化】\n' +
-                    '当前尚未加载任何 MCP 工具。请先点击顶部的"连接"按钮。\n' +
-                    '---\n' +
-                    '当工具加载完成后，我会告知你可用工具及调用方式。';
-            }
-
-            // 工具分类
-            const categories = {
-                '📁 文件': ['file_list', 'file_read', 'file_write'],
-                '🌐 网络': ['http_request', 'web'],
-                '⚙️ 命令': ['shell', 'cmd', 'python', 'sh'],
-                '🔢 计算': ['math_calculator']
-            };
-
-            // 生成工具表格
-            let toolTable = '| 分类 | 工具 | 功能 |\n|------|------|------|\n';
-            for (const [catName, catTools] of Object.entries(categories)) {
-                let firstRow = true;
-                for (const toolName of catTools) {
-                    const t = tools.find(x => x.name === toolName);
-                    if (!t) continue;
-                    const catCell = firstRow ? catName : '';
-                    toolTable += '| ' + catCell + ' | `' + t.name + '` | ' + (t.description || '') + ' |\n';
-                    firstRow = false;
-                }
-            }
-
-            return '【环境初始化 · MCP 工具箱 v2】\n' +
-                '\n' +
-                '你是一个运行在 Android 端的 MCP 工具执行环境。优先使用工具完成任务，无法用工具完成或已获得足够信息时，直接用自然语言回答。\n' +
-                '\n' +
-                '---\n' +
-                '\n' +
-                '**工具列表**\n' +
-                '\n' +
-                toolTable +
-                '\n' +
-                '---\n' +
-                '\n' +
-                '**file_write 模式速查**\n' +
-                '\n' +
-                '| 模式 | 作用 |\n|------|------|\n' +
-                '| `write` | 覆盖写入整个文件 |\n' +
-                '| `insert` | 在指定行后插入文本 |\n' +
-                '| `replace` | 替换指定行的内容 |\n' +
-                '| `delete` | 删除指定行 |\n' +
-                '| `append_line` | 在文件末尾追加一行 |\n' +
-                '| `prepend_line` | 在文件开头插入一行 |\n' +
-                '\n' +
-                '> 💡 行号从 1 开始。`end_line` 可选，不填则默认与 `line` 相同（单行操作）。\n' +
-                '\n' +
-                '---\n' +
-                '\n' +
-                '**核心规则（严格遵守）**\n' +
-                '\n' +
-                '1. **调用工具时，必须输出一个严格的 JSON-RPC 2.0 请求，每次只能输出一个。**\n' +
-                '   - 格式模板：\n' +
-                '     ```json\n' +
-                '     {\n' +
-                '       "jsonrpc": "2.0",\n' +
-                '       "id": "1",\n' +
-                '       "method": "tools/call",\n' +
-                '       "params": {\n' +
-                '         "name": "工具名",\n' +
-                '         "arguments": { ... }\n' +
-                '       }\n' +
-                '     }\n' +
-                '     ```\n' +
-                '   - id 用递增数字（1, 2, 3…）。\n' +
-                '   - 不要添加 result 等其他字段。\n' +
-                '2. **绝对禁止同时输出多个 JSON 对象或 JSON 数组。**\n' +
-                '   - ❌ `{"jsonrpc":"2.0",...} {"jsonrpc":"2.0",...}`\n' +
-                '   - ❌ `[{"jsonrpc":"2.0",...}, {...}]`\n' +
-                '3. **不需要调用工具时，直接用自然语言回答，禁止输出任何 JSON。**\n' +
-                '   - 例如：问候、解释、基于工具返回结果直接给出最终答案。\n' +
-                '4. **多步操作需串行执行：**输出一个 JSON 请求后，等待系统返回结果，再决定下一步或给出最终回答。不可一次性输出多个调用。\n' +
-                '5. **文件路径安全限制：**\n' +
-                '   - 允许的写入路径仅限：`/sdcard/Download/`、`/sdcard/Documents/`、`/sdcard/Pictures/`、`/sdcard/DCIM/`、`/sdcard/Movies/` 及其子目录。\n' +
-                '   - 路径中禁止包含 `..`，不可进行路径遍历。\n' +
-                '6. **错误处理：**若工具返回 `isError: true`，应向用户说明错误原因，并根据提示修正参数后重试，不要忽略错误继续调用新工具。\n' +
-                '\n' +
-                '---\n' +
-                '\n' +
-                '**工具返回结果读取**\n' +
-                '\n' +
-                '- 结果内容在 `result.content[].text` 中。\n' +
-                '- `result.isError` 为 true 表示失败，`text` 中包含错误详情。\n' +
-                '\n' +
-                '---\n' +
-                '\n' +
-                '**交互示例**\n' +
-                '\n' +
-                '用户：下载 https://example.com/data.txt 并保存为 /sdcard/Documents/data.txt\n' +
-                '\n' +
-                '助手（第一步，抓取网页）：\n' +
-                '\n' +
-                '```json\n' +
-                '{\n' +
-                '  "jsonrpc": "2.0",\n' +
-                '  "id": "1",\n' +
-                '  "method": "tools/call",\n' +
-                '  "params": {\n' +
-                '    "name": "web",\n' +
-                '    "arguments": { "url": "https://example.com/data.txt" }\n' +
-                '  }\n' +
-                '}\n' +
-                '```\n' +
-                '\n' +
-                '系统返回（假设成功，内容在 result.content[0].text 中为 "文件内容..."）\n' +
-                '\n' +
-                '助手（第二步，写入文件）：\n' +
-                '\n' +
-                '```json\n' +
-                '{\n' +
-                '  "jsonrpc": "2.0",\n' +
-                '  "id": "2",\n' +
-                '  "method": "tools/call",\n' +
-                '  "params": {\n' +
-                '    "name": "file_write",\n' +
-                '    "arguments": {\n' +
-                '      "path": "/sdcard/Documents/data.txt",\n' +
-                '      "content": "文件内容...",\n' +
-                '      "mode": "write"\n' +
-                '    }\n' +
-                '  }\n' +
-                '}\n' +
-                '```\n' +
-                '\n' +
-                '系统返回 isError: false → 助手最终回答："文件已保存到 /sdcard/Documents/data.txt"。\n' +
-                '\n' +
-                '---\n' +
-                '\n' +
-                '请回复"已接收工具协议，可以开始任务"，继续接收用户问题。';
-        }
-
         async function selectDeepSeekSession(sessionId) {
             try {
                 const url = getServerUrl();
@@ -1911,12 +1773,7 @@
                 if (data.success) {
                     addSystemMessage('已切换会话');
                     await loadDeepSeekSessions();
-                    // 移动端：切换到聊天视图
                     showChatView();
-                    // 自动向 DeepSeek 发送 MCP 工具初始化消息，让 LLM 知晓工具环境
-                    const initMsg = buildMcpInitMessage();
-                    addLog('request', '自动发送 MCP 初始化消息 (切换会话)');
-                    await sendToDeepSeek(initMsg);
                 } else {
                     addSystemMessage('切换失败: ' + (data.error || '未知错误'));
                 }
@@ -1938,10 +1795,6 @@
                     addSystemMessage('已创建新会话');
                     await loadDeepSeekSessions();
                     showChatView();
-                    // 自动向 DeepSeek 发送 MCP 工具初始化消息，让 LLM 知晓工具环境
-                    const initMsg = buildMcpInitMessage();
-                    addLog('request', '自动发送 MCP 初始化消息 (新建会话)');
-                    await sendToDeepSeek(initMsg);
                 } else {
                     addSystemMessage('创建失败: ' + (data.error || '未知错误'));
                 }

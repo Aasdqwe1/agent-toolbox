@@ -78,6 +78,8 @@ public class McpServer {
             return;
         }
 
+        ToolManager.getInstance().init(context);
+
         serverSocket = new ServerSocket(port);
         running = true;
         serverRunning = true;
@@ -826,16 +828,24 @@ public class McpServer {
                         while (round < maxRounds && !finalDone) {
                             round++;
                             final int currentRound = round;
+                            
+                            String messageToSend = currentMessage;
+                            if (round == 1) {
+                                String systemPrompt = ToolManager.getInstance().getSystemPrompt();
+                                messageToSend = systemPrompt + "\n\n用户问题：" + currentMessage;
+                                log("  [第一轮] 添加系统提示词，消息总长度: " + messageToSend.length() + " 字符");
+                            }
+                            
                             log("══════════ 对话轮次 " + currentRound + "/" + maxRounds + " 开始 ══════════");
-                            log("  ├─ 输入消息长度: " + (currentMessage == null ? 0 : currentMessage.length()) + " 字符");
-                            log("  ├─ 输入消息前80字符: " + (currentMessage == null ? "(null)" : (currentMessage.length() > 80 ? currentMessage.substring(0, 80) + "..." : currentMessage)));
+                            log("  ├─ 输入消息长度: " + (messageToSend == null ? 0 : messageToSend.length()) + " 字符");
+                            log("  ├─ 输入消息前80字符: " + (messageToSend == null ? "(null)" : (messageToSend.length() > 80 ? messageToSend.substring(0, 80) + "..." : messageToSend)));
                             log("  └─ 已完成轮数: " + (currentRound - 1) + "/" + maxRounds);
 
                             final CountDownLatch roundLatch = new CountDownLatch(1);
                             final AtomicReference<String> roundReplyRef = new AtomicReference<>();
                             final AtomicReference<String> roundErrorRef = new AtomicReference<>();
 
-                            bridge.sendMessageStream(currentMessage,
+                            bridge.sendMessageStream(messageToSend,
                                 new DeepSeekChatBridge.StreamCallback() {
                                     @Override
                                     public void onChunk(String chunk) {
