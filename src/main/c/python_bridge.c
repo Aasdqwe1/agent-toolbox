@@ -140,10 +140,10 @@ Java_com_example_agenttoolbox_tools_PythonBridge_nativeInit(
     }
     LOGI("nativeInit: Py_PreInitialize 成功");
 
-    // 用 Py_InitializeFromConfig 精确控制初始化
-    LOGI("nativeInit: PyConfig_InitIsolatedConfig...");
+    // 用 PyConfig_InitPythonConfig 初始化（让 Python 检测 Android 平台）
+    LOGI("nativeInit: PyConfig_InitPythonConfig...");
     PyConfig config;
-    PyConfig_InitIsolatedConfig(&config);
+    PyConfig_InitPythonConfig(&config);
 
     status = PyConfig_SetBytesString(&config, &config.home, home_utf8);
     if (PyStatus_Exception(status)) {
@@ -163,6 +163,15 @@ Java_com_example_agenttoolbox_tools_PythonBridge_nativeInit(
     config.interactive = 0;
     config.optimization_level = 2;
     config.quiet = 1;
+
+    // 设置 executable 绕过 _android_support.init_streams()
+    // init_streams() 检查 sys.executable 非空则跳过 Android 流初始化
+    status = PyConfig_SetBytesString(&config, &config.executable,
+                                      "/data/user/0/com.example.agenttoolbox/files/python/python3");
+    if (PyStatus_Exception(status)) {
+        LOGI("nativeInit: PyConfig_SetBytesString(executable) 失败(非致命): %s",
+             status.err_msg ? status.err_msg : "unknown");
+    }
 
     LOGI("nativeInit: PyConfig: home=%s buffered_stdio=0 parse_argv=0 install_signal_handlers=0",
          home_utf8);
