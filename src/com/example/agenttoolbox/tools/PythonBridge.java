@@ -192,7 +192,7 @@ public class PythonBridge {
         String escaped = code.replace("'", "'\\''");
         String[] cmd = {"sh", pythonBin.getAbsolutePath(), "-c", escaped};
 
-        Process process = Runtime.getRuntime().exec(cmd);
+        final Process process = Runtime.getRuntime().exec(cmd);
         final StringBuilder stdout = new StringBuilder();
         final StringBuilder stderr = new StringBuilder();
 
