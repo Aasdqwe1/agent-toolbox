@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <signal.h>
+#include <setjmp.h>
 #include <android/log.h>
 #include <dlfcn.h>
 #include <sys/stat.h>
@@ -20,6 +21,20 @@
 static int python_initialized = 0;
 static char last_error[2048] = "";
 static JavaVM *cached_jvm = NULL;
+
+// 信号保护: 用于在 Py_Initialize 崩溃时恢复
+static sigjmp_buf init_jmp;
+static volatile int init_in_progress = 0;
+
+static void crash_handler(int sig) {
+    LOGE("crash_handler: 收到信号 %d", sig);
+    if (init_in_progress) {
+        siglongjmp(init_jmp, sig);
+    }
+    // 不在初始化阶段，恢复默认处理
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
 
 static void log_check_dir(const char *path) {
     struct stat st;
@@ -41,8 +56,6 @@ static void log_check_dir(const char *path) {
     }
 }
 
-// Android 应用进程 fd 0/1/2 可能关闭，导致 Python 初始化 stdio 崩溃
-// 重新打开到 /dev/null 作为安全兜底
 static void ensure_std_fds() {
     int fd;
     if ((fd = open("/dev/null", O_RDWR)) >= 0) {
@@ -65,7 +78,6 @@ JNI_OnLoad(JavaVM *vm, void *reserved) {
     LOGI("JNI_OnLoad: libpython_bridge.so 已加载");
     cached_jvm = vm;
 
-    // 尝试预加载 libpython3.14.so
     void *handle = dlopen("libpython3.14.so", RTLD_NOW | RTLD_GLOBAL);
     if (handle) {
         LOGI("JNI_OnLoad: libpython3.14.so 预加载成功");
@@ -80,6 +92,113 @@ Java_com_example_agenttoolbox_tools_PythonBridge_nativeGetLastError(
     JNIEnv *env, jobject obj
 ) {
     return (*env)->NewStringUTF(env, last_error);
+}
+
+/**
+ * 安全测试初始化: 检测 Py_Initialize 是否会崩溃
+ * 返回: 0=可初始化, -1=崩溃, -2=错误
+ */
+JNIEXPORT jint JNICALL
+Java_com_example_agenttoolbox_tools_PythonBridge_nativeTestInit(
+    JNIEnv *env, jobject obj, jstring home
+) {
+    const char *home_utf8 = (*env)->GetStringUTFChars(env, home, NULL);
+    LOGI("nativeTestInit: PYTHONHOME=%s", home_utf8);
+
+    // 安装信号处理器
+    struct sigaction sa;
+    sa.sa_handler = crash_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGABRT, &sa, NULL);
+    sigaction(SIGBUS, &sa, NULL);
+
+    // 设置环境
+    setenv("PYTHONHOME", home_utf8, 1);
+    setenv("PYTHONNOUSERSITE", "1", 1);
+    setenv("PYTHONDONTWRITEBYTECODE", "1", 1);
+    setenv("PYTHONEXECUTABLE", "/usr/bin/python3", 1);
+
+    // 禁用 _android_support.py
+    char as_path[512], as_bak[520];
+    snprintf(as_path, sizeof(as_path), "%s/lib/python3.14/_android_support.py", home_utf8);
+    snprintf(as_bak, sizeof(as_bak), "%s.bak", as_path);
+    if (rename(as_path, as_bak) == 0) {
+        LOGI("nativeTestInit: 已禁用 _android_support.py");
+    }
+
+    ensure_std_fds();
+
+    // 预初始化
+    PyPreConfig preconfig;
+    PyPreConfig_InitPythonConfig(&preconfig);
+    preconfig.utf8_mode = 1;
+    preconfig.allocator = PYMEM_ALLOCATOR_MALLOC;
+
+    PyStatus status = Py_PreInitialize(&preconfig);
+    if (PyStatus_Exception(status)) {
+        snprintf(last_error, sizeof(last_error), "Py_PreInitialize 失败: %s",
+                 status.err_msg ? status.err_msg : "unknown");
+        LOGE("nativeTestInit: %s", last_error);
+        (*env)->ReleaseStringUTFChars(env, home, home_utf8);
+        return -2;
+    }
+    LOGI("nativeTestInit: Py_PreInitialize 成功");
+
+    // 用 setjmp 保护 Py_Initialize
+    init_in_progress = 1;
+    int crash_sig = sigsetjmp(init_jmp, 1);
+
+    if (crash_sig != 0) {
+        // 崩溃了
+        init_in_progress = 0;
+        snprintf(last_error, sizeof(last_error),
+                 "Py_Initialize 崩溃 (信号=%d)", crash_sig);
+        LOGE("nativeTestInit: %s", last_error);
+        (*env)->ReleaseStringUTFChars(env, home, home_utf8);
+
+        // 恢复默认信号处理
+        signal(SIGSEGV, SIG_DFL);
+        signal(SIGABRT, SIG_DFL);
+        signal(SIGBUS, SIG_DFL);
+        return -1;
+    }
+
+    LOGI("nativeTestInit: Py_Initialize...");
+    Py_Initialize();
+    LOGI("nativeTestInit: Py_Initialize 返回");
+
+    init_in_progress = 0;
+
+    // 恢复默认信号处理
+    signal(SIGSEGV, SIG_DFL);
+    signal(SIGABRT, SIG_DFL);
+    signal(SIGBUS, SIG_DFL);
+
+    if (!Py_IsInitialized()) {
+        snprintf(last_error, sizeof(last_error), "Py_Initialize 失败: 未初始化");
+        LOGE("nativeTestInit: %s", last_error);
+        (*env)->ReleaseStringUTFChars(env, home, home_utf8);
+        return -2;
+    }
+
+    LOGI("nativeTestInit: 初始化成功!");
+    python_initialized = 1;
+    PyGILState_Ensure();
+
+    // 验证基本模块
+    PyObject *enc = PyImport_ImportModule("encodings");
+    if (enc) {
+        Py_DECREF(enc);
+        LOGI("nativeTestInit: encodings 验证成功");
+    } else {
+        LOGE("nativeTestInit: encodings 导入失败");
+        PyErr_Clear();
+    }
+
+    (*env)->ReleaseStringUTFChars(env, home, home_utf8);
+    return 0;
 }
 
 JNIEXPORT jint JNICALL
@@ -106,7 +225,7 @@ Java_com_example_agenttoolbox_tools_PythonBridge_nativeInit(
     snprintf(buf, sizeof(buf), "%s/lib/python3.14/os.py", home_utf8); log_check_dir(buf);
     LOGI("nativeInit: === 目录检查结束 ===");
 
-    // 先尝试加载 libpython3.14.so
+    // 加载 libpython3.14.so
     void *handle = dlopen("libpython3.14.so", RTLD_NOW | RTLD_GLOBAL);
     if (!handle) {
         snprintf(last_error, sizeof(last_error), "dlopen libpython3.14.so 失败: %s", dlerror());
@@ -138,9 +257,9 @@ Java_com_example_agenttoolbox_tools_PythonBridge_nativeInit(
     setenv("PYTHONHOME", home_utf8, 1);
     setenv("PYTHONNOUSERSITE", "1", 1);
     setenv("PYTHONDONTWRITEBYTECODE", "1", 1);
-    setenv("PYTHONEXECUTABLE", "/usr/bin/python3", 1);  // 让 sys.executable 非空，绕过 _android_support.init_streams()
+    setenv("PYTHONEXECUTABLE", "/usr/bin/python3", 1);
 
-    // 预初始化（Python 模式，读取环境变量）
+    // 预初始化
     LOGI("nativeInit: Py_PreInitialize (python config)...");
     PyPreConfig preconfig;
     PyPreConfig_InitPythonConfig(&preconfig);
@@ -158,10 +277,39 @@ Java_com_example_agenttoolbox_tools_PythonBridge_nativeInit(
     }
     LOGI("nativeInit: Py_PreInitialize 成功");
 
-    // 用 Py_Initialize() 直接初始化（比 PyConfig 更稳定，避免 Android 初始化坑）
-    // ensure_std_fds() 已修复 fd 问题，不会崩溃
+    // 安装信号处理器保护 Py_Initialize
+    struct sigaction sa;
+    sa.sa_handler = crash_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGABRT, &sa, NULL);
+    sigaction(SIGBUS, &sa, NULL);
+
+    init_in_progress = 1;
+    int crash_sig = sigsetjmp(init_jmp, 1);
+
+    if (crash_sig != 0) {
+        init_in_progress = 0;
+        snprintf(last_error, sizeof(last_error),
+                 "Py_Initialize 崩溃 (信号=%d)。可能是 _android_support 或 stdio 初始化问题。",
+                 crash_sig);
+        LOGE("nativeInit: %s", last_error);
+        (*env)->ReleaseStringUTFChars(env, home, home_utf8);
+        signal(SIGSEGV, SIG_DFL);
+        signal(SIGABRT, SIG_DFL);
+        signal(SIGBUS, SIG_DFL);
+        return -3;
+    }
+
     LOGI("nativeInit: Py_Initialize...");
     Py_Initialize();
+    LOGI("nativeInit: Py_Initialize 返回");
+
+    init_in_progress = 0;
+    signal(SIGSEGV, SIG_DFL);
+    signal(SIGABRT, SIG_DFL);
+    signal(SIGBUS, SIG_DFL);
 
     if (!Py_IsInitialized()) {
         snprintf(last_error, sizeof(last_error),
@@ -172,10 +320,8 @@ Java_com_example_agenttoolbox_tools_PythonBridge_nativeInit(
     }
 
     LOGI("nativeInit: Py_Initialize 成功!");
-
     (*env)->ReleaseStringUTFChars(env, home, home_utf8);
 
-    // 确保 GIL 已获取
     PyGILState_Ensure();
 
     // 验证 encodings 模块
@@ -214,7 +360,6 @@ Java_com_example_agenttoolbox_tools_PythonBridge_nativeExec(
     const char *code_utf8 = (*env)->GetStringUTFChars(env, code, NULL);
     LOGI("nativeExec: 执行代码 (长度=%d)", (int)strlen(code_utf8));
 
-    // 捕获 stdout + stderr
     PyObject *main_module = PyImport_AddModule("__main__");
     PyObject *globals = PyModule_GetDict(main_module);
 

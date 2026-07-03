@@ -80,17 +80,19 @@ public class PythonBridge {
             android.util.Log.i("PythonBridge", "JNI init: pythonHome 存在=" + pythonHome.exists() + " 路径=" + homePath);
             android.util.Log.i("PythonBridge", "JNI init: lib/python3.14/os.py=" + new File(pythonHome, "lib/python3.14/os.py").exists());
 
-            jniInitRetCode = nativeInit(homePath);
-            android.util.Log.i("PythonBridge", "JNI init 返回码: " + jniInitRetCode);
+            // 先用 nativeTestInit 安全检测（带信号保护，不会 crash 进程）
+            android.util.Log.i("PythonBridge", "JNI init: 调用 nativeTestInit 安全检测...");
+            jniInitRetCode = nativeTestInit(homePath);
+            android.util.Log.i("PythonBridge", "JNI nativeTestInit 返回码: " + jniInitRetCode);
 
             if (jniInitRetCode == 0) {
                 jniInitOk = true;
                 jniInitError = "";
-                android.util.Log.i("PythonBridge", "JNI 初始化成功!");
+                android.util.Log.i("PythonBridge", "JNI 初始化成功! (via nativeTestInit)");
                 return true;
             }
 
-            // 获取 native 层详细错误
+            // nativeTestInit 失败，获取错误
             jniInitError = nativeGetLastError();
             android.util.Log.e("PythonBridge", "JNI init 失败: ret=" + jniInitRetCode + " error=" + jniInitError);
             throw new Exception("JNI 初始化失败 (ret=" + jniInitRetCode + "): " + jniInitError);
@@ -152,6 +154,7 @@ public class PythonBridge {
 
     // ===== JNI =====
     private static native int nativeInit(String home);
+    private static native int nativeTestInit(String home);
     private static native String nativeExec(String code);
     private static native void nativeShutdown();
     private static native boolean nativeIsInitialized();
