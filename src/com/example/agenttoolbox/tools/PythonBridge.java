@@ -71,6 +71,8 @@ public class PythonBridge {
                 int ret = nativeInit(pythonHome.getAbsolutePath());
                 android.util.Log.i("PythonBridge", "JNI 返回: " + ret);
                 if (ret == 0) return true;
+                android.util.Log.e("PythonBridge", "JNI init 返回 " + ret + "，尝试获取错误: " + nativeGetLastError());
+                jniLoaded = false;
             } catch (Throwable e) {
                 android.util.Log.e("PythonBridge", "JNI 失败: " + e.getMessage());
                 jniLoaded = false;
@@ -134,6 +136,7 @@ public class PythonBridge {
     private static native String nativeExec(String code);
     private static native void nativeShutdown();
     private static native boolean nativeIsInitialized();
+    private static native String nativeGetLastError();
 
     /**
      * 供 native 层回调获取 Python Home 路径
