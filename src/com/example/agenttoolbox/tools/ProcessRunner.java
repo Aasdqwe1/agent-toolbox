@@ -3,7 +3,6 @@ package com.example.agenttoolbox.tools;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.util.concurrent.TimeUnit;
 
 /**
  * 进程执行器 - 统一处理 shell 命令执行
@@ -68,7 +67,20 @@ public class ProcessRunner {
         stdoutThread.start();
         stderrThread.start();
 
-        boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+        // 等待进程完成（轮询方式，兼容所有 Android 版本）
+        boolean finished = false;
+        long deadline = System.currentTimeMillis() + timeoutSeconds * 1000L;
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                process.exitValue();
+                finished = true;
+                break;
+            } catch (IllegalThreadStateException e) {
+                // 进程还在运行
+                Thread.sleep(200);
+            }
+        }
+
         stdoutThread.join(5000);
         stderrThread.join(5000);
 
@@ -79,8 +91,7 @@ public class ProcessRunner {
             exitCode = process.exitValue();
         } else {
             timedOut = true;
-            process.destroyForcibly();
-            process.waitFor(2, TimeUnit.SECONDS);
+            process.destroy();
             exitCode = -1;
         }
 
@@ -104,9 +115,10 @@ public class ProcessRunner {
     private static void destroyProcess(Process process) {
         if (process == null) return;
         try {
-            if (process.isAlive()) {
-                process.destroyForcibly();
-                process.waitFor(2, TimeUnit.SECONDS);
+            try {
+                process.exitValue();
+            } catch (IllegalThreadStateException e) {
+                process.destroy();
             }
         } catch (Exception ignored) {
         }

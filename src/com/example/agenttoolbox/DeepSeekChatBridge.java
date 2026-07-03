@@ -819,12 +819,13 @@ public class DeepSeekChatBridge {
             "    }\n" +
             "\n" +
             "    // ========== 工具调用优先检测 ==========\n" +
-            "    // 精确匹配：必须包含 \"method\" 和 \"tools/call\" 才是工具调用\n" +
-            "    // 仅包含 \"jsonrpc\" + \"result\" 的是文本回复，不应进入工具调用路径\n" +
-            "    var isToolCall = (typeof reply === 'string') &&\n" +
-            "                     (reply.indexOf('\"method\":\"tools/call\"') !== -1 ||\n" +
-            "                      reply.indexOf('\"method\": \"tools/call\"') !== -1 ||\n" +
-            "                      reply.indexOf("'method':'tools/call'") !== -1);\n" +
+            "    // 精确匹配：必须同时包含 method 和 tools/call 才是工具调用\n" +
+            "    var isToolCall = false;\n" +
+            "    if (typeof reply === 'string') {\n" +
+            "      var hasMethod = reply.indexOf('method') !== -1;\n" +
+            "      var hasToolsCall = reply.indexOf('tools/call') !== -1;\n" +
+            "      isToolCall = hasMethod && hasToolsCall;\n" +
+            "    }\n" +
             "\n" +
             "    if (isToolCall) {\n" +
             "      // 工具调用场景：必须等待 JSON 完整\n" +
