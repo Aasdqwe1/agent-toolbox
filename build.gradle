@@ -14,24 +14,12 @@ android {
         ndk {
             abiFilters 'arm64-v8a'
         }
-
-        externalNativeBuild {
-            cmake {
-                arguments '-DANDROID_STL=c++_shared'
-            }
-        }
-    }
-
-    externalNativeBuild {
-        cmake {
-            path 'src/main/c/CMakeLists.txt'
-        }
     }
 
     sourceSets {
         main {
-            java.srcDirs = ['src']
-            jniLibs.srcDirs = ['libs', 'app/src/main/jniLibs']
+            java.srcDirs = ['app/src/main/java']
+            jniLibs.srcDirs = ['libs']
             assets.srcDirs = ['assets']
             res.srcDirs = ['res']
             manifest.srcFile 'AndroidManifest.xml'
