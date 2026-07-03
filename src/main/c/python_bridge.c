@@ -81,7 +81,38 @@ Java_com_example_agenttoolbox_tools_PythonBridge_nativeExec(
     JNIEnv *env, jobject obj, jstring code
 ) {
     if (!python_initialized) {
-        return (*env)->NewStringUTF(env, "错误: Python 未初始化，请先调用 init()");
+        // 主动尝试初始化
+        LOGI("nativeExec: Python 未初始化，尝试自动初始化...");
+        // 查找 PythonBridge.init 的 home 路径
+        // 如果无法自动初始化，返回详细错误
+        jclass cls = (*env)->FindClass(env, "com/example/agenttoolbox/tools/PythonBridge");
+        jmethodID mid = (*env)->GetStaticMethodID(env, cls, "getPythonHome", "()Ljava/lang/String;");
+        if (mid != NULL) {
+            jstring home = (*env)->CallStaticObjectMethod(env, cls, mid);
+            if (home != NULL) {
+                const char *home_str = (*env)->GetStringUTFChars(env, home, NULL);
+                LOGI("nativeExec: 自动初始化 PYTHONHOME=%s", home_str);
+                PyConfig config;
+                PyConfig_InitPythonConfig(&config);
+                PyStatus status = PyConfig_SetBytesString(&config, &config.home, home_str);
+                if (!PyStatus_Exception(status)) {
+                    config.install_signal_handlers = 0;
+                    config.site_import = 0;
+                    status = Py_InitializeFromConfig(&config);
+                    if (!PyStatus_Exception(status)) {
+                        python_initialized = 1;
+                        LOGI("nativeExec: 自动初始化成功!");
+                    } else {
+                        LOGE("nativeExec: 自动初始化失败: %s", status.err_msg ? status.err_msg : "");
+                    }
+                }
+                PyConfig_Clear(&config);
+                (*env)->ReleaseStringUTFChars(env, home, home_str);
+            }
+        }
+        if (!python_initialized) {
+            return (*env)->NewStringUTF(env, "错误: Python 未初始化。nativeInit 可能失败了，请检查 logcat (PythonBridge-C)");
+        }
     }
 
     const char *code_utf8 = (*env)->GetStringUTFChars(env, code, NULL);

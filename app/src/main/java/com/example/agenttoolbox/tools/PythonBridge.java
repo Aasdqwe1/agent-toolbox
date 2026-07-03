@@ -147,6 +147,11 @@ public class PythonBridge {
     private static native void nativeShutdown();
     private static native boolean nativeIsInitialized();
 
+    /** 供 C 代码调用，获取 PYTHONHOME 路径 */
+    public static String getPythonHome() {
+        return pythonHome != null ? pythonHome.getAbsolutePath() : null;
+    }
+
     // ===== 进程模式 =====
 
     /**
