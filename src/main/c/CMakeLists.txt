@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.10)
 
 # Python 头文件
 set(PYTHON_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../assets/python/include")
