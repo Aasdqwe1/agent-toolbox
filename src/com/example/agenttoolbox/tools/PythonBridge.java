@@ -24,7 +24,7 @@ public class PythonBridge {
     private static final String STDLIB_ASSET_DIR = "python/stdlib";
     private static final String PYTHON_DIR_NAME = "python";
     private static final String VERSION_FILE = ".python_version";
-    private static final String EXPECTED_VERSION = "3.14.6-v3";
+    private static final String EXPECTED_VERSION = "3.14.6-v4";
 
     // JNI 模式
     private static boolean jniLoaded = false;
@@ -285,15 +285,17 @@ public class PythonBridge {
     // ===== 内部工具 =====
 
     private static void extractStdlib(Context context) throws Exception {
-        // 先列出 assets 中的原始结构
-        android.util.Log.i("PythonBridge", "=== Assets 结构扫描: " + STDLIB_ASSET_DIR + " ===");
-        logAssetTree(context, STDLIB_ASSET_DIR, 0);
-
+        // assets 中 python/stdlib/ 下是标准库文件（含 encodings/ 等子目录）
+        // Python 需要 PYTHONHOME/lib/python3.14/ 下找到它们
+        // 所以提取到 pythonHome/lib/python3.14/
+        File libDir = new File(pythonHome, "lib/python3.14");
         if (pythonHome.exists()) deleteRecursive(pythonHome);
-        pythonHome.mkdirs();
-        extractAssetDir(context, STDLIB_ASSET_DIR, pythonHome);
+        libDir.mkdirs();
 
-        // 提取后列出实际文件树
+        android.util.Log.i("PythonBridge", "解压标准库到 " + libDir.getAbsolutePath() + " ...");
+        extractAssetDir(context, STDLIB_ASSET_DIR, libDir);
+
+        // 诊断
         android.util.Log.i("PythonBridge", "=== 提取后文件树: " + pythonHome.getAbsolutePath() + " ===");
         logFileTree(pythonHome, 0);
     }
