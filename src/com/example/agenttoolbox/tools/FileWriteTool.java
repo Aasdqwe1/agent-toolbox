@@ -331,19 +331,27 @@ public class FileWriteTool implements Tool {
         if (!file.exists()) {
             return lines;
         }
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(new FileInputStream(file), encoding))) {
+        BufferedReader reader = null;
+        try {
+            reader = new BufferedReader(
+                    new InputStreamReader(new FileInputStream(file), encoding));
             String line;
             while ((line = reader.readLine()) != null) {
                 lines.add(line);
+            }
+        } finally {
+            if (reader != null) {
+                try { reader.close(); } catch (Exception ignored) {}
             }
         }
         return lines;
     }
 
     private void writeLines(File file, List<String> lines, String encoding) throws Exception {
-        try (OutputStreamWriter writer = new OutputStreamWriter(
-                new FileOutputStream(file, false), encoding)) {
+        OutputStreamWriter writer = null;
+        try {
+            writer = new OutputStreamWriter(
+                    new FileOutputStream(file, false), encoding);
             for (int i = 0; i < lines.size(); i++) {
                 if (i > 0) {
                     writer.write("\n");
@@ -351,6 +359,10 @@ public class FileWriteTool implements Tool {
                 writer.write(lines.get(i));
             }
             writer.flush();
+        } finally {
+            if (writer != null) {
+                try { writer.close(); } catch (Exception ignored) {}
+            }
         }
     }
 }

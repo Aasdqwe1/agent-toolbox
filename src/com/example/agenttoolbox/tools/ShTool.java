@@ -146,9 +146,15 @@ public class ShTool implements Tool {
         }
         File scriptFile = new File(tempDir, "tmp_" + System.currentTimeMillis() + ".sh");
 
-        try (FileOutputStream fos = new FileOutputStream(scriptFile)) {
+        FileOutputStream fos = null;
+        try {
+            fos = new FileOutputStream(scriptFile);
             fos.write(scriptContent.getBytes("UTF-8"));
             fos.flush();
+        } finally {
+            if (fos != null) {
+                try { fos.close(); } catch (Exception ignored) {}
+            }
         }
 
         scriptFile.setExecutable(true, false);

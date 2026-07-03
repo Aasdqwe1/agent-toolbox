@@ -6,20 +6,15 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 
 /**
  * 文件列表工具 - 优化版
- *
- * 改进：
- * 1. 新增 sort 参数：name（默认）/ size / modified
- * 2. 新增 show_hidden 参数（默认 false）
- * 3. 显示文件修改时间
- * 4. try-with-resources 防资源泄漏
- * 5. 路径解析统一使用 FilePathResolver
  */
 public class FileListTool implements Tool {
 
@@ -46,7 +41,7 @@ public class FileListTool implements Tool {
 
             JSONObject path = new JSONObject();
             path.put("type", "string");
-            path.put("description", "目录路径，支持：1) 相对路径（内部存储）；2) /Download/、/Documents/ 等简写；3) /storage/emulated/0/... 完整外部路径；不填则列出内部存储");
+            path.put("description", "目录路径");
             properties.put("path", path);
 
             JSONObject sort = new JSONObject();
@@ -72,12 +67,10 @@ public class FileListTool implements Tool {
 
     @Override
     public String execute(JSONObject arguments) throws Exception {
-        // 解析参数
         String path = arguments.optString("path", "");
         String sort = arguments.optString("sort", "name");
         boolean showHidden = arguments.optBoolean("show_hidden", false);
 
-        // 路径解析
         File dir = FilePathResolver.resolveForDir(path.isEmpty() ? null : path);
 
         if (!dir.exists()) {
@@ -95,11 +88,15 @@ public class FileListTool implements Tool {
             throw new Exception("无法读取目录内容，请检查权限: " + dir.getAbsolutePath());
         }
 
-        // 过滤隐藏文件
+        // 过滤隐藏文件（不使用 Stream API）
         if (!showHidden) {
-            files = Arrays.stream(files)
-                    .filter(f -> !f.getName().startsWith("."))
-                    .toArray(File[]::new);
+            List<File> visible = new ArrayList<File>();
+            for (File f : files) {
+                if (!f.getName().startsWith(".")) {
+                    visible.add(f);
+                }
+            }
+            files = visible.toArray(new File[visible.size()]);
         }
 
         // 排序
@@ -114,7 +111,6 @@ public class FileListTool implements Tool {
         }
         result.append("\n\n");
 
-        // 表头
         result.append(String.format("%-10s %-12s %-20s %s\n", "类型", "大小", "修改时间", "名称"));
         result.append(String.format("%-10s %-12s %-20s %s\n", "----", "----", "--------", "----"));
 
@@ -135,33 +131,33 @@ public class FileListTool implements Tool {
     private void sortFiles(File[] files, String sort) {
         Comparator<File> comparator;
 
-        switch (sort) {
-            case "size":
-                comparator = (a, b) -> {
-                    // 目录始终排前面
+        if ("size".equals(sort)) {
+            comparator = new Comparator<File>() {
+                public int compare(File a, File b) {
                     if (a.isDirectory() != b.isDirectory()) {
                         return a.isDirectory() ? -1 : 1;
                     }
                     return Long.compare(a.length(), b.length());
-                };
-                break;
-            case "modified":
-                comparator = (a, b) -> {
+                }
+            };
+        } else if ("modified".equals(sort)) {
+            comparator = new Comparator<File>() {
+                public int compare(File a, File b) {
                     if (a.isDirectory() != b.isDirectory()) {
                         return a.isDirectory() ? -1 : 1;
                     }
-                    return Long.compare(b.lastModified(), a.lastModified()); // 最新在前
-                };
-                break;
-            case "name":
-            default:
-                comparator = (a, b) -> {
+                    return Long.compare(b.lastModified(), a.lastModified());
+                }
+            };
+        } else {
+            comparator = new Comparator<File>() {
+                public int compare(File a, File b) {
                     if (a.isDirectory() != b.isDirectory()) {
                         return a.isDirectory() ? -1 : 1;
                     }
                     return a.getName().compareToIgnoreCase(b.getName());
-                };
-                break;
+                }
+            };
         }
 
         Arrays.sort(files, comparator);

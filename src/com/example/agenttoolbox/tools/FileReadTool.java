@@ -131,8 +131,10 @@ public class FileReadTool implements Tool {
         int displayedLines = 0;
         StringBuilder content = new StringBuilder();
 
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(new FileInputStream(file), encoding))) {
+        BufferedReader reader = null;
+        try {
+            reader = new BufferedReader(
+                    new InputStreamReader(new FileInputStream(file), encoding));
             String lineStr;
             while ((lineStr = reader.readLine()) != null) {
                 totalLines++;
@@ -143,12 +145,15 @@ public class FileReadTool implements Tool {
                     break;
                 }
                 if (showLineNumbers) {
-                    // 动态行号宽度：根据总行数计算位数（至少4位）
                     int width = Math.max(4, String.valueOf(totalLines).length());
                     content.append(String.format("%" + width + "d  ", totalLines));
                 }
                 content.append(lineStr).append("\n");
                 displayedLines++;
+            }
+        } finally {
+            if (reader != null) {
+                try { reader.close(); } catch (Exception ignored) {}
             }
         }
 
@@ -172,13 +177,19 @@ public class FileReadTool implements Tool {
      */
     private boolean isBinaryFile(File file) {
         if (file.length() == 0) return false;
-        try (FileInputStream fis = new FileInputStream(file)) {
+        FileInputStream fis = null;
+        try {
+            fis = new FileInputStream(file);
             byte[] buf = new byte[BINARY_CHECK_SIZE];
             int read = fis.read(buf);
             for (int i = 0; i < read; i++) {
                 if (buf[i] == 0) return true;
             }
         } catch (Exception ignored) {
+        } finally {
+            if (fis != null) {
+                try { fis.close(); } catch (Exception ignored) {}
+            }
         }
         return false;
     }
