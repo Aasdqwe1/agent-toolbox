@@ -1048,6 +1048,13 @@ public class McpServer {
                             log("[TOOL] 调用请求:\n" + replyJson.toString(2));
 
                             toolCallCount++;
+
+                            // 硬限制：超过 3 次工具调用，强制文本回复
+                            if (toolCallCount > 3) {
+                                log("[LOOP] 已执行 " + toolCallCount + " 次工具调用，强制结束");
+                                finalDone = true;
+                                break;
+                            }
                             long toolStartTime = System.currentTimeMillis();
                             String toolResult = executeToolCall(replyJson);
                             long toolCostMs = System.currentTimeMillis() - toolStartTime;
