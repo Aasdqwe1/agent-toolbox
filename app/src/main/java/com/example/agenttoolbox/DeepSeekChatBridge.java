@@ -141,7 +141,7 @@ public class DeepSeekChatBridge {
             // 延长到 1800 秒（30 分钟），给 LLM 足够时间处理复杂任务
             if (!latch.await(1800, java.util.concurrent.TimeUnit.SECONDS)) {
                 android.util.Log.w("DeepSeekChatBridge",
-                    "sendMessage 超时（1800s），message=" + (message == null ? "" : message.substring(0, Math.min(40, message.length()))));
+                    "sendMessage 超时（1800s），message=" + (message == null ? "" : message));
                 return null;
             }
         } catch (InterruptedException ie) {
@@ -281,7 +281,7 @@ public class DeepSeekChatBridge {
             "    if (finished) return;\n" +
             "    finished = true;\n" +
             "    if (window[__prefix + 'poll']) clearInterval(window[__prefix + 'poll']);\n" +
-            "    Android.log('[JS] 完成: 长度=' + (reply ? reply.length : 0) + '\n' + (reply || '').substring(0, 500));\n" +
+            "    Android.log('[JS] 完成: 长度=' + (reply ? reply.length : 0) + '\n' + (reply || ''));\n" +
             "    Android.onDeepSeekReply(__rid, reply || '');\n" +
             "  }\n" +
             "\n" +
@@ -424,7 +424,7 @@ public class DeepSeekChatBridge {
             "          cls.indexOf('ds-button--filled') !== -1 ||\n" +
             "          cls.indexOf('_52c986b') !== -1) {\n" +
             "        sendBtn = rb;\n" +
-            "        sendBtnSource = 'class_match:' + cls.substring(0, 40);\n" +
+            "        sendBtnSource = 'class_match:' + cls;\n" +
             "        break;\n" +
             "      }\n" +
             "    }\n" +
@@ -434,7 +434,7 @@ public class DeepSeekChatBridge {
             "        var tt = (all[j].innerText || all[j].textContent || '').trim();\n" +
             "        if (tt && (tt.indexOf('发送') !== -1 || tt.indexOf('Send') !== -1)) {\n" +
             "          sendBtn = all[j];\n" +
-            "          sendBtnSource = 'text_match:' + tt.substring(0, 20);\n" +
+            "          sendBtnSource = 'text_match:' + tt;\n" +
             "          break;\n" +
             "        }\n" +
             "      }\n" +
@@ -443,14 +443,14 @@ public class DeepSeekChatBridge {
             "      var btnDisabled = sendBtn.classList ? sendBtn.classList.contains('ds-button--disabled') : false;\n" +
             "      Android.log('[DEBUG][' + __rid + '] 发送按钮定位成功: ' + sendBtnSource + ', 禁用状态=' + btnDisabled);\n" +
             "      try { sendBtn.focus(); sendBtn.click(); } catch(_e5) {}\n" +
-            "      Android.log('DeepSeek: 已点击发送按钮 (msg=' + msg.substring(0, Math.min(20, msg.length)) + ')');\n" +
+            "      Android.log('DeepSeek: 已点击发送按钮 (msg=' + msg + ')');\n" +
             "      // 发送后校验：检查用户消息是否出现在消息列表\n" +
             "      setTimeout(function() {\n" +
             "        try {\n" +
             "          var userMsgs = document.querySelectorAll('.fbb737a4');\n" +
             "          var lastUserMsg = userMsgs.length > 0 ? userMsgs[userMsgs.length - 1] : null;\n" +
             "          var lastUserText = lastUserMsg ? (lastUserMsg.innerText || lastUserMsg.textContent || '').trim() : '';\n" +
-            "          Android.log('[DEBUG][' + __rid + '] 发送后校验: 用户消息数=' + userMsgs.length + ', 最新用户消息预览=' + lastUserText.substring(0, 50));\n" +
+            "          Android.log('[DEBUG][' + __rid + '] 发送后校验: 用户消息数=' + userMsgs.length + ', 最新用户消息预览=' + lastUserText);\n" +
             "        } catch(_ce) {}\n" +
             "      }, 1000);\n" +
             "      return;\n" +
@@ -519,28 +519,7 @@ public class DeepSeekChatBridge {
      */
     private String formatLongMessageForLog(String message, int maxLen) {
         if (message == null) return "";
-        if (message.length() <= maxLen) {
-            return message;
-        }
-        
-        // 分配剩余空间给前半部分和后半部分（2:1 比例，前部分更多）
-        String ellipsis = "...[省略 X 字符]...";
-        int ellipsisLen = ellipsis.length();
-        
-        if (ellipsisLen >= maxLen) {
-            // 如果省略号本身太长，直接返回首部
-            return message.substring(0, Math.max(1, maxLen - 3)) + "...";
-        }
-        
-        int availableLen = maxLen - ellipsisLen;
-        int frontLen = (availableLen * 2) / 3;
-        int backLen = availableLen - frontLen;
-        
-        String front = message.substring(0, frontLen);
-        String back = message.substring(message.length() - backLen);
-        int omittedChars = message.length() - (frontLen + backLen);
-        
-        return front + "...[省略 " + omittedChars + " 字符]..." + back;
+        return message; // 不截断，记录完整内容
     }
 
     /**

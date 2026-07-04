@@ -858,7 +858,7 @@ public class McpServer {
                                             log("[LLM] 空:  + (reply == null || reply.isEmpty() ? "是" : "否"));
                                             if (reply != null && reply.length() > 0) {
                                                 log("[LLM] 回复全文:\n" + reply);
-                                                log("[LLM] 后100:  + (reply.length() > 100 ? "..." + reply.substring(reply.length() - 100) : reply));
+                                                log("[LLM] 回复全文:\n" + reply);
                                             }
                                             // 工具调用 JSON 流结束，恢复心跳
                                             if (inToolCallStream.getAndSet(false)) {
