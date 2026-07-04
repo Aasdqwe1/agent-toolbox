@@ -1075,9 +1075,8 @@ public class McpServer {
                             currentMessage = toolResultMsg.toString();
 
                             // 防止循环：工具执行后，附加指令让 LLM 用文本回复用户
-                            // 如果已经是第2次工具调用，强制要求文本回复
-                            if (toolCallCount >= 2) {
-                                log("  [轮次" + currentRound + "] 已执行" + toolCallCount + "次工具调用，强制要求文本回复");
+                            if (toolCallCount >= 1) {
+                                log("  [轮次" + currentRound + "] 工具调用已完成，强制要求文本回复");
                                 JSONObject injectMsg = new JSONObject();
                                 injectMsg.put("jsonrpc", "2.0");
                                 injectMsg.put("method", "initialize");
