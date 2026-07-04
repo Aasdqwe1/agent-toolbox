@@ -744,6 +744,7 @@ public class McpServer {
                         int maxRounds = 10;
                         int round = 0;
                         boolean finalDone = false;
+                        int toolCallCount = 0; // 防止工具调用循环
                         // 本次对话的唯一会话 ID，贯穿整条链路（initialize / tools/call / 工具结果 / 最终回复）
                         final long conversationId = conversationIdSeq.incrementAndGet();
                         log("  [会话ID] " + conversationId);
@@ -1038,6 +1039,7 @@ public class McpServer {
                             log("  [轮次" + currentRound + "] 执行工具: " + toolNameForLog);
                             log("  [轮次" + currentRound + "] LLM tools/call 请求 JSON: " + replyJson.toString());
 
+                            toolCallCount++;
                             long toolStartTime = System.currentTimeMillis();
                             String toolResult = executeToolCall(replyJson);
                             long toolCostMs = System.currentTimeMillis() - toolStartTime;
@@ -1071,6 +1073,22 @@ public class McpServer {
                             } catch (Exception ignored) {}
                             log("  [轮次" + currentRound + "] 服务端工具结果 JSON: " + toolResultMsg.toString());
                             currentMessage = toolResultMsg.toString();
+
+                            // 防止循环：工具执行后，附加指令让 LLM 用文本回复用户
+                            // 如果已经是第2次工具调用，强制要求文本回复
+                            if (toolCallCount >= 2) {
+                                log("  [轮次" + currentRound + "] 已执行" + toolCallCount + "次工具调用，强制要求文本回复");
+                                JSONObject injectMsg = new JSONObject();
+                                injectMsg.put("jsonrpc", "2.0");
+                                injectMsg.put("method", "initialize");
+                                JSONObject injectParams = new JSONObject();
+                                injectParams.put("system", "工具已执行完成。请直接用文本回复用户，总结工具执行结果。禁止再次调用工具。");
+                                injectParams.put("user", "请回复用户");
+                                injectMsg.put("params", injectParams);
+                                injectMsg.put("id", conversationId);
+                                currentMessage = injectMsg.toString();
+                            }
+
                             log("  [轮次" + currentRound + "] 准备进入下一轮对话...");
 
                             // SSE status 通知（JSON-RPC notification 风格）
