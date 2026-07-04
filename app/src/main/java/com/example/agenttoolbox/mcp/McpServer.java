@@ -306,7 +306,7 @@ public class McpServer {
         private String truncateForLogging_DISABLED(String text, int maxLen) {
             if (text == null) return "";
             if (text.length() > maxLen) {
-                return text.substring(0, maxLen) + "... (共 " + text.length() + " 字符)";
+                return text;
             }
             return text;
         }
@@ -389,7 +389,7 @@ public class McpServer {
                 
                 log("[REQ] " + path);
                 log("[MCP] 请求体长度: " + (requestBody == null ? 0 : requestBody.length()) + " 字符");
-                log("[MCP] 请求: " + requestBody.substring(0, Math.min(200, requestBody.length())));
+                log("[MCP] 请求:\n" + requestBody);
                 
                 handleChatRequest(path, requestBody, out);
                 return;
@@ -404,10 +404,10 @@ public class McpServer {
             }
 
             // P2 修复：截断日志防止过长
-            log("收到请求: " + truncateForLogging(requestBody, 4096));
+            log("[REQ] 请求:\n" + requestBody);
 
             String responseBody = handleJsonRpcRequest(requestBody);
-            log("返回响应: " + truncateForLogging(responseBody, 4096));
+            log("[RES] 响应:\n" + responseBody);
 
             String response = "HTTP/1.1 200 OK\r\n" +
                 "Content-Type: application/json\r\n" +
@@ -845,7 +845,7 @@ public class McpServer {
                                             log("  [轮次" + currentRound + "] chunk处理异常: "
                                                 + "类型=" + e.getClass().getName()
                                                 + " msg=" + (e.getMessage() == null ? "(null)" : e.getMessage())
-                                                + " chunk前200=" + truncateForLogging(chunk, 200));
+                                                + " chunk=" + chunk);
                                             log("  [轮次" + currentRound + "] 堆栈: " + android.util.Log.getStackTraceString(e));
                                         }
                                     }
@@ -857,7 +857,7 @@ public class McpServer {
                                             log("[LLM] 长度:  + (reply == null ? 0 : reply.length()) + " 字符");
                                             log("[LLM] 空:  + (reply == null || reply.isEmpty() ? "是" : "否"));
                                             if (reply != null && reply.length() > 0) {
-                                                log("[LLM] 前150:  + (reply.length() > 150 ? reply.substring(0, 150) + "..." : reply));
+                                                log("[LLM] 回复全文:\n" + reply);
                                                 log("[LLM] 后100:  + (reply.length() > 100 ? "..." + reply.substring(reply.length() - 100) : reply));
                                             }
                                             // 工具调用 JSON 流结束，恢复心跳
@@ -930,7 +930,7 @@ public class McpServer {
                                             log("  [轮次" + currentRound + "] onDone处理异常: "
                                                 + "类型=" + e.getClass().getName()
                                                 + " msg=" + (e.getMessage() == null ? "(null)" : e.getMessage())
-                                                + " reply前200=" + truncateForLogging(reply, 200));
+                                                + " reply=" + reply);
                                             log("  [轮次" + currentRound + "] 堆栈: " + android.util.Log.getStackTraceString(e));
                                         }
                                         roundLatch.countDown();
@@ -955,7 +955,7 @@ public class McpServer {
                                             log("  [轮次" + currentRound + "] onError处理异常: "
                                                 + "类型=" + e.getClass().getName()
                                                 + " msg=" + (e.getMessage() == null ? "(null)" : e.getMessage())
-                                                + " error前200=" + truncateForLogging(error, 200));
+                                                + " error=" + error);
                                             log("  [轮次" + currentRound + "] 堆栈: " + android.util.Log.getStackTraceString(e));
                                         }
                                         roundLatch.countDown();
