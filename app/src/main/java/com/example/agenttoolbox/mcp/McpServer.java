@@ -386,11 +386,11 @@ public class McpServer {
 
             // 优先处理 /api/chat/ 路径（这些端点允许空 JSON 对象 {}）
             if (path.startsWith("/api/chat/")) {
-                log("════════════════════════════════════════════════════════════");
-                log("▶ 收到聊天 API 请求: " + path);
-                log("  ├─ 请求体长度: " + (requestBody == null ? 0 : requestBody.length()) + " 字符");
-                log("[MCP] 请求体:\n" + requestBody);
-                log("════════════════════════════════════════════════════════════");
+                
+                log("[REQ] " + path);
+                log("[MCP] 请求体长度: " + (requestBody == null ? 0 : requestBody.length()) + " 字符");
+                log("[MCP] 请求: " + requestBody.substring(0, Math.min(200, requestBody.length())));
+                
                 handleChatRequest(path, requestBody, out);
                 return;
             }
@@ -615,7 +615,7 @@ public class McpServer {
                             .put("error", "DeepSeek 未连接，请先打开 DeepSeek 页面")
                             .toString();
                     } else {
-                        log("DeepSeek 会话列表查询");
+                        log("[REQ] 会话列表");
                         String sessionsJson = bridge.getSessions();
                         if (sessionsJson == null) {
                             responseBody = new JSONObject()
@@ -642,7 +642,7 @@ public class McpServer {
                             .put("error", "DeepSeek 未连接")
                             .toString();
                     } else {
-                        log("DeepSeek 切换会话: " + sessionId);
+                        log("[REQ] 切换会话:  + sessionId);
                         boolean ok = bridge.selectSession(sessionId);
                         responseBody = new JSONObject()
                             .put("success", ok)
@@ -677,11 +677,11 @@ public class McpServer {
                             .put("error", "DeepSeek 未连接，请先打开 DeepSeek 页面并确保已登录")
                             .toString();
                     } else {
-                        log("DeepSeek 流式聊天请求: 完整消息=" + message);
-                        log("  ├─ 消息长度: " + message.length() + " 字符");
+                        log("[SEND] 消息=" + message);
+                        log("[MCP] 消息长度: " + message.length() + " 字符");
                         log("[MCP] 用户消息 (" + message.length() + " 字符): " + message);
-                        log("  ├─ 桥接器状态: " + (bridge.isRegistered() ? "已注册" : "未注册"));
-                        log("  └─ 请求ID: stream-" + System.currentTimeMillis());
+                        log("[MCP] 桥接器状态: " + (bridge.isRegistered() ? "已注册" : "未注册"));
+                        log("[MCP] 请求ID: stream-" + System.currentTimeMillis());
 
                         // SSE 头部
                         String header = "HTTP/1.1 200 OK\r\n" +
@@ -751,7 +751,7 @@ public class McpServer {
                         int toolCallCount = 0; // 防止工具调用循环
                         // 本次对话的唯一会话 ID，贯穿整条链路（initialize / tools/call / 工具结果 / 最终回复）
                         final long conversationId = conversationIdSeq.incrementAndGet();
-                        log("  [会话ID] " + conversationId);
+                        log("[INIT] 会话ID:  + conversationId);
 
                         while (round < maxRounds && !finalDone) {
                             round++;
@@ -779,13 +779,13 @@ public class McpServer {
                                     // 兜底：极少触发
                                     messageToSend = systemPrompt;
                                 }
-                                log("  [第一轮] 添加系统提示词，消息总长度: " + messageToSend.length() + " 字符");
+                                log("[INIT] 系统提示词: " + messageToSend.length() + " 字符");
                             }
                             
                             log("\n[轮次 " + currentRound + "/" + maxRounds + "] ═══ 开始 ═══");
                             
                             log("[LLM] 发送给 LLM (" + (messageToSend == null ? 0 : messageToSend.length()) + " 字符)");
-                            log("  └─ 已完成轮数: " + (currentRound - 1) + "/" + maxRounds);
+                            log("[MCP] 已完成轮数: " + (currentRound - 1) + "/" + maxRounds);
 
                             final CountDownLatch roundLatch = new CountDownLatch(1);
                             final AtomicReference<String> roundReplyRef = new AtomicReference<>();
@@ -811,7 +811,7 @@ public class McpServer {
                                                 chunk = sb.toString();
                                             }
                                             if (chunk != null && chunk.startsWith("[STATUS]")) {
-                                                log("  [轮次" + currentRound + "] [STATUS] " + chunk);
+                                                log("[STATUS]  + chunk);
                                                 JSONObject j = new JSONObject();
                                                 j.put("message", chunk);
                                                 writeEventChunk(out, "status", j.toString());
@@ -853,7 +853,7 @@ public class McpServer {
                                     @Override
                                     public void onDone(String reply) {
                                         try {
-                                            log("  [轮次" + currentRound + "] onDone 触发:");
+                                            log("[LLM] onDone");
                                             log("    ├─ 回复长度: " + (reply == null ? 0 : reply.length()) + " 字符");
                                             log("    ├─ 回复是否为空: " + (reply == null || reply.isEmpty() ? "是" : "否"));
                                             if (reply != null && reply.length() > 0) {
@@ -996,7 +996,7 @@ public class McpServer {
                                 // 空回复：不继续轮询，结束对话
                                 break;
                             }
-                            log("  [轮次" + currentRound + "] 获取回复长度=" + reply.length() + " 字符");
+                            log("[LLM] 回复长度=" + reply.length() + " 字符");
 
                             // 提取并解析 JSON 回复（JSON-RPC 2.0）
                             JSONObject replyJson = extractJsonObject(reply);
@@ -1004,7 +1004,7 @@ public class McpServer {
                                 log("  [轮次" + currentRound + "] ⚠ 警告: 无法从回复中提取JSON对象");
                                 log("[LLM] 回复全文 (" + reply.length() + " 字符):\n" + reply);
                                 finalDone = true;
-                                log("  [轮次" + currentRound + "] ═══ 对话完成 ═══");
+                                log("[DONE] 对话完成");
                                 break;
                             }
 
@@ -1018,7 +1018,7 @@ public class McpServer {
 
                             if (hasError) {
                                 // LLM 返回错误：当作异常文本回复处理
-                                log("  [轮次" + currentRound + "] ═══ 对话完成（LLM 返回 error） ═══");
+                                log("[DONE] LLM 返回错误");
                                 finalDone = true;
                                 break;
                             }
@@ -1026,7 +1026,7 @@ public class McpServer {
                             if (hasResult && !"tools/call".equals(method)) {
                                 // 文本回复：result.type=reply，对话结束
                                 finalDone = true;
-                                log("  [轮次" + currentRound + "] ═══ 对话完成（文本回复） ═══");
+                                log("[DONE] 文本回复");
                                 break;
                             }
 
@@ -1040,7 +1040,7 @@ public class McpServer {
                             // 工具调用：method=tools/call
                             JSONObject paramsObj = replyJson.optJSONObject("params");
                             String toolNameForLog = paramsObj != null ? paramsObj.optString("name", "") : "";
-                            log("  [轮次" + currentRound + "] 执行工具: " + toolNameForLog);
+                            log("[TOOL] 调用: " + toolNameForLog);
                             log("[TOOL] 调用请求:\n" + replyJson.toString(2));
 
                             toolCallCount++;
@@ -1078,21 +1078,24 @@ public class McpServer {
                             log("[TOOL] 返回给 LLM:\n" + toolResultMsg.toString(2));
                             currentMessage = toolResultMsg.toString();
 
-                            // 防止循环：工具执行后，附加指令让 LLM 用文本回复用户
+                            // 防止循环：工具执行后，在工具结果中附加文本回复指令
                             if (toolCallCount >= 1) {
-                                log("  [轮次" + currentRound + "] 工具调用已完成，强制要求文本回复");
-                                JSONObject injectMsg = new JSONObject();
-                                injectMsg.put("jsonrpc", "2.0");
-                                injectMsg.put("method", "initialize");
-                                JSONObject injectParams = new JSONObject();
-                                injectParams.put("system", "工具已执行完成。请直接用文本回复用户，总结工具执行结果。禁止再次调用工具。");
-                                injectParams.put("user", "请回复用户");
-                                injectMsg.put("params", injectParams);
-                                injectMsg.put("id", conversationId);
-                                currentMessage = injectMsg.toString();
+                                log("[LOOP] 第 " + toolCallCount + " 次工具调用完成，附加文本回复指令");
+                                // 在工具结果的末尾附加指令
+                                try {
+                                    JSONArray arr = toolResultMsg.getJSONObject("result").getJSONArray("content");
+                                    JSONObject extra = new JSONObject();
+                                    extra.put("type", "text");
+                                    extra.put("text", "\n\n[系统指令] 工具已执行完成。请直接用自然语言回复用户，总结工具执行结果。禁止再次调用任何工具。");
+                                    arr.put(extra);
+                                    currentMessage = toolResultMsg.toString();
+                                } catch (Exception e) {
+                                    // 如果修改失败，用原始工具结果
+                                    log("[LOOP] 附加指令失败: " + e.getMessage());
+                                }
                             }
 
-                            log("  [轮次" + currentRound + "] 准备进入下一轮对话...");
+                            log("[ROUND] 准备下一轮");
 
                             // SSE status 通知（JSON-RPC notification 风格）
                             JSONObject status = new JSONObject();
