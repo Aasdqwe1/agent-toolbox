@@ -835,8 +835,8 @@ public class DeepSeekChatBridge {
             "      var globalJson = extractJsonRpcFromDocument();\n" +
             "      if (globalJson) {\n" +
             "        Android.log('[DEBUG][' + __rid + '] 全局扫描提取到完整JSON-RPC，长度=' + globalJson.length + '，立即完成');\n" +
-            "        finish(globalJson);\n" +
-            "        return;\n" +
+            "        // finish(globalJson) // 已禁用;\n" +
+            "        // return; // 已禁用\n" +
             "      }\n" +
             "      // 如果全局扫描也返回null，但reply有jsonrpc+method+params\n" +
             "      // 可能是LLM已停止但JSON在innerText中不完整，直接回传原始文本\n" +
@@ -886,7 +886,6 @@ public class DeepSeekChatBridge {
             "\n" +
             "    // ========== 工具调用优先检测 ==========\n" +
             "    // 精确匹配：必须同时包含 method 和 tools/call 才是工具调用\n" +
-            "    // 宽松匹配：包含 jsonrpc + method + params 也视为工具调用（流式渲染中 tools/call 可能被截断）\n" +
             "    var isToolCall = false;\n" +
             "    if (typeof reply === 'string') {\n" +
             "      var hasJsonRpc = reply.indexOf('\"jsonrpc\"') !== -1;\n" +
@@ -895,7 +894,7 @@ public class DeepSeekChatBridge {
             "      var hasParams = reply.indexOf('\"params\"') !== -1;\n" +
             "      // 精确：method + tools/call\n" +
             "      // 宽松：jsonrpc + method + params（用于流式渲染中 tools/call 被截断的情况）\n" +
-            "      isToolCall = (hasMethod && hasToolsCall) || (hasJsonRpc && hasMethod && hasParams);\n" +
+            "      isToolCall = hasMethod && hasToolsCall;\n" +
             "    }\n" +
             "\n" +
             "    if (isToolCall) {\n" +
@@ -949,7 +948,7 @@ public class DeepSeekChatBridge {
             "            // 可能是 DeepSeek 网页渲染破坏了字符串值内部的转义双引号\n" +
             "            // 只要括号匹配且包含必要字段，就认为完成，回传原始文本\n" +
             "            Android.log('[DEBUG][' + __rid + '] JSON.parse失败但括号匹配(suffix=0)，强制完成，长度=' + jsonStr.length);\n" +
-            "            jsonComplete = true;\n" +
+            "            // jsonComplete = true; // 已禁用\n" +
             "          }\n" +
             "        }\n" +
             "      }\n" +
@@ -962,6 +961,12 @@ public class DeepSeekChatBridge {
             "        finish(reply);\n" +
             "        return;\n" +
             "      } else {\n" +
+            "        // 如果发送按钮就绪且括号已匹配但JSON.parse失败，接受原始文本\n" +
+            "        var _sendRdy = isSendButtonReady();\n" +
+            "        if (_sendRdy && braceCount === 0 && bracketCount === 0) {\n" +
+            "          finish(reply);\n" +
+            "          return;\n" +
+            "        }\n" +
             "        // JSON 不完整：根本性修复 - 检查LLM生成状态\n" +
             "        if (completionReady) {\n" +
             "          completionReady = false;\n" +
