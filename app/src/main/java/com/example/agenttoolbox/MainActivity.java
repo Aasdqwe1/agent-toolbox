@@ -21,6 +21,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.example.agenttoolbox.AppLogger;
 import com.example.agenttoolbox.mcp.McpServer;
 
 import java.io.File;
@@ -220,6 +221,18 @@ public class MainActivity extends Activity {
             appendLog("正在启动MCP服务...");
 
             mcpServer = new McpServer(PORT, MainActivity.this);
+            // 初始化统一日志门面（同时输出到 UI 和 logcat）
+            AppLogger.init(new AppLogger.OnLogListener() {
+                @Override
+                public void onLog(String message) {
+                    handler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            appendLog(message);
+                        }
+                    });
+                }
+            });
             mcpServer.setOnLogListener(new McpServer.OnLogListener() {
                 @Override
                 public void onLog(final String message) {

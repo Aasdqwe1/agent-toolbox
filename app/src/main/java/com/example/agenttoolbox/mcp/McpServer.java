@@ -1,6 +1,8 @@
 package com.example.agenttoolbox.mcp;
 
 import android.content.Context;
+import android.util.Log;
+import com.example.agenttoolbox.AppLogger;
 import com.example.agenttoolbox.DeepSeekChatBridge;
 import com.example.agenttoolbox.tools.ToolManager;
 import org.json.JSONArray;
@@ -75,6 +77,8 @@ public class McpServer {
         if (logListener != null) {
             logListener.onLog(message);
         }
+        // 也输出到 logcat，便于 adb 调试
+        Log.d("McpServer", message);
     }
 
     public void start() throws IOException {
@@ -642,7 +646,7 @@ public class McpServer {
                             .put("error", "DeepSeek 未连接")
                             .toString();
                     } else {
-                        log("[REQ] 切换会话:  + sessionId);
+                        log("[REQ] 切换会话: " + sessionId);
                         boolean ok = bridge.selectSession(sessionId);
                         responseBody = new JSONObject()
                             .put("success", ok)
@@ -811,7 +815,7 @@ public class McpServer {
                                                 chunk = sb.toString();
                                             }
                                             if (chunk != null && chunk.startsWith("[STATUS]")) {
-                                                log("[STATUS]  + chunk);
+                                                log("[STATUS] " + chunk);
                                                 JSONObject j = new JSONObject();
                                                 j.put("message", chunk);
                                                 writeEventChunk(out, "status", j.toString());
@@ -831,9 +835,9 @@ public class McpServer {
                                             if (isToolCall && !inToolCallStream.get()) {
                                                 inToolCallStream.set(true);
                                                 log("[DEBUG] 工具调用流开始 (长度=" + (chunk == null ? 0 : chunk.length()) + ")");
-                                                log("[DEBUG] jsonrpc:  + (chunk.indexOf("\"jsonrpc\":") != -1 ? "✓" : "✗"));
-                                                log("[DEBUG] method:  + (chunk.indexOf("\"method\"") != -1 ? "✓" : "✗"));
-                                                log("[DEBUG] tools/call:  + (chunk.indexOf("\"tools/call\"") != -1 ? "✓" : "✗"));
+                                                log("[DEBUG] jsonrpc: " + (chunk.indexOf("\"jsonrpc\":") != -1 ? "Y" : "N"));
+                                                log("[DEBUG] method: " + (chunk.indexOf("\"method\"") != -1 ? "Y" : "N"));
+                                                log("[DEBUG] tools/call: " + (chunk.indexOf("\"tools/call\"") != -1 ? "Y" : "N"));
                                             }
 
                                             JSONObject j = new JSONObject();
@@ -854,10 +858,9 @@ public class McpServer {
                                     public void onDone(String reply) {
                                         try {
                                             log("[LLM] onDone");
-                                            log("[LLM] 长度:  + (reply == null ? 0 : reply.length()) + " 字符");
-                                            log("[LLM] 空:  + (reply == null || reply.isEmpty() ? "是" : "否"));
+                                            log("[LLM] 长度: " + (reply == null ? 0 : reply.length()) + " 字符");
+                                            log("[LLM] 空: " + (reply == null || reply.isEmpty() ? "是" : "否"));
                                             if (reply != null && reply.length() > 0) {
-                                                log("[LLM] 回复全文:\n" + reply);
                                                 log("[LLM] 回复全文:\n" + reply);
                                             }
                                             // 工具调用 JSON 流结束，恢复心跳
@@ -892,7 +895,7 @@ public class McpServer {
                                                             if (resultJson.has("content")) {
                                                                 String extractedContent = resultJson.getString("content");
                                                                 if (extractedContent != null && !extractedContent.isEmpty()) {
-                                                                    log("[LLM] result.content:  + extractedContent.length());
+                                                                    log("[LLM] result.content: " + extractedContent.length());
                                                                     finalReply = extractedContent;
                                                                 }
                                                             }
@@ -913,9 +916,9 @@ public class McpServer {
 
                                             // P2 修复：记录 LLM 完整回复（非工具调用时），使用截断防止过长日志
                                             if (!isToolCall && finalReply.length() > 0) {
-                                                log("[LLM] 结构:  + analyzeReplyStructure(finalReply));
+                                                log("[LLM] 结构: " + analyzeReplyStructure(finalReply));
                                                 String logReply = finalReply;
-                                                log("[LLM] 内容:  + logReply);
+                                                log("[LLM] 内容: " + logReply);
                                             }
                                             JSONObject j = new JSONObject();
                                             j.put("content", finalReply);
