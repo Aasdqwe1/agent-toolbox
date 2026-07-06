@@ -262,13 +262,20 @@ public class DeepSeekChatBridge {
             "  Android.log('[JS] 初始AI回复数=' + initialAiCount + ', url=' + window.location.href);\n" +
             "\n" +
             "  function isSendButtonReady() {\n" +
-            "    var paths = document.querySelectorAll('svg path');\n" +
+            "    // 只检查发送按钮元素内部的 path，不遍历全页 SVG\n" +
+            "    // 发送按钮定位：ds-button--primary class（与 sendScript 一致）\n" +
+            "    var btn = document.querySelector('div[role=\"button\"].ds-button--primary') ||\n" +
+            "              document.querySelector('.ds-button--primary');\n" +
+            "    if (!btn) return true; // 找不到按钮，不阻塞\n" +
+            "    var paths = btn.querySelectorAll('svg path');\n" +
             "    for (var i = 0; i < paths.length; i++) {\n" +
             "      var d = paths[i].getAttribute('d') || '';\n" +
-            "      if (d.indexOf('M8.3125') === 0) return true;\n" +
-            "      if (d.indexOf('M2 4.88') === 0) return false;\n" +
+            "      // 发送按钮（就绪）：M8.3125 0.981587...\n" +
+            "      if (/^M8\\.3125/.test(d)) return true;\n" +
+            "      // 停止按钮（生成中）：M2 4.88C2 3.68009...\n" +
+            "      if (/^M2 4\\.88/.test(d)) return false;\n" +
             "    }\n" +
-            "    return true;\n" +
+            "    return true; // 未匹配到已知 path，不阻塞\n" +
             "  }\n" +
             "\n" +
             "  function finish(reply) {\n" +
@@ -324,8 +331,13 @@ public class DeepSeekChatBridge {
             "    // 每 10 次轮询（约 5 秒）输出一次诊断状态\n" +
             "    if (pollCount % 10 === 0) {\n" +
             "      var diagAiCount = document.querySelectorAll('.ds-assistant-message-main-content').length;\n" +
-            "      Android.log('[JS] 诊断 poll#' + pollCount + ' aiCount=' + diagAiCount + '/' + initialAiCount + ' stable=' + stableCount + ' lastLen=' + lastTextLen);\n" +
+            "      var diagReady = isSendButtonReady();\n" +
+            "      Android.log('[JS] 诊断 poll#' + pollCount + ' ready=' + diagReady + ' aiCount=' + diagAiCount + '/' + initialAiCount + ' stable=' + stableCount + ' lastLen=' + lastTextLen);\n" +
             "    }\n" +
+            "\n" +
+            "    // 快速跳过：若检测到停止按钮（LLM 生成中），本轮直接返回\n" +
+            "    // 不重置 stableCount/lastTextLen，避免破坏稳定性检查\n" +
+            "    if (!isSendButtonReady()) return;\n" +
             "\n" +
             "    // 检查是否有新的 AI 回复\n" +
             "    var aiMsgs = document.querySelectorAll('.ds-assistant-message-main-content');\n" +
