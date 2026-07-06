@@ -1110,6 +1110,9 @@ public class McpServer {
                                     cachedSession.planState.confirmed = true;
                                     log("[PLAN] " + cachedSession.planState.getSummary());
                                     
+                                    // 推送 plan 事件到前端
+                                    writePlanEvent(out, cachedSession.planState, "created");
+                                    
                                     // 选取第一个任务
                                     Task firstTask = cachedSession.taskManager.selectNextTask(cachedSession.planState);
                                     if (firstTask != null) {
@@ -1196,6 +1199,8 @@ public class McpServer {
                                 if (nextTask != null) {
                                     log("[PLAN] 下一任务: [" + nextTask.taskId + "] " + nextTask.content);
                                 }
+                                // 推送 plan 进度到前端
+                                writePlanEvent(out, cachedSession.planState, "progress");
                             }
 
                             // FSM 自动下一步：文件读写流程中，读完后自动触发写操作
@@ -1787,6 +1792,41 @@ public class McpServer {
                 }
             } catch (Exception e) {
                 log("[STATE] 状态更新异常: " + e.getMessage());
+            }
+        }
+
+        /**
+         * 推送 plan 事件到前端（SSE）
+         */
+        private void writePlanEvent(OutputStream out, PlanState planState, String action) {
+            try {
+                JSONObject plan = new JSONObject();
+                plan.put("action", action);
+                plan.put("total", planState.totalTasks());
+                plan.put("completed", planState.completedTasks());
+                plan.put("failed", planState.failedTasks());
+                plan.put("summary", planState.getSummary());
+
+                JSONArray tasks = new JSONArray();
+                for (Task t : planState.tasks) {
+                    JSONObject tj = new JSONObject();
+                    tj.put("task_id", t.taskId);
+                    tj.put("content", t.content);
+                    tj.put("status", t.status.value());
+                    tj.put("priority", t.priority);
+                    if (!t.deps.isEmpty()) {
+                        JSONArray depsArr = new JSONArray();
+                        for (String d : t.deps) depsArr.put(d);
+                        tj.put("deps", depsArr);
+                    }
+                    if (t.failReason != null) tj.put("fail_reason", t.failReason);
+                    tasks.put(tj);
+                }
+                plan.put("tasks", tasks);
+
+                writeEventChunk(out, "plan", plan.toString());
+            } catch (Exception e) {
+                log("[PLAN] 推送事件失败: " + e.getMessage());
             }
         }
 
