@@ -248,6 +248,7 @@ public class DeepSeekChatBridge {
         //   - 只有新增的消息（index >= baseline）才被视为本次的回复
         //   - JS 变量改为以 requestId 命名，避免多请求相互覆盖
                 final String observerScript = "(function() {\n" +
+            "  try {\n" +
             "  var __rid = " + JSONObject.quote(requestId) + ";\n" +
             "  var __prefix = 'ds_' + __rid + '_';\n" +
             "  window.__deepseekRid = __rid;\n" +
@@ -258,7 +259,7 @@ public class DeepSeekChatBridge {
             "  var stableCount = 0;\n" +
             "  // 记录发送前已有的 AI 回复数（baseline）\n" +
             "  var initialAiCount = document.querySelectorAll('.ds-assistant-message-main-content').length;\n" +
-            "  Android.log('[JS] 初始AI回复数=' + initialAiCount);\n" +
+            "  Android.log('[JS] 初始AI回复数=' + initialAiCount + ', url=' + window.location.href);\n" +
             "\n" +
             "  function isSendButtonReady() {\n" +
             "    var paths = document.querySelectorAll('svg path');\n" +
@@ -389,6 +390,10 @@ public class DeepSeekChatBridge {
             "  window[__prefix + 'poll'] = setInterval(pollOnce, 500);\n" +
             "  Android.log('[JS] 轮询启动, 每 500ms, 初始AI回复数=' + initialAiCount);\n" +
             "  return 'observer_started_' + __rid;\n" +
+            "  } catch(e) {\n" +
+            "    try { Android.log('[JS] observerScript 异常: ' + e + ', stack=' + (e.stack||'')); } catch(e2) {}\n" +
+            "    return 'observer_error_' + e;\n" +
+            "  }\n" +
             "})()";// ========== Step 2: 填写消息并发送 ==========
         final String sendScript =
             "(function() {\n" +
@@ -529,7 +534,12 @@ public class DeepSeekChatBridge {
                     return;
                 }
                 // 先启动监听，再发送消息（分开调用）
-                boundWebView.evaluateJavascript(observerScript, null);
+                boundWebView.evaluateJavascript(observerScript, new ValueCallback<String>() {
+                    @Override
+                    public void onReceiveValue(String result) {
+                        AppLogger.d("DeepSeekChatBridge", "[" + requestId + "] observerScript 返回: " + result);
+                    }
+                });
                 boundWebView.evaluateJavascript(sendScript, new ValueCallback<String>() {
                     @Override
                     public void onReceiveValue(String sendResult) {

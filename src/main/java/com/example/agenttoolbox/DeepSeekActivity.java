@@ -277,6 +277,19 @@ public class DeepSeekActivity extends Activity {
                 }
                 return super.onJsAlert(view, url, message, result);
             }
+
+            // 捕获 JavaScript 控制台错误，防止 JS 异常被静默吞掉
+            @Override
+            public boolean onConsoleMessage(android.webkit.ConsoleMessage consoleMessage) {
+                String level = consoleMessage.messageLevel() != null
+                    ? consoleMessage.messageLevel().toString() : "UNKNOWN";
+                String msg = consoleMessage.message() != null ? consoleMessage.message() : "";
+                String sourceId = consoleMessage.sourceId() != null ? consoleMessage.sourceId() : "";
+                int line = consoleMessage.lineNumber();
+                AppLogger.e("WebViewJS", "[Console][" + level + "] " + msg
+                    + " (source: " + sourceId + ":" + line + ")");
+                return true;
+            }
         });
     }
 
