@@ -131,6 +131,7 @@ public class ToolManager {
 
             // 核心规则
             JSONArray rules = new JSONArray();
+            rules.put("initialize 只发一次：你只在对话开始时收到一次 initialize 请求（包含 system 和 user），后续轮次不会再收到。你永远不要自己构造或发送 method=\"initialize\" 的消息，只需用 tools/call 或 result/reply 回复");
             rules.put("每个回复都必须包含 jsonrpc=\"2.0\" 字段");
             rules.put("id 规则：你收到的 initialize 请求里的 id 是本次对话的会话 ID，你后续的所有回复（result/error/tools/call）都必须回带这个 id，服务端工具结果也会用相同 id 响应");
             rules.put("文本回答：使用 result 对象，含 type=reply 和 content 字段，并带回 id");
