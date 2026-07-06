@@ -347,6 +347,16 @@ public class DeepSeekChatBridge {
             "    // Step 7: Determine type and finish\n" +
             "    var isToolCall = parsed.method && parsed.method === 'tools/call';\n" +
             "    Android.log('[JS] JSON 解析成功: method=' + (parsed.method || 'none') + ', 长度=' + jsonStr.length);\n" +
+            "\n" +
+            "    // 如果是 JSON-RPC 响应格式，提取 result.content\n" +
+            "    if (parsed.jsonrpc && parsed.result) {\n" +
+            "      var result = parsed.result;\n" +
+            "      var content = result.content || result.text || '';\n" +
+            "      Android.log('[JS] JSON-RPC 响应: type=' + (result.type || 'unknown') + ', content长度=' + content.length);\n" +
+            "      finish(content || jsonStr);\n" +
+            "      return;\n" +
+            "    }\n" +
+            "\n" +
             "    finish(jsonStr);\n" +
             "  }\n" +
             "\n" +
