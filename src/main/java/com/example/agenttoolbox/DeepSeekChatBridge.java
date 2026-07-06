@@ -349,7 +349,7 @@ public class DeepSeekChatBridge {
             "\n" +
             "    // 方式2: 如果失败，尝试用正则提取 jsonrpc 格式\n" +
             "    if (!parsed) {\n" +
-            "      var match = rawText.match(/\{[\s]*\"jsonrpc\"[^]*?\}/);\n" +
+            "      var match = rawText.match(/\\{[\\s]*\"jsonrpc\"[\\s\\S]*?\\}/);\n" +
             "      if (match) {\n" +
             "        jsonStr = match[0];\n" +
             "        try { parsed = JSON.parse(jsonStr); } catch(e) {}\n" +
