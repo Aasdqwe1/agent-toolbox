@@ -324,15 +324,7 @@ public class DeepSeekChatBridge {
             "    // 每 10 次轮询（约 5 秒）输出一次诊断状态\n" +
             "    if (pollCount % 10 === 0) {\n" +
             "      var diagAiCount = document.querySelectorAll('.ds-assistant-message-main-content').length;\n" +
-            "      var diagReady = isSendButtonReady();\n" +
-            "      Android.log('[JS] 诊断 poll#' + pollCount + ' ready=' + diagReady + ' aiCount=' + diagAiCount + '/' + initialAiCount + ' stable=' + stableCount + ' lastLen=' + lastTextLen);\n" +
-            "    }\n" +
-            "\n" +
-            "    // 等待发送按钮就绪（LLM 停止生成）\n" +
-            "    if (!isSendButtonReady()) {\n" +
-            "      stableCount = 0;\n" +
-            "      lastTextLen = 0;\n" +
-            "      return;\n" +
+            "      Android.log('[JS] 诊断 poll#' + pollCount + ' aiCount=' + diagAiCount + '/' + initialAiCount + ' stable=' + stableCount + ' lastLen=' + lastTextLen);\n" +
             "    }\n" +
             "\n" +
             "    // 检查是否有新的 AI 回复\n" +
