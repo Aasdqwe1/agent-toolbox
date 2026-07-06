@@ -1097,7 +1097,31 @@ public class McpServer {
                             }
 
                             if (hasResult && !"tools/call".equals(method)) {
-                                // 文本回复：result.type=reply，对话结束
+                                // 文本回复：result.type=reply，检查是否包含待办计划
+                                JSONObject resultObj = replyJson.optJSONObject("result");
+                                String contentType = resultObj != null ? resultObj.optString("type", "") : "";
+                                String content = resultObj != null ? resultObj.optString("content", "") : "";
+                                
+                                // 检测 content 中是否包含待办计划 JSON
+                                JSONObject planJson = tryExtractPlan(content);
+                                if (planJson != null && cachedSession != null) {
+                                    log("[PLAN] 检测到任务计划，自动加载到 PlanState");
+                                    cachedSession.taskManager.loadPlan(cachedSession.planState, planJson);
+                                    cachedSession.planState.confirmed = true;
+                                    log("[PLAN] " + cachedSession.planState.getSummary());
+                                    
+                                    // 选取第一个任务
+                                    Task firstTask = cachedSession.taskManager.selectNextTask(cachedSession.planState);
+                                    if (firstTask != null) {
+                                        log("[PLAN] 开始执行: [" + firstTask.taskId + "] " + firstTask.content);
+                                        // 根据任务需要的工具，构造工具调用指令发给 LLM
+                                        String planContext = cachedSession.planState.toPromptText();
+                                        currentMessage = planContext + "\n\n[系统指令] 请按计划执行第一个任务。任务: " + firstTask.content;
+                                        continue; // 继续下一轮，不结束对话
+                                    }
+                                }
+                                
+                                // 普通文本回复，对话结束
                                 finalDone = true;
                                 log("[DONE] 文本回复");
                                 break;
@@ -1764,6 +1788,35 @@ public class McpServer {
             } catch (Exception e) {
                 log("[STATE] 状态更新异常: " + e.getMessage());
             }
+        }
+
+        /**
+         * 尝试从 LLM 回复文本中提取待办计划 JSON
+         * 支持格式：{"tasks":[...]} 或纯文本中嵌入的 JSON
+         */
+        private JSONObject tryExtractPlan(String content) {
+            if (content == null || content.isEmpty()) return null;
+            try {
+                // 直接解析
+                JSONObject json = new JSONObject(content);
+                if (json.has("tasks") && json.optJSONArray("tasks") != null) {
+                    return json;
+                }
+            } catch (Exception e) {
+                // 不是纯 JSON，尝试从文本中提取
+            }
+            // 尝试从文本中提取 JSON（LLM 可能在 content 中嵌入 JSON 字符串）
+            try {
+                int braceIdx = content.indexOf('{');
+                if (braceIdx >= 0) {
+                    String sub = content.substring(braceIdx);
+                    JSONObject json = new JSONObject(sub);
+                    if (json.has("tasks") && json.optJSONArray("tasks") != null) {
+                        return json;
+                    }
+                }
+            } catch (Exception e) {}
+            return null;
         }
 
         private String handleInitialize(JsonRpcRequest request) throws JSONException {
