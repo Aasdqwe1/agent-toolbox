@@ -1767,7 +1767,13 @@ public class McpServer {
         }
 
         private String handleInitialize(JsonRpcRequest request) throws JSONException {
-            long conversationId = request.getId();
+            String strId = request.getId();
+            long conversationId;
+            try {
+                conversationId = Long.parseLong(strId);
+            } catch (NumberFormatException e) {
+                conversationId = conversationIdSeq.incrementAndGet();
+            }
             
             // 生成系统提示词和工具列表，存入会话缓存
             String systemPrompt = ToolManager.getInstance().getSystemPrompt();

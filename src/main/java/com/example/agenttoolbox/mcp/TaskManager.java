@@ -41,8 +41,9 @@ public class TaskManager {
 
         JSONArray tasksArr = planJson.optJSONArray("tasks");
         if (tasksArr == null) {
-            // 兼容：LLM 可能直接返回数组
-            tasksArr = planJson;
+            // 兼容：LLM 可能直接返回 JSONObject 包含 tasks 数组，或本身就是数组
+            // 如果 planJson 本身是数组类型，直接使用
+            return new ArrayList<>();
         }
 
         if (tasksArr != null) {

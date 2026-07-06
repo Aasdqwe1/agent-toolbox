@@ -113,12 +113,15 @@ public class PlanState {
         if (candidates.isEmpty()) return null;
 
         // 按优先级排序（数字越小越紧急），相同优先级按截止时间
-        candidates.sort((a, b) -> {
-            if (a.priority != b.priority) return Integer.compare(a.priority, b.priority);
-            if (a.deadline == null && b.deadline == null) return 0;
-            if (a.deadline == null) return 1;
-            if (b.deadline == null) return -1;
-            return a.deadline.compareTo(b.deadline);
+        java.util.Collections.sort(candidates, new java.util.Comparator<Task>() {
+            @Override
+            public int compare(Task a, Task b) {
+                if (a.priority != b.priority) return Integer.compare(a.priority, b.priority);
+                if (a.deadline == null && b.deadline == null) return 0;
+                if (a.deadline == null) return 1;
+                if (b.deadline == null) return -1;
+                return a.deadline.compareTo(b.deadline);
+            }
         });
         return candidates.get(0);
     }
