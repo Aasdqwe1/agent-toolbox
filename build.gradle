@@ -1,7 +1,5 @@
 apply plugin: 'com.android.application'
 
-buildDir = file("${rootDir}/build")
-
 android {
     namespace 'com.example.agenttoolbox'
     compileSdk 35
