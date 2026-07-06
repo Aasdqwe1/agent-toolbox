@@ -224,7 +224,7 @@ public class MainActivity extends Activity {
             final Handler h = handler;
             AppLogger.init(new AppLogger.OnLogListener() {
                 @Override
-                public void onLog(String message) {
+                public void onLog(final String message) {
                     h.post(new Runnable() {
                         @Override
                         public void run() {
