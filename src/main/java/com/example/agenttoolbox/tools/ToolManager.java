@@ -144,6 +144,7 @@ public class ToolManager {
             rules.put("文件读写最佳实践：先用 file_read 读取内容（带行号），再用 file_write 精确操作。避免手动计算行号");
             rules.put("file_write 的三种模式：replace=替换指定行（默认），insert=在指定行前插入，append=追加到末尾。优先用 insert/append 避免行号偏移");
             rules.put("多步编辑时：每次写入后行号会变化。如果连续修改多处，优先用 insert/append，或从文件末尾往前改（避免行号漂移）");
+            rules.put("待办计划推进规则：当有待办计划时，每执行完一个工具后，你必须在文本回复的 result 中添加 plan_update 字段来推进计划。例如：{\"action\":\"complete_task\",\"task_id\":\"T001\"}。系统不会自动推进计划，完全由你控制");
             rules.put("file_write 的 content 参数会自动剥离行号前缀，可以直接把 file_read 的输出当 content 传入");
             rules.put("Python 工具已内嵌 Python 3.14 环境，直接调用 python 工具即可执行代码，无需通过 shell 检查 Python 是否可用");
             rules.put("执行 Python 代码时直接使用 python 工具，不要用 shell which python 或 shell python3 等方式");
@@ -258,14 +259,20 @@ public class ToolManager {
 
             // 使用方式
             JSONArray planUsage = new JSONArray();
-            planUsage.put("严格按照 reply_formats 中定义的文本回复格式（result.type=reply），将完整计划 JSON 字符串作为 content 字段的值输出");
-            planUsage.put("示例：{\"jsonrpc\":\"2.0\",\"result\":{\"type\":\"reply\",\"content\":\"{\\\"tasks\\\":[{\\\"task_id\\\":\\\"T001\\\",...}]}\"},\"id\":1001}");
-            planUsage.put("禁止在 content 字段外部或附加在回复末尾输出计划 JSON，必须将其作为 content 字符串的内部内容");
-            planUsage.put("系统会自动检测并解析计划 JSON，推送到前端待办面板");
-            planUsage.put("工具执行后，你可以在文本回复的 result 对象中添加 plan_update 字段来推进计划。系统解析后会把下一个任务状态发给你");
-            planUsage.put("plan_update 格式：{\"action\":\"操作类型\",\"task_id\":\"T001\",\"reason\":\"失败原因（可选）\"}");
-            planUsage.put("支持的操作类型：complete_task（标记完成）、mark_failed（标记失败，需提供 reason）、update_plan（更新整个计划，需提供 plan 字段）");
-            planUsage.put("示例：{\"jsonrpc\":\"2.0\",\"result\":{\"type\":\"reply\",\"content\":\"任务已完成\",\"plan_update\":{\"action\":\"complete_task\",\"task_id\":\"T001\"}},\"id\":1001}");
+            planUsage.put("首次输出计划：严格按照 reply_formats 中定义的文本回复格式，将 {\"tasks\":[...]} 完整计划 JSON 字符串作为 content 字段的值输出。系统检测到计划后会自动加载并选取第一个任务发给你");
+            planUsage.put("推进计划：工具执行后你会收到工具结果和当前计划状态。此时你需要在文本回复的 result 对象中添加 plan_update 字段来告诉系统如何推进计划，不能由系统自动推进");
+            planUsage.put("plan_update 是 result 对象的一个附加字段，格式如下：");
+            planUsage.put("{\"jsonrpc\":\"2.0\",\"result\":{\"type\":\"reply\",\"content\":\"你的回复\",\"plan_update\":{\"action\":\"操作类型\",\"task_id\":\"任务ID\"}},\"id\":1001}");
+            planUsage.put("支持的操作类型：");
+            planUsage.put("  - complete_task: 标记指定任务完成。示例：{\"action\":\"complete_task\",\"task_id\":\"T001\"}");
+            planUsage.put("  - mark_failed: 标记任务失败。示例：{\"action\":\"mark_failed\",\"task_id\":\"T001\",\"reason\":\"文件不存在\"}");
+            planUsage.put("  - update_plan: 更新整个计划。示例：{\"action\":\"update_plan\",\"plan\":{\"tasks\":[...]}}");
+            planUsage.put("完整示例流程：");
+            planUsage.put("  步骤1（工具调用）：调用 file_read 读取文件");
+            planUsage.put("  步骤2（收到结果）：文件内容已返回");
+            planUsage.put("  步骤3（推进计划）：{\"jsonrpc\":\"2.0\",\"result\":{\"type\":\"reply\",\"content\":\"文件已读取\",\"plan_update\":{\"action\":\"complete_task\",\"task_id\":\"T001\"}},\"id\":1001}");
+            planUsage.put("  步骤4（系统回复）：下一步任务: [T002] 修改文件。请调用对应工具执行。");
+            planUsage.put("全部任务完成后：系统会自动生成总结并结束对话");
             planSystem.put("usage", planUsage);
 
             prompt.put("plan_system", planSystem);
