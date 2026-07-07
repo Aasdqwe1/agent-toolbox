@@ -782,13 +782,6 @@ public class McpServer {
                                 + " systemPrompt=" + systemPrompt.length() + "字符");
                         }
 
-                        // 检测任务类型并切换 FSM
-                        if (cachedSession != null) {
-                            SessionCache.TaskType detectedType = detectTaskType(message);
-                            SessionCache.getInstance().switchTaskType(conversationId, detectedType);
-                            log("[FSM] 任务类型: " + detectedType);
-                        }
-
                         // 待办计划：检测是否需要生成任务计划
                         if (cachedSession != null) {
                             TaskManager tm = cachedSession.taskManager;
@@ -1172,21 +1165,6 @@ public class McpServer {
                             log("[TOOL] 调用请求:\n" + replyJson.toString(2));
 
                             toolCallCount++;
-                            // FSM 校验：检查工具调用是否合固定在定流转
-                            String fsmBlockReason = validateFsmToolCall(cachedSession, toolNameForLog, replyJson);
-                            if (fsmBlockReason != null) {
-                                log("[FSM] 工具调用被拦截: " + fsmBlockReason);
-                                // 发送错误消息给 LLM，让它重试
-                                JSONObject errorReply = new JSONObject();
-                                errorReply.put("jsonrpc", "2.0");
-                                errorReply.put("result", new JSONObject()
-                                    .put("type", "error")
-                                    .put("content", "工具调用被拦截: " + fsmBlockReason));
-                                errorReply.put("id", conversationId);
-                                currentMessage = errorReply.toString();
-                                continue;
-                            }
-
                             // 硬限制：超过 3 次工具调用，强制文本回复
                             if (toolCallCount > 3) {
                                 log("[LOOP] 已执行 " + toolCallCount + " 次工具调用，强制结束");
@@ -1194,24 +1172,34 @@ public class McpServer {
                                 break;
                             }
                             long toolStartTime = System.currentTimeMillis();
-                            String toolResult = executeToolCall(replyJson);
-                            long toolCostMs = System.currentTimeMillis() - toolStartTime;
-
-                            log("[TOOL] 执行完成: 耗时=" + toolCostMs + "ms");
-                            log("[TOOL] 返回结果 (" + toolResult.length() + " 字符):\n" + toolResult);
-                            if (toolResult == null || toolResult.isEmpty()) {
-                                toolResult = "工具执行返回空结果";
+                            String toolResult = null;
+                            boolean toolIsError = false;
+                            
+                            // 路径安全检查：file_read/file_write 路径必须在白名单内
+                            if (("file_read".equals(toolNameForLog) || "file_write".equals(toolNameForLog))
+                                && paramsObj != null && paramsObj.has("arguments")) {
+                                JSONObject args = paramsObj.optJSONObject("arguments");
+                                if (args != null) {
+                                    String path = args.optString("path", "");
+                                    if (!path.isEmpty() && !path.startsWith("/sdcard/") && !path.startsWith("/storage/") 
+                                        && !path.startsWith("/data/local/tmp/")) {
+                                        toolResult = "错误: 路径不在安全白名单: " + path;
+                                        toolIsError = true;
+                                        log("[SECURITY] " + toolResult);
+                                    }
+                                }
                             }
-                            boolean toolIsError = toolResult.startsWith("错误") || toolResult.startsWith("工具执行失败");
+                            if (toolResult == null) {
+                                toolResult = executeToolCall(replyJson);
+                                if (toolResult == null || toolResult.isEmpty()) {
+                                    toolResult = "工具执行返回空结果";
+                                }
+                                toolIsError = toolResult.startsWith("错误") || toolResult.startsWith("工具执行失败");
+                            }
 
                             // 更新会话中间状态
                             if (cachedSession != null && !toolIsError) {
                                 updateSessionState(cachedSession, toolNameForLog, replyJson.optJSONObject("params"), toolResult);
-                            }
-
-                            // FSM 状态更新
-                            if (cachedSession != null && !toolIsError) {
-                                updateFsmState(cachedSession, toolNameForLog, toolResult);
                             }
 
                             // 待办计划：更新任务进度
@@ -1229,18 +1217,6 @@ public class McpServer {
                                 }
                                 // 推送 plan 进度到前端
                                 writePlanEvent(out, cachedSession.planState, "progress");
-                            }
-
-                            // FSM 自动下一步：文件读写流程中，读完后自动触发写操作
-                            JSONObject autoNextStep = getFsmAutoNextStep(cachedSession, conversationId, toolNameForLog);
-                            if (autoNextStep != null) {
-                                log("[FSM] 自动触发下一步: " + autoNextStep.optJSONObject("params").optString("name"));
-                                toolResult = executeToolCall(autoNextStep);
-                                log("[FSM] 自动步骤执行完成: " + (toolResult != null ? toolResult.length() : 0) + "字符");
-                                if (cachedSession != null) {
-                                    updateFsmState(cachedSession, 
-                                        autoNextStep.optJSONObject("params").optString("name"), toolResult);
-                                }
                             }
 
                             // 构造 JSON-RPC 2.0 工具结果响应，发送给 LLM 继续对话
@@ -1586,192 +1562,6 @@ public class McpServer {
 
             JSONObject result = ToolManager.getInstance().callTool(toolName, arguments);
             return JsonRpcResponse.success(request.getId(), result).toString();
-        }
-
-        /**
-         * 检测用户消息中的任务类型
-         */
-        private SessionCache.TaskType detectTaskType(String message) {
-            if (message == null) return SessionCache.TaskType.NONE;
-            String msg = message.toLowerCase();
-            // 文件操作关键词
-            if (msg.contains("文件") || msg.contains("读取") || msg.contains("写入") 
-                || msg.contains("修改") || msg.contains("编辑") || msg.contains("查看")
-                || msg.contains("读写") || msg.contains("file") || msg.contains("作文")
-                || msg.contains("内容") || msg.contains("文本") || msg.contains("保存")) {
-                // 明确是文件操作
-                if (msg.contains("/sdcard") || msg.contains("/storage") || msg.contains("路径")
-                    || msg.contains("目录") || msg.contains("下载") || msg.contains("Download")) {
-                    return SessionCache.TaskType.FILE;
-                }
-                // 有修改/编辑意图 → 文件操作
-                if (msg.contains("修改") || msg.contains("编辑") || msg.contains("改成")
-                    || msg.contains("替换") || msg.contains("追加") || msg.contains("写入")) {
-                    return SessionCache.TaskType.FILE;
-                }
-            }
-            // Python 关键词
-            if (msg.contains("python") || msg.contains("运行代码") || msg.contains("执行脚本")
-                || msg.contains("计算") || msg.contains("编程") || msg.contains("代码")
-                || msg.contains("print") || msg.contains("import") || msg.contains("def ")
-                || msg.contains("py脚本") || msg.contains("运行py")) {
-                return SessionCache.TaskType.PYTHON;
-            }
-            // Shell 关键词
-            if (msg.contains("shell") || msg.contains("命令") || msg.contains("终端")
-                || msg.contains("执行") || msg.contains("运行") || msg.contains("ls ")
-                || msg.contains("cat ") || msg.contains("ps ") || msg.contains("grep ")
-                || msg.contains("df ") || msg.contains("free ") || msg.contains("top ")
-                || msg.contains("pm ") || msg.contains("dumpsys") || msg.contains("logcat")) {
-                return SessionCache.TaskType.SHELL;
-            }
-            return SessionCache.TaskType.NONE;
-        }
-
-        /**
-         * FSM 校验：检查工具调用是否合固定在定流转
-         */
-        private String validateFsmToolCall(SessionCache.SessionData session, String toolName, JSONObject replyJson) {
-            if (session == null || toolName == null) return null;
-            
-            switch (session.currentTaskType) {
-                case FILE:
-                    return validateFileFsm(session, toolName, replyJson);
-                case PYTHON:
-                    return validatePythonFsm(session, toolName);
-                case SHELL:
-                    return validateShellFsm(session, toolName);
-                default:
-                    return null; // GM 或 NONE 不校验
-            }
-        }
-
-        private String validateFileFsm(SessionCache.SessionData session, String toolName, JSONObject replyJson) {
-            FileWorkflow.FileState state = session.fileWorkflow.getState();
-            
-            if ("file_write".equals(toolName)) {
-                // file_write 必须经过 file_read
-                if (state != FileWorkflow.FileState.WRITE_READY && state != FileWorkflow.FileState.READ_SUCCESS) {
-                    return "file_write 必须先在 file_read 读取文件，当前状态: " + state;
-                }
-                // 校验路径一致
-                JSONObject params = replyJson.optJSONObject("params");
-                if (params != null) {
-                    JSONObject args = params.optJSONObject("arguments");
-                    if (args != null) {
-                        String writePath = args.optString("path", "");
-                        String readPath = session.fileWorkflow.getTargetPath();
-                        if (readPath != null && !readPath.equals(writePath)) {
-                            return "file_write 路径与 file_read 不一致: " + writePath + " vs " + readPath;
-                        }
-                    }
-                }
-            }
-            if ("file_read".equals(toolName)) {
-                // file_read 可以随时调用（重置流程）
-                JSONObject params = replyJson.optJSONObject("params");
-                if (params != null) {
-                    JSONObject args = params.optJSONObject("arguments");
-                    if (args != null) {
-                        String path = args.optString("path", "");
-                        // 路径白名单校验
-                        if (!path.startsWith("/sdcard/") && !path.startsWith("/storage/") 
-                            && !path.startsWith("/data/local/tmp/")) {
-                            return "file_read 路径不在白名单: " + path;
-                        }
-                    }
-                }
-            }
-            return null;
-        }
-
-        private String validatePythonFsm(SessionCache.SessionData session, String toolName) {
-            PythonWorkflow.PyState state = session.pythonWorkflow.getState();
-            if ("python".equals(toolName)) {
-                if (state != PythonWorkflow.PyState.RUN_SCRIPT && state != PythonWorkflow.PyState.IDLE) {
-                    return "python 调用未在正确状态: " + state;
-                }
-            }
-            return null;
-        }
-
-        private String validateShellFsm(SessionCache.SessionData session, String toolName) {
-            ShellWorkflow.ShellState state = session.shellWorkflow.getState();
-            if ("shell".equals(toolName)) {
-                if (state != ShellWorkflow.ShellState.RUN_CMD && state != ShellWorkflow.ShellState.IDLE) {
-                    return "shell 调用未在正确状态: " + state;
-                }
-            }
-            return null;
-        }
-
-        /**
-         * FSM 状态更新（工具执行后）
-         */
-        private void updateFsmState(SessionCache.SessionData session, String toolName, String result) {
-            if (session == null || toolName == null) return;
-            
-            switch (session.currentTaskType) {
-                case FILE:
-                    switch (toolName) {
-                        case "file_read":
-                            session.fileWorkflow.onReadResult(result);
-                            // 如果 result 中包含编辑意图 → 进入 NEED_EDIT
-                            if (result != null && (result.contains("修改") || result.contains("编辑"))) {
-                                session.fileWorkflow.requestEdit();
-                            }
-                            log("[FSM] FileState: " + session.fileWorkflow.getState());
-                            break;
-                        case "file_write":
-                            session.fileWorkflow.onWriteDone();
-                            log("[FSM] FileState: " + session.fileWorkflow.getState());
-                            break;
-                    }
-                    break;
-                case PYTHON:
-                    if ("python".equals(toolName)) {
-                        session.pythonWorkflow.onExecResult(result);
-                        log("[FSM] PyState: " + session.pythonWorkflow.getState());
-                    }
-                    break;
-                case SHELL:
-                    if ("shell".equals(toolName)) {
-                        session.shellWorkflow.onExecResult(result);
-                        log("[FSM] ShellState: " + session.shellWorkflow.getState());
-                    }
-                    break;
-            }
-        }
-
-        /**
-         * FSM 自动下一步：流水线自动推进
-         * 例如文件操作中 file_read 完成后，自动构建 file_write 调用
-         */
-        private JSONObject getFsmAutoNextStep(SessionCache.SessionData session, long conversationId, String toolName) {
-            if (session == null) return null;
-            
-            switch (session.currentTaskType) {
-                case FILE:
-                    if ("file_read".equals(toolName)) {
-                        FileWorkflow fw = session.fileWorkflow;
-                        if (fw.getState() == FileWorkflow.FileState.READ_SUCCESS && fw.getNewContent() != null) {
-                            // 有修改内容 → 自动触发 write
-                            return fw.buildWriteCall(1, "replace");
-                        }
-                    }
-                    break;
-                case PYTHON:
-                    if (session.pythonWorkflow.getState() == PythonWorkflow.PyState.RUN_SCRIPT) {
-                        return session.pythonWorkflow.buildRunCall(conversationId);
-                    }
-                    break;
-                case SHELL:
-                    if (session.shellWorkflow.getState() == ShellWorkflow.ShellState.RUN_CMD) {
-                        return session.shellWorkflow.buildRunCall(conversationId);
-                    }
-                    break;
-            }
-            return null;
         }
 
         /**
