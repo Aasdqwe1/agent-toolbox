@@ -893,6 +893,7 @@ public class DeepSeekChatBridge {
      * 切换会话：点击对应会话项后，等待 URL 发生变化才算完成
      */
     public boolean selectSession(final String sessionId) {
+        this.deepseekInitialized = false;
         if (sessionId == null || sessionId.isEmpty()) return false;
 
         final String getUrlJs = "(function(){ return location.pathname || ''; })()";
@@ -939,6 +940,7 @@ public class DeepSeekChatBridge {
      * 创建新会话：点击新建按钮后等待 URL 变化
      */
     public boolean newSession() {
+        this.deepseekInitialized = false;
         String js =
             "(function() {\n" +
             "  try {\n" +
