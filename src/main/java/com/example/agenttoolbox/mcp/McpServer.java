@@ -1145,10 +1145,10 @@ public class McpServer {
                                     JSONObject planUpdate = resultObj.optJSONObject("plan_update");
                                     if (planUpdate != null) {
                                         log("[PLAN] 检测到计划更新指令: " + planUpdate.toString());
-                                        String action = planUpdate.optString("action", "");
+                                        String planAction = planUpdate.optString("action", "");
                                         TaskManager tm = cachedSession.taskManager;
                                         
-                                        switch (action) {
+                                        switch (planAction) {
                                             case "complete_task":
                                             case "mark_done": {
                                                 String taskId = planUpdate.optString("task_id", "");
@@ -1280,10 +1280,10 @@ public class McpServer {
                                 && paramsObj != null && paramsObj.has("arguments")) {
                                 JSONObject args = paramsObj.optJSONObject("arguments");
                                 if (args != null) {
-                                    String path = args.optString("path", "");
-                                    if (!path.isEmpty() && !path.startsWith("/sdcard/") && !path.startsWith("/storage/") 
-                                        && !path.startsWith("/data/local/tmp/")) {
-                                        toolResult = "错误: 路径不在安全白名单: " + path;
+                                    String filePath = args.optString("path", "");
+                                    if (!filePath.isEmpty() && !filePath.startsWith("/sdcard/") && !filePath.startsWith("/storage/") 
+                                        && !filePath.startsWith("/data/local/tmp/")) {
+                                        toolResult = "错误: 路径不在安全白名单: " + filePath;
                                         toolIsError = true;
                                         log("[SECURITY] " + toolResult);
                                     }
@@ -1387,7 +1387,7 @@ public class McpServer {
                             JSONObject statusParams = new JSONObject();
                             statusParams.put("message", "工具执行完成，继续对话");
                             statusParams.put("tool", toolNameForLog);
-                            statusParams.put("costMs", toolCostMs);
+                            statusParams.put("costMs", System.currentTimeMillis() - toolStartTime);
                             statusParams.put("result", toolResult);
                             statusParams.put("isError", toolIsError);
                             statusParams.put("round", currentRound);
