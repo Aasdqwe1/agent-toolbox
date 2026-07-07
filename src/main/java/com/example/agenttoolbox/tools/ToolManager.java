@@ -156,9 +156,18 @@ public class ToolManager {
             // 首轮发送 initialize，后续轮次服务端可能发送以下格式的消息
             // ============================================================
             JSONObject serverMsgs = new JSONObject();
-            serverMsgs.put("工具结果", "工具执行后返回 JSON-RPC 格式结果：{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"...\"}]},\"id\":1001}");
-            serverMsgs.put("系统指令", "计划推进或流程控制指令：{\"jsonrpc\":\"2.0\",\"result\":{\"type\":\"system\",\"content\":\"请按计划执行第一个任务...\"},\"id\":1001}。收到后按指令执行，回复格式依然遵循 reply/tool_call 规则");
+            serverMsgs.put("工具结果", "工具执行后返回 JSON-RPC 格式，同时附带计划进度 plan 字段：{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"...\"}]},\"plan\":{\"total\":5,\"completed\":1,\"failed\":0,\"active_task\":\"T002\"},\"id\":1001}");
+            serverMsgs.put("系统指令", "服务端推送的计划执行指令，格式为 JSON-RPC 2.0 result.type=system，包含 action、task、plan、instruction 结构化字段：{\"jsonrpc\":\"2.0\",\"result\":{\"type\":\"system\",\"action\":\"execute_task\",\"task\":{\"task_id\":\"T001\",\"content\":\"步骤描述\",\"tool_needs\":[\"file_read\"]},\"plan\":{\"total\":5,\"completed\":0,\"failed\":0},\"instruction\":\"请调用对应工具执行\"},\"id\":1001}。收到后按 instruction 执行，回复格式依然遵循 reply/tool_call 规则，完成后用 plan_update 推进计划");
             prompt.put("server_messages", serverMsgs);
+
+            // ============================================================
+            // 系统指令 action 类型（type=system 消息中的 action 字段含义）
+            // ============================================================
+            JSONObject systemActions = new JSONObject();
+            systemActions.put("execute_task", "执行指定任务：task 字段包含任务详情（task_id/content/tool_needs），plan 字段包含计划进度。请调用对应工具执行，完成后用 plan_update 推进");
+            systemActions.put("plan_complete", "所有任务已完成：plan 字段包含最终进度，instruction 字段包含总结。请用自然语言汇总结果回复用户");
+            systemActions.put("format_error", "格式校验失败：instruction 字段包含错误详情。请根据提示修正 JSON-RPC 格式后重新输出");
+            prompt.put("system_actions", systemActions);
 
             // ============================================================
             // 工作流状态机（FSM）
@@ -468,7 +477,9 @@ public class ToolManager {
                     .put("jsonrpc", "2.0")
                     .put("result", new JSONObject().put("content",
                             new JSONArray().put(new JSONObject().put("type", "text").put("text", "工具返回结果文本"))))
+                    .put("plan", new JSONObject().put("total", 5).put("completed", 1).put("failed", 0).put("summary", "已完成 1/5"))
                     .put("id", "对应工具调用的 id"));
+            resultFmt.put("note", "工具结果中可能附带 plan 字段，包含当前计划进度（total/completed/failed/summary/active_task）。有 plan 字段说明有待办计划在执行中，你需要根据进度继续推进");
             resultFmt.put("error", new JSONObject()
                     .put("jsonrpc", "2.0")
                     .put("error", new JSONObject().put("code", -32603).put("message", "错误说明"))

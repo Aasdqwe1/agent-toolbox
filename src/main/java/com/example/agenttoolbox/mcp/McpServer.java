@@ -1128,9 +1128,14 @@ public class McpServer {
                                     Task firstTask = cachedSession.taskManager.selectNextTask(cachedSession.planState);
                                     if (firstTask != null) {
                                         log("[PLAN] 开始执行: [" + firstTask.taskId + "] " + firstTask.content);
-                                        // 根据任务需要的工具，构造工具调用指令发给 LLM
-                                        String planContext = cachedSession.planState.toPromptText();
-                                        currentMessage = planContext + "\n\n[系统指令] 请按计划执行第一个任务。任务: " + firstTask.content;
+                                        // 构建结构化计划消息
+                                        String planMsg = buildPlanMessage("execute_task", firstTask, cachedSession.planState, conversationId,
+                                            "请按计划执行此任务，调用对应工具。完成后在回复中使用 plan_update 推进计划");
+                                        if (planMsg != null) {
+                                            currentMessage = planMsg;
+                                        } else {
+                                            currentMessage = cachedSession.planState.toPromptText() + "\n\n[系统指令] 请按计划执行第一个任务。任务: " + firstTask.content;
+                                        }
                                         continue; // 继续下一轮，不结束对话
                                     }
                                 }
@@ -1179,12 +1184,23 @@ public class McpServer {
                                         // 选择下一个任务
                                         Task nextTask = tm.selectNextTask(cachedSession.planState);
                                         if (nextTask != null) {
-                                            String planContext = cachedSession.planState.toPromptText();
-                                            currentMessage = planContext + "\n\n[系统指令] 下一步任务: [" + nextTask.taskId + "] " + nextTask.content + "。请调用对应工具执行。";
+                                            String planMsg = buildPlanMessage("execute_task", nextTask, cachedSession.planState, conversationId,
+                                                "请调用对应工具执行此任务。完成后在回复中使用 plan_update 推进计划");
+                                            if (planMsg != null) {
+                                                currentMessage = planMsg;
+                                            } else {
+                                                currentMessage = cachedSession.planState.toPromptText() + "\n\n[系统指令] 下一步任务: [" + nextTask.taskId + "] " + nextTask.content + "。请调用对应工具执行。";
+                                            }
                                             continue;
                                         } else if (cachedSession.planState.allCompleted()) {
                                             String summary = cachedSession.taskManager.generateSummary(cachedSession.planState);
-                                            currentMessage = "所有任务已完成。\n\n" + summary;
+                                            String planMsg = buildPlanMessage("plan_complete", null, cachedSession.planState, conversationId,
+                                                "所有任务已完成。请总结执行结果并回复用户。\n" + summary);
+                                            if (planMsg != null) {
+                                                currentMessage = planMsg;
+                                            } else {
+                                                currentMessage = "所有任务已完成。\n\n" + summary;
+                                            }
                                             finalDone = true;
                                             break;
                                         }
@@ -1210,8 +1226,13 @@ public class McpServer {
                                     Task firstTask = cachedSession.taskManager.selectNextTask(cachedSession.planState);
                                     if (firstTask != null) {
                                         log("[PLAN] 开始执行: [" + firstTask.taskId + "] " + firstTask.content);
-                                        String planContext = cachedSession.planState.toPromptText();
-                                        currentMessage = planContext + "\n\n[系统指令] 请按计划执行第一个任务。任务: " + firstTask.content;
+                                        String planMsg = buildPlanMessage("execute_task", firstTask, cachedSession.planState, conversationId,
+                                            "请按计划执行此任务，调用对应工具。完成后在回复中使用 plan_update 推进计划");
+                                        if (planMsg != null) {
+                                            currentMessage = planMsg;
+                                        } else {
+                                            currentMessage = cachedSession.planState.toPromptText() + "\n\n[系统指令] 请按计划执行第一个任务。任务: " + firstTask.content;
+                                        }
                                         continue;
                                     }
                                 }
@@ -1221,8 +1242,14 @@ public class McpServer {
                                 if (validationError != null) {
                                     log("[LLM] 回复格式不合规:\n" + validationError);
                                     // 向 LLM 发送格式化校正提示，让它重新回复
-                                    currentMessage = "【系统反馈】\n" + validationError 
-                                        + "\n\n请根据以上提示修正你的回复格式，然后重新输出。";
+                                    String planMsg = buildPlanMessage("format_error", null, null, conversationId,
+                                        validationError + "\n\n请根据以上提示修正你的回复格式，然后重新输出。");
+                                    if (planMsg != null) {
+                                        currentMessage = planMsg;
+                                    } else {
+                                        currentMessage = "【系统反馈】\n" + validationError 
+                                            + "\n\n请根据以上提示修正你的回复格式，然后重新输出。";
+                                    }
                                     continue;
                                 }
                                 
@@ -1324,9 +1351,24 @@ public class McpServer {
 
                             // 待办计划：每次工具调用后向 LLM 同步最新进度
                             if (cachedSession != null && !cachedSession.planState.tasks.isEmpty()) {
-                                String planStatus = cachedSession.planState.toPromptText();
-                                log("[PLAN] 当前进度:\n" + planStatus);
-                                currentMessage = planStatus + "\n\n[系统指令] 请根据以上任务进度继续执行。如果当前任务已完成，自动推进到下一个任务。如需调整计划请更新待办清单。\n\n" + currentMessage;
+                                log("[PLAN] 当前进度:\n" + cachedSession.planState.toPromptText());
+                                // 将计划进度注入到工具结果 JSON 中，保持 JSON-RPC 格式完整
+                                try {
+                                    JSONObject planInfo = new JSONObject();
+                                    planInfo.put("total", cachedSession.planState.totalTasks());
+                                    planInfo.put("completed", cachedSession.planState.completedTasks());
+                                    planInfo.put("failed", cachedSession.planState.failedTasks());
+                                    planInfo.put("summary", cachedSession.planState.getSummary());
+                                    if (cachedSession.planState.activeTask != null) {
+                                        planInfo.put("active_task", cachedSession.planState.activeTask.taskId);
+                                    }
+                                    toolResultMsg.put("plan", planInfo);
+                                    currentMessage = toolResultMsg.toString();
+                                    log("[PLAN] 计划进度已注入工具结果 JSON");
+                                } catch (Exception e) {
+                                    log("[PLAN] 注入计划进度失败: " + e.getMessage());
+                                    currentMessage = cachedSession.planState.toPromptText() + "\n\n[系统指令] 请根据以上任务进度继续执行。\n\n" + currentMessage;
+                                }
                                 // 检查是否全部完成
                                 if (cachedSession.planState.allCompleted()) {
                                     log("[PLAN] 所有任务已完成！");
@@ -1701,6 +1743,62 @@ public class McpServer {
                 writeEventChunk(out, "plan", plan.toString());
             } catch (Exception e) {
                 log("[PLAN] 推送事件失败: " + e.getMessage());
+            }
+        }
+
+        /**
+         * 构建结构化计划消息（JSON-RPC 2.0 system 指令）
+         * 替代原来的纯文本 currentMessage，让 LLM 直接解析结构化字段
+         */
+        private String buildPlanMessage(String action, Task task, PlanState planState, long conversationId, String extraInstruction) {
+            try {
+                JSONObject rpc = new JSONObject();
+                rpc.put("jsonrpc", "2.0");
+                JSONObject result = new JSONObject();
+                result.put("type", "system");
+                result.put("action", action);
+
+                // 任务信息
+                if (task != null) {
+                    JSONObject taskObj = new JSONObject();
+                    taskObj.put("task_id", task.taskId);
+                    taskObj.put("content", task.content);
+                    taskObj.put("priority", task.priority);
+                    if (!task.deps.isEmpty()) {
+                        JSONArray depsArr = new JSONArray();
+                        for (String d : task.deps) depsArr.put(d);
+                        taskObj.put("deps", depsArr);
+                    }
+                    if (!task.toolNeeds.isEmpty()) {
+                        JSONArray tools = new JSONArray();
+                        for (String t : task.toolNeeds) tools.put(t);
+                        taskObj.put("tool_needs", tools);
+                    }
+                    if (task.checkpoint != null) taskObj.put("checkpoint", task.checkpoint);
+                    result.put("task", taskObj);
+                }
+
+                // 计划概览
+                if (planState != null) {
+                    JSONObject planInfo = new JSONObject();
+                    planInfo.put("total", planState.totalTasks());
+                    planInfo.put("completed", planState.completedTasks());
+                    planInfo.put("failed", planState.failedTasks());
+                    planInfo.put("in_progress", planState.activeTask != null ? 1 : 0);
+                    result.put("plan", planInfo);
+                }
+
+                // 额外指令
+                if (extraInstruction != null && !extraInstruction.isEmpty()) {
+                    result.put("instruction", extraInstruction);
+                }
+
+                rpc.put("result", result);
+                rpc.put("id", conversationId);
+                return rpc.toString();
+            } catch (JSONException e) {
+                log("[PLAN] 构建结构化消息失败: " + e.getMessage());
+                return null;
             }
         }
 
