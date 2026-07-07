@@ -1155,7 +1155,17 @@ public class McpServer {
                                         continue;
                                     }
                                 }
-                                // 当作文本回复处理
+                                
+                                // 格式合规性校验：检测 JSON 结构是否符合 JSON-RPC 2.0 标准
+                                String validationError = validateReplyFormat(replyJson);
+                                if (validationError != null) {
+                                    log("[LLM] 回复格式不合规:\n" + validationError);
+                                    // 向 LLM 发送格式化校正提示，让它重新回复
+                                    currentMessage = "【系统反馈】\n" + validationError 
+                                        + "\n\n请根据以上提示修正你的回复格式，然后重新输出。";
+                                    continue;
+                                }
+                                
                                 log("[LLM] 未知消息: method=" + method + "，当作文本回复处理");
                                 finalDone = true;
                                 break;
@@ -1881,6 +1891,50 @@ public class McpServer {
                 }
             } catch (Exception e) {}
             return null;
+        }
+
+        /**
+         * 校验 LLM 回复是否符合 JSON-RPC 2.0 格式规范
+         * @return 不合规时返回详细的错误描述（含正确格式示例），合规时返回 null
+         */
+        private String validateReplyFormat(JSONObject replyJson) {
+            if (replyJson == null) return null;
+            
+            boolean hasResult = replyJson.has("result");
+            boolean hasMethod = replyJson.has("method");
+            boolean hasJsonrpc = "2.0".equals(replyJson.optString("jsonrpc", ""));
+            boolean hasType = replyJson.has("type");
+            boolean hasContent = replyJson.has("content");
+            boolean hasTasks = replyJson.has("tasks");
+            
+            // 有 result 或 method → 格式基本合规
+            if (hasResult || hasMethod) return null;
+            
+            StringBuilder error = new StringBuilder();
+            error.append("【回复格式不合规】\n\n");
+            
+            if (!hasJsonrpc) {
+                error.append("- 缺少 \"jsonrpc\": \"2.0\" 字段\n");
+            }
+            
+            if (hasType && hasContent && !hasResult) {
+                error.append("- 使用了 {\"type\":\"reply\",\"content\":...} 结构，但缺少外层的 result 包装\n");
+                error.append("- 正确的文本回复格式应为：\n");
+                error.append("  {\"jsonrpc\":\"2.0\",\"result\":{\"type\":\"reply\",\"content\":\"...\"},\"id\":1001}\n");
+            } else if (!hasResult && !hasMethod) {
+                error.append("- 回复中既没有 result 字段（文本回复），也没有 method 字段（工具调用）\n");
+                error.append("- 两种允许的回复格式：\n");
+                error.append("  1. 文本回复：{\"jsonrpc\":\"2.0\",\"result\":{\"type\":\"reply\",\"content\":\"...\"},\"id\":1001}\n");
+                error.append("  2. 工具调用：{\"jsonrpc\":\"2.0\",\"method\":\"tools/call\",\"params\":{\"name\":\"...\",\"arguments\":{...}},\"id\":1001}\n");
+            }
+            
+            // 如果回复中带有 tasks 但格式错误，额外提示
+            if (hasTasks && !hasResult) {
+                error.append("- 计划 JSON（{\"tasks\":[...]}）必须放在文本回复的 result.content 字符串内部，不能作为顶层键\n");
+            }
+            
+            error.append("\n请仔细阅读系统提示词中的 reply_formats 定义，按照正确的 JSON-RPC 2.0 格式重新回复。");
+            return error.toString();
         }
 
         private String handleInitialize(JsonRpcRequest request) throws JSONException {

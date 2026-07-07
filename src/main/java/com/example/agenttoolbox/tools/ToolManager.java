@@ -132,6 +132,7 @@ public class ToolManager {
             // 核心规则
             JSONArray rules = new JSONArray();
             rules.put("每个回复都必须包含 jsonrpc=\"2.0\" 字段");
+            rules.put("计划 JSON（{\"tasks\":[...]}）必须放在文本回复的 result.content 字符串内部，不得放在 content 外部或作为独立 JSON 输出");
             rules.put("id 规则：你收到的 initialize 请求里的 id 是本次对话的会话 ID，你后续的所有回复（result/error/tools/call）都必须回带这个 id，服务端工具结果也会用相同 id 响应");
             rules.put("文本回答：使用 result 对象，含 type=reply 和 content 字段，并带回 id");
             rules.put("工具调用：使用 method=\"tools/call\"，参数放在 params.name 和 params.arguments，并带 id");
@@ -257,7 +258,9 @@ public class ToolManager {
 
             // 使用方式
             JSONArray planUsage = new JSONArray();
-            planUsage.put("在文本回复中嵌入计划 JSON，格式：你的回复文字... 然后 {\"tasks\":[...]}");
+            planUsage.put("严格按照 reply_formats 中定义的文本回复格式（result.type=reply），将完整计划 JSON 字符串作为 content 字段的值输出");
+            planUsage.put("示例：{\"jsonrpc\":\"2.0\",\"result\":{\"type\":\"reply\",\"content\":\"{\\\"tasks\\\":[{\\\"task_id\\\":\\\"T001\\\",...}]}\"},\"id\":1001}");
+            planUsage.put("禁止在 content 字段外部或附加在回复末尾输出计划 JSON，必须将其作为 content 字符串的内部内容");
             planUsage.put("系统会自动检测并解析计划 JSON，推送到前端待办面板");
             planUsage.put("系统按依赖+优先级自动选取下一个任务，注入到你的下一轮消息中");
             planUsage.put("每个任务完成后系统自动推进到下一个，全程无需手动管理");
