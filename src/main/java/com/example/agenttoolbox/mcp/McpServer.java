@@ -1261,16 +1261,11 @@ public class McpServer {
 
                             log("[ROUND] 准备下一轮");
 
-                            // 待办计划：轮次刷新检查
-                            if (cachedSession != null) {
-                                cachedSession.planState.incrementRound();
-                                if (cachedSession.planState.needsRefresh()) {
-                                    log("[PLAN] 轮次计数=" + cachedSession.planState.roundsSinceUpdate + "，触发计划刷新提醒");
-                                    // 在下一轮消息中注入计划进度
-                                    String planStatus = cachedSession.planState.toPromptText();
-                                    currentMessage = planStatus + "\n\n[系统指令] 请根据任务进度继续执行，如需要调整计划请更新待办清单。\n\n" + currentMessage;
-                                    cachedSession.planState.resetRoundCount();
-                                }
+                            // 待办计划：每次工具调用后向 LLM 同步最新进度
+                            if (cachedSession != null && !cachedSession.planState.tasks.isEmpty()) {
+                                String planStatus = cachedSession.planState.toPromptText();
+                                log("[PLAN] 当前进度:\n" + planStatus);
+                                currentMessage = planStatus + "\n\n[系统指令] 请根据以上任务进度继续执行。如果当前任务已完成，自动推进到下一个任务。如需调整计划请更新待办清单。\n\n" + currentMessage;
                                 // 检查是否全部完成
                                 if (cachedSession.planState.allCompleted()) {
                                     log("[PLAN] 所有任务已完成！");
