@@ -127,6 +127,16 @@ public class ToolManager {
                             .put("arguments", new JSONObject().put("参数名", "参数值")))
                     .put("id", 1001));
             formats.put(fmt2);
+
+            JSONObject fmt3 = new JSONObject();
+            fmt3.put("type", "system");
+            fmt3.put("desc", "系统指令：服务端在后续轮次中发送的指令或计划推进消息，格式为 result 对象含 type=system 和 content 字段。你收到后按指令执行，回复格式依然遵循 reply/tool_call 规则");
+            fmt3.put("example", new JSONObject()
+                    .put("jsonrpc", "2.0")
+                    .put("result", new JSONObject().put("type", "system").put("content", "系统指令内容"))
+                    .put("id", 1001));
+            formats.put(fmt3);
+
             prompt.put("reply_formats", formats);
 
             // 核心规则

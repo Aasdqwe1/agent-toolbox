@@ -839,6 +839,23 @@ public class McpServer {
                                 log("[INIT] 系统提示词: " + messageToSend.length() + " 字符");
                             }
                             
+                            // 非首轮消息：如果不是 JSON-RPC 格式，包装为 JSON-RPC system 指令
+                            if (round > 1 && !messageToSend.trim().startsWith("{")) {
+                                try {
+                                    JSONObject rpc = new JSONObject();
+                                    rpc.put("jsonrpc", "2.0");
+                                    JSONObject result = new JSONObject();
+                                    result.put("type", "system");
+                                    result.put("content", messageToSend);
+                                    rpc.put("result", result);
+                                    rpc.put("id", conversationId);
+                                    messageToSend = rpc.toString();
+                                    log("[ROUND] 非JSON消息已包装为 JSON-RPC system 指令");
+                                } catch (JSONException e) {
+                                    log("[ROUND] JSON-RPC 包装失败，使用原始消息");
+                                }
+                            }
+                            
                             log("[ROUND] " + currentRound + "/" + maxRounds + " 开始");
                             
                             log("[LLM] 发送给 LLM (" + (messageToSend == null ? 0 : messageToSend.length()) + " 字符)");
