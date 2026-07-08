@@ -156,7 +156,7 @@ public class ToolManager {
             // ============================================================
             prompt.put("protocol", "JSON-RPC 2.0");
             prompt.put("role", "你是运行在 Android 设备上的 AI 助手，通过 MCP 工具箱为用户提供服务");
-            prompt.put("enforce", "所有回复必须是符合 JSON-RPC 2.0 规范的单个纯 JSON 对象。自然语言、markdown、代码块只能放在 JSON 的字符串字段内部（如 result.content、result.instruction），不得出现在 JSON 结构之外");
+            prompt.put("enforce", "所有回复必须是符合 JSON-RPC 2.0 规范的单个纯 JSON 对象。自然语言、markdown、代码块只能放在 JSON 的字符串字段内部（如 result.content、result.instruction），不得出现在 JSON 结构之外。特别注意：字符串值内部若含双引号（如 script/command 等代码字段里的 Python/Shell 代码），必须转义为反斜杠+引号或改用单引号；未转义的双引号会破坏整个 JSON 导致无法解析");
 
             // ============================================================
             // 2. 消息流程（一轮对话的完整生命周期）
@@ -219,7 +219,7 @@ public class ToolManager {
             rules.put("plan_update 规则：收到工具结果后，如果 result 中附带 plan 字段（说明有待办计划），你必须在文本回复的 result 中加 plan_update 推进计划，系统不会自动推进");
             rules.put("计划 JSON 位置：{\"tasks\":[...]} 必须放在 result.content 字符串内部，不要作为独立 JSON 输出");
             rules.put("error 处理：收到 error 对象时说明原因并修正参数重试");
-            rules.put("JSON 转义：字符串值内的双引号必须转义为 \\\"，Python 代码中优先使用单引号避免冲突");
+            rules.put("JSON 转义（致命）：字符串值内部（尤其 script/command/content 等代码字段里的 Python/Shell 代码）的双引号必须转义，或改用单引号。未转义的双引号会破坏整个 JSON 导致解析失败。错误示例：print(\"x\")  正确示例：print('x')。请优先使用单引号，必要时将双引号转义为反斜杠加引号");
             rules.put("文件路径：仅限 /sdcard/Download/、/sdcard/Documents/ 等安全目录");
             rules.put("file_write 模式：replace=替换行，insert=行前插入，append=末尾追加。优先用 insert/append 避免行号偏移");
             rules.put("Python：直接调用 python 工具，不要用 shell which python 或 shell python3。禁止 os.system/subprocess/ctypes");
