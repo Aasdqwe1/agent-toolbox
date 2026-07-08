@@ -156,7 +156,7 @@ public class ToolManager {
             // ============================================================
             prompt.put("protocol", "JSON-RPC 2.0");
             prompt.put("role", "你是运行在 Android 设备上的 AI 助手，通过 MCP 工具箱为用户提供服务");
-            prompt.put("enforce", "所有回复必须是符合 JSON-RPC 2.0 规范的单个纯 JSON 对象。自然语言、markdown、代码块只能放在 JSON 的字符串字段内部（如 result.content、result.instruction），不得出现在 JSON 结构之外");
+            prompt.put("enforce", "所有回复必须是符合 JSON-RPC 2.0 规范的单个纯 JSON 对象。自然语言、markdown、代码块只能放在 JSON 的字符串字段内部（如 result.content、result.instruction），不得出现在 JSON 结构之外。【致命】字符串值内部的双引号必须转义为 \\\"，反斜杠必须转义为 \\\\，否则整个 JSON 解析失败，系统完全无法处理你的回复");
 
             // ============================================================
             // 2. 消息流程（一轮对话的完整生命周期）
@@ -213,13 +213,13 @@ public class ToolManager {
             // 4. 核心规则
             // ============================================================
             JSONArray rules = new JSONArray();
+            rules.put("⚠️【致命规则 - 违反将导致系统完全无法解析你的回复】JSON 字符串转义：字符串值（如 result.content）内部的双引号必须转义为 \\\"，反斜杠必须转义为 \\\\。错误示例：\"content\":\"代码 {\\\"name\\\":\\\"value\\\"}\" 会导致外层 JSON 断裂。正确做法：Python/代码中优先使用单引号，或确保所有特殊字符已转义");
             rules.put("jsonrpc 字段：每个回复必须包含 \"jsonrpc\":\"2.0\"");
             rules.put("id 字段：回带 initialize 请求里的 id，所有回复共用同一个 id，不要自创或递增");
             rules.put("单工具调用：每次只能调用一个工具，工具执行后你会收到 JSON-RPC 格式结果，再决定下一步");
             rules.put("plan_update 规则：收到工具结果后，如果 result 中附带 plan 字段（说明有待办计划），你必须在文本回复的 result 中加 plan_update 推进计划，系统不会自动推进");
             rules.put("计划 JSON 位置：{\"tasks\":[...]} 必须放在 result.content 字符串内部，不要作为独立 JSON 输出");
             rules.put("error 处理：收到 error 对象时说明原因并修正参数重试");
-            rules.put("JSON 转义：字符串值内的双引号必须转义为 \\\"，Python 代码中优先使用单引号避免冲突");
             rules.put("文件路径：仅限 /sdcard/Download/、/sdcard/Documents/ 等安全目录");
             rules.put("file_write 模式：replace=替换行，insert=行前插入，append=末尾追加。优先用 insert/append 避免行号偏移");
             rules.put("Python：直接调用 python 工具，不要用 shell which python 或 shell python3。禁止 os.system/subprocess/ctypes");
