@@ -578,7 +578,7 @@ public class McpServer {
         private static final String[] ARG_VALUE_FIELDS = {
             "script", "code", "command", "cmd", "content", "text", "query", "body", "path"
         };
-        // JSON 合法转义字符： \" \\ \/ \b \f \n \r \t \u
+        // JSON 合法转义字符： \" \\ \/ \b \f \n \r \t （外加 Unicode 转义，详见下一行 ARG_VALID_ESC 末尾的 u）
         private static final String ARG_VALID_ESC = "\"\\/bfnrtu";
 
         /**
