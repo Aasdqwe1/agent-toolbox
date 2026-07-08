@@ -448,35 +448,15 @@ public class McpServer {
 
             int idx = reply.indexOf('{');
             if (idx == -1) return null;
-            // 整段：从首个 { 到末尾（容忍 JSON 前的说明文字）
-            String whole = reply.substring(idx);
 
-            // 1) 直接解析整段
-            try {
-                return new JSONObject(whole);
-            } catch (Exception e1) { /* 继续尝试修复 */ }
-
-            // 2) 修复 arguments 内代码/文本字段（script/code/command/...）的未转义引号
-            //    在整段上操作：坏 JSON 下基于括号配平的深度扫描会错乱（script 内 {i} 假括号），
-            //    因此改为锚定 "arguments" 与 "id" 字段定位值边界，而非截取片段。
-            String repaired = repairArguments(whole);
-            if (repaired != null) {
-                try {
-                    android.util.Log.d("McpServer", "extractJsonObject: repairArguments 修复成功");
-                    return new JSONObject(repaired);
-                } catch (Exception e2) {
-                    android.util.Log.w("McpServer", "extractJsonObject: repairArguments 后仍解析失败: " + e2.getMessage());
-                }
-            }
-
-            // 3) 旧兜底逻辑：深度扫描截取最外层对象 + 仅修复 content/text 字段
+            int start = idx;
             boolean inString = false;
             char quoteChar = '"';
             boolean escape = false;
             int braceDepth = 1;
             int bracketDepth = 0;
             int end = -1;
-            for (int i = idx + 1; i < reply.length(); i++) {
+            for (int i = start + 1; i < reply.length(); i++) {
                 char c = reply.charAt(i);
                 if (inString) {
                     if (escape) { escape = false; continue; }
@@ -497,7 +477,7 @@ public class McpServer {
             }
             if (end == -1) return null;
 
-            String jsonStr = reply.substring(idx, end + 1);
+            String jsonStr = reply.substring(start, end + 1);
             try {
             // Fix invalid JSON escapes (e.g. \\x27 -> single quote)
             jsonStr = jsonStr.replace("\\'", "'");
@@ -568,127 +548,8 @@ public class McpServer {
             // 提取值内容，转义内部的 "，然后重新组装
             String content = jsonStr.substring(valStart, valEnd);
             String escaped = content.replace("\"", "\\\"");
-
+            
             return jsonStr.substring(0, valStart) + escaped + jsonStr.substring(valEnd);
-        }
-
-        /**
-         * arguments 内的值类字段：其值可能包含任意代码/文本，内部未转义引号会导致 JSON 解析失败。
-         */
-        private static final String[] ARG_VALUE_FIELDS = {
-            "script", "code", "command", "cmd", "content", "text", "query", "body", "path"
-        };
-        // JSON 合法转义字符： \" \\ \/ \b \f \n \r \t \u
-        private static final String ARG_VALID_ESC = "\"\\/bfnrtu";
-
-        /**
-         * 转义字符串值内部的未转义双引号，并把孤立反斜杠（非合法转义，如 C:\Users 的 \U）转为 \\。
-         * 保留已有的合法转义（如 \n、\t）。
-         */
-        private String escapeUnescaped(String body) {
-            StringBuilder out = new StringBuilder();
-            int n = body.length();
-            int i = 0;
-            while (i < n) {
-                char c = body.charAt(i);
-                if (c == '\\') {
-                    if (i + 1 < n && ARG_VALID_ESC.indexOf(body.charAt(i + 1)) >= 0) {
-                        out.append('\\').append(body.charAt(i + 1));
-                        i += 2;
-                    } else {
-                        out.append("\\\\");
-                        i += 1;
-                    }
-                } else if (c == '"') {
-                    out.append("\\\"");
-                    i += 1;
-                } else {
-                    out.append(c);
-                    i += 1;
-                }
-            }
-            return out.toString();
-        }
-
-        /**
-         * 在 arguments 对象文本内查找值类字段锚点，返回 {keyOpen, colonEnd} 列表（按出现顺序）。
-         * 仅用值类字段名做锚点，避免被 script 内部的 "name": 之类内容误判为字段边界。
-         */
-        private java.util.List<int[]> findArgValueAnchors(String s) {
-            java.util.List<int[]> anchors = new java.util.ArrayList<>();
-            for (String w : ARG_VALUE_FIELDS) {
-                java.util.regex.Matcher mt = java.util.regex.Pattern.compile("\"" + w + "\"" + "\\s*:").matcher(s);
-                while (mt.find()) {
-                    anchors.add(new int[]{ mt.start(), mt.end() });
-                }
-            }
-            anchors.sort(new java.util.Comparator<int[]>() {
-                @Override
-                public int compare(int[] a, int[] b) {
-                    return Integer.compare(a[0], b[0]);
-                }
-            });
-            return anchors;
-        }
-
-        /**
-         * 定位 arguments 对象的 { 与 闭合 } 位置。
-         * 锚定 "id" 字段（结构字段，引号配平可信）来定位 arguments 闭合 }，
-         * 避免被 script 内的 {i} 假括号误导。
-         */
-        private int[] findArgumentsSpan(String s) {
-            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"arguments\"\\s*:\\s*\\{").matcher(s);
-            if (!m.find()) return new int[]{ -1, -1 };
-            int argStart = m.end() - 1;
-            String rest = s.substring(argStart);
-            java.util.regex.Matcher cm = java.util.regex.Pattern.compile("\\}\\s*\\}\\s*,\\s*\"id\"").matcher(rest);
-            int argEnd;
-            if (cm.find()) {
-                argEnd = argStart + cm.start() + 1;
-            } else {
-                java.util.regex.Matcher cm2 = java.util.regex.Pattern.compile("\\}\\s*\\}").matcher(rest);
-                if (cm2.find()) argEnd = argStart + cm2.start() + 1;
-                else argEnd = s.length() - 1;
-            }
-            return new int[]{ argStart, argEnd };
-        }
-
-        /**
-         * 修复 arguments 内代码/文本字段值里的未转义引号与孤立反斜杠。
-         * 不依赖括号配平的深度扫描（坏 JSON 下会错乱），而是锚定 "arguments" 与 "id" 字段定位值边界。
-         * 返回修复后的整段字符串；无法修复时返回 null。
-         */
-        private String repairArguments(String s) {
-            int[] span = findArgumentsSpan(s);
-            if (span[0] < 0) return null;
-            int argStart = span[0], argEnd = span[1];
-            String argBody = s.substring(argStart, argEnd);
-            java.util.List<int[]> anchors = findArgValueAnchors(argBody);
-            if (anchors.isEmpty()) return null;
-            java.util.List<int[]> spans = new java.util.ArrayList<>();
-            for (int idx = 0; idx < anchors.size(); idx++) {
-                int colonEnd = anchors.get(idx)[1];
-                int vi = argBody.indexOf('"', colonEnd);
-                if (vi < 0) continue;
-                if (vi + 1 < argBody.length() && argBody.charAt(vi + 1) == '{') continue; // 值是对象，跳过
-                int valStart = vi + 1;
-                // 上界：下一个值类字段名的起始引号；末尾字段则到 arguments 闭合
-                int nextBound = (idx + 1 < anchors.size()) ? anchors.get(idx + 1)[0] : argBody.length();
-                int lastQ = -1;
-                for (int k = nextBound - 1; k > valStart; k--) {
-                    if (argBody.charAt(k) == '"') { lastQ = k; break; }
-                }
-                if (lastQ <= valStart) continue;
-                spans.add(new int[]{ valStart, lastQ });
-            }
-            if (spans.isEmpty()) return null;
-            String fixed = argBody;
-            for (int k = spans.size() - 1; k >= 0; k--) {
-                int a = spans.get(k)[0];
-                int b = spans.get(k)[1];
-                fixed = fixed.substring(0, a) + escapeUnescaped(fixed.substring(a, b)) + fixed.substring(b);
-            }
-            return s.substring(0, argStart) + fixed + s.substring(argEnd);
         }
 
         /**
@@ -908,8 +769,6 @@ public class McpServer {
                         int round = 0;
                         boolean finalDone = false;
                         int toolCallCount = 0; // 防止工具调用循环
-                        int formatErrorRetries = 0; // JSON 解析失败重试计数（提示模型修正）
-                        final int MAX_FORMAT_RETRIES = 2; // 最多重试次数，避免死循环
                         // 新会话：创建缓存
                         if (isNewSession) {
                             String systemPrompt = ToolManager.getInstance().getSystemPrompt();
@@ -1228,18 +1087,6 @@ public class McpServer {
                             if (replyJson == null) {
                                 log("[LLM] 无法提取JSON");
                                 log("[LLM] 回复全文 (" + reply.length() + " 字符):\n" + reply);
-                                // 解析失败多半是字符串值内含有未转义双引号（如 script/command 代码里的 "），
-                                // 给出针对性提示让模型自我修正，最多重试有限次数避免死循环。
-                                if (formatErrorRetries < MAX_FORMAT_RETRIES) {
-                                    formatErrorRetries++;
-                                    String hint = "【JSON 解析失败】你上一轮的回复不是合法的 JSON。"
-                                            + "最可能的原因：字符串值内部（如 script / command / content 字段里的 Python、Shell 代码）含有未转义的双引号。"
-                                            + "例如 print(\"x\") 必须写成 print(\\\"x\\\")，或改用单引号 print('x')。"
-                                            + "请重新输出一个完整、合法的单个 JSON-RPC 对象，确保字符串内部的双引号都已转义为 \\\"，换行用 \\n 表示。不要输出 markdown 代码块或多余文字。";
-                                    currentMessage = hint;
-                                    log("[LLM] 解析失败，发送修正提示重试 (" + formatErrorRetries + "/" + MAX_FORMAT_RETRIES + ")");
-                                    continue; // 进入下一轮，把修正提示发给模型
-                                }
                                 finalDone = true;
                                 log("[DONE] 对话完成");
                                 break;
