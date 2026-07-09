@@ -1,0 +1,20 @@
+[
+  {
+    "name": "demo_echo",
+    "description": "回显输入文本，演示 skill 工具路径（由 app 的 SkillManager 注册为 MCP 工具）",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "要回显的文本"
+        }
+      },
+      "required": ["text"]
+    },
+    "exec": {
+      "type": "script",
+      "src": "scripts/echo.py"
+    }
+  }
+]

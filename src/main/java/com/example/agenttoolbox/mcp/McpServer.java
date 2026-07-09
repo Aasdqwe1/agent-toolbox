@@ -5,6 +5,7 @@ import android.util.Log;
 import com.example.agenttoolbox.AppLogger;
 import com.example.agenttoolbox.DeepSeekChatBridge;
 import com.example.agenttoolbox.tools.ToolManager;
+import com.example.agenttoolbox.skills.SkillManager;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -1697,6 +1698,10 @@ public class McpServer {
                         return handleToolsList(request);
                     case "tools/call":
                         return handleToolsCall(request, params);
+                    case "skills/list":
+                        return handleSkillsList(request);
+                    case "skills/reload":
+                        return handleSkillsReload(request);
                     case "initialize":
                         return handleInitialize(request);
                     case "notifications/initialized":
@@ -1727,6 +1732,20 @@ public class McpServer {
             }
 
             JSONObject result = ToolManager.getInstance().callTool(toolName, arguments);
+            return JsonRpcResponse.success(request.getId(), result).toString();
+        }
+
+        private String handleSkillsList(JsonRpcRequest request) throws JSONException {
+            JSONObject result = new JSONObject();
+            result.put("skills", SkillManager.getInstance().getSkillSummaries());
+            return JsonRpcResponse.success(request.getId(), result).toString();
+        }
+
+        private String handleSkillsReload(JsonRpcRequest request) throws JSONException {
+            SkillManager.getInstance().reload();
+            JSONObject result = new JSONObject();
+            result.put("skills", SkillManager.getInstance().getSkillSummaries());
+            result.put("reloaded", true);
             return JsonRpcResponse.success(request.getId(), result).toString();
         }
 

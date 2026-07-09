@@ -1303,6 +1303,19 @@
                     </div>
                 </div>
 
+                <!-- 技能列表 -->
+                <div class="panel">
+                    <div class="panel-header">
+                        技能
+                        <span class="count" id="skillCount">0</span>
+                    </div>
+                    <div class="panel-body" id="skillsPanel">
+                        <ul id="skillsList" class="tools-list">
+                            <li class="text-center text-muted" style="padding: 16px 0; font-size:13px;">连接后自动加载</li>
+                        </ul>
+                    </div>
+                </div>
+
                 <!-- 快捷命令 -->
                 <div class="panel">
                     <div class="panel-header">快捷命令</div>
@@ -1397,6 +1410,7 @@
         //  全局状态
         // ============================================================
         let tools = [];
+        let skills = [];
         let requestId = 0;
         let isProcessing = false;
         let deepseekConnected = false;
@@ -1413,6 +1427,8 @@
         const sessionStatus = $('sessionStatus');
         const currentSessionTitleEl = $('currentSessionTitle');
         const toolsList = $('toolsList');
+        const skillsList = $('skillsList');
+        const skillCount = $('skillCount');
         const toolCount = $('toolCount');
         const chatMessages = $('chatMessages');
 
@@ -1794,6 +1810,31 @@
             return li;
         }
 
+        // 渲染已加载的技能（只读展示，体现「app 支持 skill」）
+        function renderSkillsList() {
+            skillsList.innerHTML = '';
+            if (!skills || !skills.length) {
+                skillsList.innerHTML =
+                    '<li class="text-center text-muted" style="padding:12px 0; font-size:13px;">暂无技能</li>';
+                return;
+            }
+            skills.forEach(function(s) {
+                var li = document.createElement('li');
+                li.className = 'tool-item';
+                var srcBadge = s.from === 'runtime'
+                    ? '<span style="background:#dcfce7; color:#15803d; padding:1px 6px; border-radius:10px; font-size:10px; margin-left:4px; font-weight:500;">运行时</span>'
+                    : '<span style="background:#e0f2fe; color:#0369a1; padding:1px 6px; border-radius:10px; font-size:10px; margin-left:4px; font-weight:500;">内置</span>';
+                li.innerHTML = '<div class="tool-name">' + escapeHtml(s.name || s.id) + srcBadge + '</div>'
+                    + '<div class="tool-desc">' + escapeHtml(s.description || '') + '</div>';
+                li.title = (s.when_to_use || '') + '\n(skill_id: ' + escapeHtml(s.id) + ')';
+                li.onclick = function() {
+                    chatInput.value = '/call skill_read {"skill_id":"' + s.id + '"}';
+                    chatInput.focus();
+                };
+                skillsList.appendChild(li);
+            });
+        }
+
         // ============================================================
         //  MCP 请求
         // ============================================================
@@ -1841,6 +1882,18 @@
                     renderToolsList();
                     toolCount.textContent = tools.length;
                     setMcpStatus(true, '已连接');
+
+                    // 加载技能列表
+                    try {
+                        const skillsRes = await sendMcpRequest('skills/list', {});
+                        if (skillsRes.response.result && skillsRes.response.result.skills) {
+                            skills = skillsRes.response.result.skills;
+                            renderSkillsList();
+                            skillCount.textContent = skills.length;
+                        }
+                    } catch (se) {
+                        addLog('error', 'skills/list 失败: ' + se.message);
+                    }
                     setSessionStatus('就绪');
                     addSystemMessage('连接成功，加载 ' + tools.length + ' 个工具。输入 /help 查看完整命令，或点击侧边栏工具快速调用。');
                 } else {

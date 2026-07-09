@@ -5,8 +5,12 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import com.example.agenttoolbox.skills.SkillManager;
+
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 工具管理器 - 注册和管理所有工具
@@ -55,6 +59,12 @@ public class ToolManager {
         
         // 注册 APK MCP 工具（从 MT 管理器动态拉取）
         mergeApkTools();
+
+        // 注册技能知识读取工具（始终可用，skill 内部懒加载）
+        registerTool(new SkillReadTool());
+
+        // 发现并接入 skills（assets 内置 + 运行时目录），注册其中的工具
+        SkillManager.getInstance().init(context);
     }
     
     /**
@@ -62,6 +72,13 @@ public class ToolManager {
      */
     public void registerTool(Tool tool) {
         tools.put(tool.getName(), tool);
+    }
+
+    /**
+     * 批量移除工具（用于 skills 热加载时清掉旧技能工具）
+     */
+    public void removeTools(Collection<String> names) {
+        for (String n : names) tools.remove(n);
     }
     
     /**
@@ -201,6 +218,11 @@ public class ToolManager {
                 tools.put(t);
             }
             prompt.put("tools", tools);
+
+            // 注入已加载技能摘要（完整知识由 skill_read 按需获取）
+            try {
+                prompt.put("skills", SkillManager.getInstance().getSkillSummaries());
+            } catch (JSONException ignore) {}
 
             return prompt.toString();
 
