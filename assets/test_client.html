@@ -108,7 +108,22 @@
            try {
                var decoded = unescapeHtml(text);
                if (typeof marked !== 'undefined') {
-                   var html = marked.parse(decoded);
+                   var mathStore = [];
+                   var codeStore = [];
+                   // 1) 先渲染并保护代码块（围栏/行内），避免其中 $ 被误当数学，同时保留其 <pre><code> 结构
+                   var s = decoded
+                       .replace(/```[\s\S]*?```/g, function(m) { var i = codeStore.length; codeStore.push(marked.parse(m)); return '@@CODE' + i + '@@'; })
+                       .replace(/`[^`\n]+`/g, function(m) { var i = codeStore.length; codeStore.push(marked.parse(m)); return '@@CODE' + i + '@@'; });
+                   // 2) 抽出块级数学（$$...$$ 与 \[...\]）用占位符替代：既避开 marked 把内部 \\ 转义，
+                   //    也把多行 $$ 变成单行 $$，从而能被 KaTeX auto-render 正常渲染
+                   s = s.replace(/\$\$([\s\S]+?)\$\$/g, function(m, p1) { mathStore.push(p1); return '@@MATHB' + (mathStore.length - 1) + '@@'; });
+                   s = s.replace(/\\\[([\s\S]+?)\\\]/g, function(m, p1) { mathStore.push(p1); return '@@MATHB' + (mathStore.length - 1) + '@@'; });
+                   // 3) markdown 渲染（数学为占位符，安全）
+                   var html = marked.parse(s);
+                   // 4) 还原代码块 HTML（sanitize 白名单含 PRE/CODE，会保留）
+                   html = html.replace(/@@CODE(\d+)@@/g, function(m, i) { return codeStore[+i]; });
+                   // 5) 还原数学为单行 $$（多行合并为单行，保留 \\ 作为 LaTeX 换行符）
+                   html = html.replace(/@@MATHB(\d+)@@/g, function(m, i) { return '$$ ' + mathStore[+i].replace(/\n/g, ' ') + ' $$'; });
                    return sanitizeHtml(html);
                }
            } catch (e) {
