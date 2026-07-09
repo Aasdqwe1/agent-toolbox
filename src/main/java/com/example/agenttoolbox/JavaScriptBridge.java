@@ -455,7 +455,7 @@ public class JavaScriptBridge {
             "  }" +
             "  " +
             "  // 监听工具结果事件，更新状态显示" +
-            "  document.addEventListener('mcp-tool-result', function(e) {" +
+            "  window.__mcpToolHandler = function(e) {" +
             "    var result = e.detail && e.detail.result;" +
             "    if (result) {" +
             "      // 找到正在处理的消息，更新状态" +
@@ -492,7 +492,8 @@ public class JavaScriptBridge {
             "        processingEl.__mcpProcessing = false;" +
             "      }" +
             "    }" +
-            "  });" +
+            "  };" +
+            "  document.addEventListener('mcp-tool-result', window.__mcpToolHandler);" +
             "  " +
             "  // 启动" +
             "  startObserving();" +
@@ -513,7 +514,9 @@ public class JavaScriptBridge {
             "        fullScanDone = true;" +
             "        clearInterval(pollingTimer);" +
             "        observer.disconnect();" +
-            "        Android.log('初始扫描完成（共 ' + total + ' 条消息），关闭轮询和 Observer，后续靠 injectChatScript 检测');" +
+            "        document.removeEventListener('mcp-tool-result', window.__mcpToolHandler);" +
+            "        processedMessages.clear();" +
+            "        Android.log('初始扫描完成（共 ' + total + ' 条消息），已清理所有注入状态');" +
             "      }" +
             "    }" +
             "  }, 1500);" +

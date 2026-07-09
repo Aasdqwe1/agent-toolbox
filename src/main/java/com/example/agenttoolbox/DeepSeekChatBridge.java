@@ -53,8 +53,6 @@ public class DeepSeekChatBridge {
     // ---- 并发请求管理：每个 requestId 保存一份回调 ----
     private final AtomicLong requestIdCounter = new AtomicLong(0);
     private final ConcurrentHashMap<String, StreamCallback> callbacksById = new ConcurrentHashMap<>();
-    private final AtomicInteger roundCount = new AtomicInteger(0);
-    private WebView roundLimitWebView; // 用于自动新会话的 WebView 引用
     private final ConcurrentHashMap<String, CountDownLatch> latchById = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicReference<String>> replyById = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicReference<String>> errorById = new ConcurrentHashMap<>();
@@ -184,24 +182,6 @@ public class DeepSeekChatBridge {
         if (wb == null || handler == null) {
             callback.onError("WebView 未注册");
             return;
-        }
-
-        // 轮次计数 + 自动清理：超过 40 轮自动新会话，防止页面 DOM 堆积卡顿
-        int rounds = roundCount.incrementAndGet();
-        roundLimitWebView = wb;
-        if (rounds > 40) {
-            roundCount.set(0);
-            android.util.Log.w("DeepSeekChatBridge", "轮次超 40，自动新会话清理页面");
-            handler.post(new Runnable() {
-                @Override
-                public void run() {
-                    // 点击新会话按钮清空页面 DOM
-                    wb.evaluateJavascript(
-                        "(function(){var b=document.querySelector('button, [role=\"button\"], a, [class*=\"new-chat\" i]');" +
-                        "if(b){b.click();android.util.Log.d(\"DBG\",\"AUTO_NEW_CHAT\");}})();", null);
-                }
-            });
-            // 继续发送当前消息（新会话后重发）
         }
 
         // 分配 requestId，并保存回调
