@@ -144,9 +144,11 @@ public class TaskManager {
      */
     public void markTaskDone(PlanState planState, String taskId) {
         for (Task t : planState.tasks) {
-            if (t.taskId.equals(taskId) && t.status == Task.Status.IN_PROGRESS) {
+            if (t.taskId.equals(taskId)) {
                 t.markCompleted();
-                planState.activeTask = null;
+                if (planState.activeTask != null && planState.activeTask.taskId.equals(taskId)) {
+                    planState.activeTask = null;
+                }
                 planState.resetRoundCount();
                 break;
             }
