@@ -142,6 +142,15 @@ public class ToolManager {
      * 获取所有工具列表（MCP格式）
      */
     public JSONArray getToolsList() {
+        // 懒加载：如果当前没有任何 mt_apk_* 工具，尝试从 MT 拉取（可能启动时 MT 未运行）
+        boolean hasMtTools = false;
+        for (Tool t : tools.values()) {
+            if (t.getName().startsWith("mt_apk_")) { hasMtTools = true; break; }
+        }
+        if (!hasMtTools) {
+            mergeApkTools();
+        }
+
         JSONArray result = new JSONArray();
         for (Tool tool : tools.values()) {
             try {
