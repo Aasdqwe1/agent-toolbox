@@ -114,7 +114,14 @@
                     android:text="--"
                     android:textSize="13sp"
                     android:textColor="@color/text_muted"
-                    android:fontFamily="monospace" />
+                    android:fontFamily="monospace"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="@drawable/card_bg"
+                    android:paddingLeft="8dp"
+                    android:paddingRight="8dp"
+                    android:paddingTop="3dp"
+                    android:paddingBottom="3dp" />
             </LinearLayout>
         </LinearLayout>
 

@@ -90,6 +90,18 @@ public class MainActivity extends Activity {
             }
         });
 
+        // 点击监听地址复制到剪贴板
+        tvAddress.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                String addr = tvAddress.getText().toString();
+                if (addr == null || addr.isEmpty() || addr.equals("--")) return;
+                ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                cm.setPrimaryClip(ClipData.newPlainText("MCP 地址", addr));
+                Toast.makeText(MainActivity.this, "地址已复制", Toast.LENGTH_SHORT).show();
+            }
+        });
+
         // 申请存储权限
         checkAndRequestPermissions();
 
