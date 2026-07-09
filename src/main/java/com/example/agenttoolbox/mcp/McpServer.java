@@ -1113,7 +1113,7 @@ public class McpServer {
                                             + "{\"jsonrpc\":\"2.0\",\"method\":\"tools/call\","
                                             + "\"params\":{\"name\":\"...\",\"arguments\":{...}},\"id\":" + currentRound + "}"
                                             + " 或 {\"jsonrpc\":\"2.0\",\"result\":{\"type\":\"reply\",\"content\":\"...\"},"
-                                            + "\"id\":" + currentRound + "}。注意：字符串内部的双引号必须转义为 \\\"。";
+                                            + "\"id\":" + currentRound + "}。请用 ```json 代码块包裹整个 JSON 对象（DeepSeek 会按 Markdown 渲染，不包裹会导致代码里的 `__name__`、`**` 等被改写）。注意：字符串内部的双引号必须转义为 \\\"。";
                                     log("[JSON-FALLBACK] 解析失败第 " + jsonParseFailCount + "/" + MAX_JSON_PARSE_RETRY
                                             + " 次，回灌 format_error 让 LLM 重输出");
                                     String planMsg = buildPlanMessage("format_error", null, null, conversationId,
