@@ -512,7 +512,8 @@ public class JavaScriptBridge {
             "      if (processedMessages.size >= total && total > 0) {" +
             "        fullScanDone = true;" +
             "        clearInterval(pollingTimer);" +
-            "        Android.log('初始扫描完成（共 ' + total + ' 条消息），关闭轮询，后续靠 MutationObserver');" +
+            "        observer.disconnect();" +
+            "        Android.log('初始扫描完成（共 ' + total + ' 条消息），关闭轮询和 Observer，后续靠 injectChatScript 检测');" +
             "      }" +
             "    }" +
             "  }, 1500);" +
