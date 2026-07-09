@@ -21,7 +21,7 @@ public class ApkMcpClient {
     private static final String TAG = "ApkMcpClient";
     private static ApkMcpClient instance;
 
-    private String mcpUrl = "http://127.0.0.1:8787/mcp";
+    private String mcpUrl = "http://127.0.0.1:8787";
     private boolean connected = false;
     private boolean enabled = true; // 默认启用，MT 未运行时会静默跳过
     private JSONArray remoteTools = new JSONArray();
