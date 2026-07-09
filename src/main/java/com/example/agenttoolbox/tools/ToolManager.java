@@ -272,7 +272,28 @@ public class ToolManager {
         try {
             // APK MCP 工具：转发到 MT 管理器
             if (name.startsWith("mt_apk_")) {
-                return ApkMcpClient.getInstance().callTool(name, arguments);
+                ApkMcpClient client = ApkMcpClient.getInstance();
+                // mt_apk_status：检查连接状态，不依赖 MT 端是否有此工具
+                if ("mt_apk_status".equals(name)) {
+                    JSONObject st = new JSONObject();
+                    st.put("description", "APK MCP 连接状态");
+                    st.put("enabled", client.isEnabled());
+                    boolean ok = client.connect();
+                    st.put("connected", ok);
+                    st.put("url", client.getUrl());
+                    st.put("tool_count", client.getRemoteTools().length());
+                    contentItem.put("type", "text");
+                    contentItem.put("text", "APK MCP 状态:\n- 启用: " + client.isEnabled()
+                            + "\n- 已连接: " + ok
+                            + "\n- 地址: " + client.getUrl()
+                            + "\n- 已注册工具数: " + client.getRemoteTools().length()
+                            + "\n\n" + (ok ? "✅ 服务正常，可调用 mt_apk_* 工具" : "❌ 未连接，请在 MT 管理器中启动 APK MCP 服务"));
+                    content.put(contentItem);
+                    result.put("isError", !ok);
+                    result.put("content", content);
+                    return result;
+                }
+                return client.callTool(name, arguments);
             }
             
             Tool tool = tools.get(name);
