@@ -112,6 +112,68 @@ public class DeepSeekActivity extends Activity {
 
         // 更新 MCP 状态
         updateMcpStatus();
+
+        // 启动消息数监控（每 30 秒检查一次页面消息量，超阈值提醒新建会话）
+        startMessageMonitor();
+    }
+
+    // ============ 消息数监控（防止长对话卡顿） ============
+    private android.os.Handler msgHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable msgChecker;
+    private int lastMsgWarnLevel = 0; // 0=正常 1=建议 2=强烈建议
+
+    private void startMessageMonitor() {
+        if (msgChecker != null) msgHandler.removeCallbacks(msgChecker);
+        msgChecker = new Runnable() {
+            @Override
+            public void run() {
+                if (webView == null) return;
+                webView.evaluateJavascript(
+                    "((typeof processedMessages !== 'undefined') ? processedMessages.size : -1).toString()",
+                    new android.webkit.ValueCallback<String>() {
+                        @Override
+                        public void onReceiveValue(String value) {
+                            if (value == null || value.equals("null") || value.equals("-1")) {
+                                msgHandler.postDelayed(msgChecker, 30000);
+                                return;
+                            }
+                            try {
+                                int count = Integer.parseInt(value.replaceAll("\"", ""));
+                                if (count > 80) {
+                                    if (lastMsgWarnLevel < 2) {
+                                        lastMsgWarnLevel = 2;
+                                        setStatus("⚠️ 对话过长(" + count + "条)，建议点「新会话」清理");
+                                        tvLoginStatus.setText("⚠️ 对话过长");
+                                        tvLoginStatus.setTextColor(getResources().getColor(R.color.warning));
+                                        btnNewChat.setTextColor(0xFFEF4444); // 红色提醒
+                                    }
+                                } else if (count > 40) {
+                                    if (lastMsgWarnLevel < 1) {
+                                        lastMsgWarnLevel = 1;
+                                        setStatus("对话已" + count + "条，过长时可点「新会话」");
+                                    }
+                                } else {
+                                    if (lastMsgWarnLevel > 0) {
+                                        lastMsgWarnLevel = 0;
+                                        tvLoginStatus.setText(isLoggedIn ? "✓ 已登录" : "未登录");
+                                        tvLoginStatus.setTextColor(getResources().getColor(
+                                            isLoggedIn ? R.color.success : R.color.error));
+                                        btnNewChat.setTextColor(getResources().getColor(R.color.accent));
+                                    }
+                                }
+                            } catch (Exception ignored) {}
+                            msgHandler.postDelayed(msgChecker, 30000);
+                        }
+                    }
+                );
+            }
+        };
+        msgHandler.postDelayed(msgChecker, 30000);
+    }
+
+    /** 新建会话时重置消息监控状态 */
+    private void resetMessageMonitor() {
+        lastMsgWarnLevel = 0;
     }
 
     /**

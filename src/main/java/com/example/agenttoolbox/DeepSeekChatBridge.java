@@ -329,6 +329,15 @@ public class DeepSeekChatBridge {
             "    if (finished) return;\n" +
             "    finished = true;\n" +
             "    if (window[__prefix + 'poll']) clearInterval(window[__prefix + 'poll']);\n" +
+            "    // 清理本轮注入的 DOM 残留，防止长对话下堆积\n" +
+            "    try {\n" +
+            "      document.querySelectorAll('.mcp-tool-status, .mcp-tool-result-box').forEach(function(el) {\n" +
+            "        el.remove();\n" +
+            "      });\n" +
+            "      document.querySelectorAll('[__mcpProcessing]').forEach(function(el) {\n" +
+            "        el.removeAttribute('__mcpProcessing');\n" +
+            "      });\n" +
+            "    } catch(e){}\n" +
             "    Android.log('[JS] 完成: 长度=' + (reply ? reply.length : 0) + '\\n' + (reply || ''));\n" +
             "    Android.onDeepSeekReply(__rid, reply || '');\n" +
             "  }\n" +
