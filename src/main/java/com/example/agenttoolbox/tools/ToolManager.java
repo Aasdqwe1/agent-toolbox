@@ -231,7 +231,7 @@ public class ToolManager {
 
             // 注入已加载技能摘要（完整知识由 skill_read 按需获取）
             try {
-                prompt.put("skills", SkillManager.getInstance().getSkillSummaries());
+                prompt.put("loaded_skills", SkillManager.getInstance().getSkillSummaries());
             } catch (JSONException ignore) {}
 
             return prompt.toString();
