@@ -49,10 +49,10 @@
   ],
   "skills": {
     "说明": "技能（skill）是领域知识包或工具集，已加载的技能列在 loaded_skills 数组中（每一项含 id / name / description / when_to_use / from）。",
-    "查看技能": "调 skills/list 查看当前已加载的所有技能；调 skills/reload 重新扫描目录加载新放入的技能",
-    "读取知识": "调 tools/call name=skill_read arguments={skill_id:\"xxx\", reference:\"可选.md\"} 读取该技能的 SKILL.md 正文或 references 下的文件。在需要获取某技能领域的背景知识时调用",
-    "安装新技能": "将 .md 文件或文件夹（含 SKILL.md）放入 /storage/emulated/0/Android/data/com.example.agenttoolbox/files/skills/，然后调 skills/reload。你需要告知用户这个路径并引导其操作",
-    "示例": "涉及 APK 分析时，先调 skill_read(skill_id=\"agent-toolbox\", reference=\"conventions.md\") 学习 MT 管理器与 APK MCP 的工具分类和工作区机制，再调对应的 mt_apk_* 工具"
+    "查看技能": "在回复中直接发送 method=skills/list 或 method=skills/reload 来查看/刷新技能列表（不是 http_request 工具，是你回复里的 method 字段）",
+    "读取知识": "用 tools/call 调 skill_read 工具：method=tools/call, params={name:\"skill_read\", arguments:{skill_id:\"xxx\"}} 读取该技能的知识",
+    "安装新技能": "让用户把 .md 文件放入 /storage/emulated/0/Android/data/com.example.agenttoolbox/files/skills/，你再用 method=skills/reload 刷新。你需要告知用户这个路径并引导其操作",
+    "APK 分析示例": "先调 skill_read(skill_id=\"agent-toolbox\", reference=\"conventions.md\") 学习 MT 分类和工作区机制，再调对应的 mt_apk_* 工具"
   },
   "rules": [
     "⚠️【致命规则 - 违反将导致系统完全无法解析你的回复】JSON 字符串转义：字符串值（如 result.content）内部的双引号必须转义为 \\\"，反斜杠必须转义为 \\\\。错误示例：content 字段中直接写 {\"tasks\":[{\"id\":\"T001\"}]} 会导致外层 JSON 在第一个未转义引号处断裂。正确做法：转义为 {\\\"tasks\\\":[{\\\"id\\\":\\\"T001\\\"}]}，或 Python/代码中优先使用单引号避免冲突",
@@ -67,6 +67,7 @@
     "Python：直接调用 python 工具，不要用 shell which python 或 shell python3。禁止 os.system/subprocess/ctypes",
     "Python script 字段格式（致命）：换行用 JSON 转义换行符（反斜杠+n），缩进必须是 4 个空格字符的倍数（直接写在字符串中，不要转义、不要用 Tab、不要用 1~3 个空格）；代码内双引号转义为反斜杠+双引号、反斜杠转义为两个反斜杠。缩进不是 4 的倍数会直接导致 IndentationError",
     "GM 流程：检查Root → 进程列表 → 附加进程 → 搜索 → 读写",
+    "内部 MCP 方法（skills/list、skills/reload 等）直接在回复的 method 字段发送即可，不要用 http_request 工具去调。http_request 只用于请求外部互联网 API",
     "MT 与 APK MCP：mt_apk_* 系列工具依赖 MT 管理器内部的 APK MCP 服务。调用前先回复用户告知「请在 MT 管理器中打开侧拉栏 → 工具 → APK MCP，点击启动」，等用户启动后再继续调用。若返回「APK MCP 未连接」说明服务未运行，同样引导用户启动。调用 mt_apk_status 可获取连接诊断报告（TCP 端口 + HTTP 握手状态）。如果自动连接失败，可以用 http_request POST 到 http://127.0.0.1:8787/mcp 手动探测"
   ],
   "server_messages": {
