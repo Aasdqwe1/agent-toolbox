@@ -465,11 +465,11 @@ public class DeepSeekActivity extends Activity {
 
         if (loggedIn) {
             tvLoginStatus.setText("✓ 已登录");
-            tvLoginStatus.setTextColor(0xFF0E6B4C); // 绿色
+            tvLoginStatus.setTextColor(getResources().getColor(R.color.success));
             setStatus("检测完成 · 已登录" + (detail != null ? " (" + detail + ")" : ""));
         } else {
             tvLoginStatus.setText("未登录");
-            tvLoginStatus.setTextColor(0xFFB33A34); // 红色
+            tvLoginStatus.setTextColor(getResources().getColor(R.color.error));
             setStatus("检测完成 · 未登录" + (detail != null ? " (" + detail + ")" : ""));
         }
     }
@@ -484,10 +484,12 @@ public class DeepSeekActivity extends Activity {
 
         if (mcpRunning) {
             tvMcpStatus.setText("MCP: 运行中");
-            tvMcpStatus.setTextColor(0xFF0E6B4C); // 绿色
+            tvMcpStatus.setTextColor(getResources().getColor(R.color.success));
+            tvMcpStatus.setBackgroundResource(R.drawable.chip_on);
         } else {
             tvMcpStatus.setText("MCP: 未启动");
-            tvMcpStatus.setTextColor(0xFFB33A34); // 红色
+            tvMcpStatus.setTextColor(getResources().getColor(R.color.error));
+            tvMcpStatus.setBackgroundResource(R.drawable.chip_off);
         }
     }
 

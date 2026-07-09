@@ -39,6 +39,7 @@ public class MainActivity extends Activity {
     private Button btnStart;
     private Button btnStop;
     private Button btnDeepSeek;
+    private TextView statusChip;
 
     
     private McpServer mcpServer;
@@ -62,6 +63,7 @@ public class MainActivity extends Activity {
         btnStart = (Button) findViewById(R.id.btnStart);
         btnStop = (Button) findViewById(R.id.btnStop);
         btnDeepSeek = (Button) findViewById(R.id.btnDeepSeek);
+        statusChip = (TextView) findViewById(R.id.statusChip);
 
         // 初始化文件目录
         initFileDir();
@@ -246,8 +248,12 @@ public class MainActivity extends Activity {
             });
             mcpServer.start();
 
-            tvStatus.setText("服务状态：运行中");
-            tvAddress.setText("监听地址：http://" + mcpServer.getLocalIpAddress() + ":" + PORT);
+            tvStatus.setText("运行中");
+            tvStatus.setTextColor(getResources().getColor(R.color.success));
+            statusChip.setText("运行中");
+            statusChip.setBackgroundResource(R.drawable.chip_on);
+            statusChip.setTextColor(getResources().getColor(R.color.success));
+            tvAddress.setText("http://" + mcpServer.getLocalIpAddress() + ":" + PORT);
             btnStart.setEnabled(false);
             btnStop.setEnabled(true);
             appendLog("MCP服务启动成功");
@@ -268,8 +274,12 @@ public class MainActivity extends Activity {
             mcpServer = null;
         }
 
-        tvStatus.setText("服务状态：已停止");
-        tvAddress.setText("监听地址：--");
+        tvStatus.setText("已停止");
+        tvStatus.setTextColor(getResources().getColor(R.color.text_muted));
+        statusChip.setText("未启动");
+        statusChip.setBackgroundResource(R.drawable.chip_off);
+        statusChip.setTextColor(getResources().getColor(R.color.text_muted));
+        tvAddress.setText("--");
         btnStart.setEnabled(true);
         btnStop.setEnabled(false);
     }
