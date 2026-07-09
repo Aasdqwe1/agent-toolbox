@@ -504,4 +504,79 @@ public class JavaScriptBridge {
             "  }, 2000);" +
             "})()";
     }
+
+    /**
+     * 注入 MathJax v3，使前端（DeepSeek 页面内的助手回复）支持行内 $...$ 与块级 $$...$$ 公式渲染
+     */
+    public void injectMathJax() {
+        String js = getMathJaxScript();
+        webView.evaluateJavascript(js, null);
+    }
+
+    /**
+     * 构建 MathJax 注入脚本：
+     *  - 在加载库之前设置 window.MathJax 配置（行内/块级分隔符、跳过 code/pre、忽略 ds-no-math）
+     *  - 从 CDN 动态加载 tex-mml-chtml.js
+     *  - 加载完成后对 .ds-assistant-message-main-content 进行增量排版，并用 MutationObserver 监听新消息
+     */
+    private String getMathJaxScript() {
+        return "(function() {\n" +
+            "  if (window.__dsMathInjected) return;\n" +
+            "  window.__dsMathInjected = true;\n" +
+            "  Android.log('[MathJax] 注入数学渲染（MathJax v3）：行内 $...$ 与块级 $$...$$');\n" +
+            "\n" +
+            "  window.MathJax = {\n" +
+            "    tex: {\n" +
+            "      inlineMath: [['$', '$'], ['\\(', '\\)']],\n" +
+            "      displayMath: [['$$', '$$'], ['\\[', '\\]']],\n" +
+            "      processEscapes: true\n" +
+            "    },\n" +
+            "    options: {\n" +
+            "      skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],\n" +
+            "      ignoreHtmlClass: 'ds-no-math'\n" +
+            "    },\n" +
+            "    startup: {\n" +
+            "      ready: function() {\n" +
+            "        MathJax.startup.defaultReady();\n" +
+            "        MathJax.startup.promise.then(function() {\n" +
+            "          window.__dsTypesetNew();\n" +
+            "          window.__dsObserve();\n" +
+            "        });\n" +
+            "      }\n" +
+            "    }\n" +
+            "  };\n" +
+            "\n" +
+            "  var s = document.createElement('script');\n" +
+            "  s.src = 'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js';\n" +
+            "  s.async = true;\n" +
+            "  document.head.appendChild(s);\n" +
+            "\n" +
+            "  window.__dsProcessed = new WeakSet();\n" +
+            "  window.__dsTypesetNew = function() {\n" +
+            "    if (!window.MathJax || !MathJax.typesetPromise) return;\n" +
+            "    var nodes = document.querySelectorAll('.ds-assistant-message-main-content');\n" +
+            "    var fresh = [];\n" +
+            "    for (var i = 0; i < nodes.length; i++) {\n" +
+            "      if (!window.__dsProcessed.has(nodes[i])) {\n" +
+            "        window.__dsProcessed.add(nodes[i]);\n" +
+            "        fresh.push(nodes[i]);\n" +
+            "      }\n" +
+            "    }\n" +
+            "    if (fresh.length) {\n" +
+            "      MathJax.typesetPromise(fresh).catch(function(e) {\n" +
+            "        Android.log('[MathJax] typeset error: ' + e);\n" +
+            "      });\n" +
+            "    }\n" +
+            "  };\n" +
+            "  window.__dsObserve = function() {\n" +
+            "    var container = document.querySelector('.ds-chat-main, .ds-conversation, #root') || document.body;\n" +
+            "    if (window.__dsMathObserver) return;\n" +
+            "    window.__dsMathObserver = new MutationObserver(function() {\n" +
+            "      clearTimeout(window.__dsMathTimer);\n" +
+            "      window.__dsMathTimer = setTimeout(window.__dsTypesetNew, 500);\n" +
+            "    });\n" +
+            "    window.__dsMathObserver.observe(container, { childList: true, subtree: true });\n" +
+            "  };\n" +
+            "})()";
+    }
 }

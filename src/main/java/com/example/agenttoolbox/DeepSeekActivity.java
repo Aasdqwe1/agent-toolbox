@@ -238,6 +238,7 @@ public class DeepSeekActivity extends Activity {
                     public void run() {
                         if (jsBridge != null) {
                             jsBridge.injectObserverScript();
+                            jsBridge.injectMathJax();
                             setStatus("MCP 监听已激活");
                         }
                     }
