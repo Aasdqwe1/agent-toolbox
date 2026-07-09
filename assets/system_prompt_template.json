@@ -47,6 +47,13 @@
       }
     }
   ],
+  "skills": {
+    "说明": "skills 数组列出已加载的技能（id/name/description/when_to_use）。每个技能是一个领域知识包（含 SKILL.md 正文 + 可选 references 与可调用工具）。skill 提供的工具已自动注册到 tools 数组中，可直接调用。",
+    "skill_read": "skill_read 工具（已注册在 tools 列表中）：传入 skill_id 读取该技能 SKILL.md 正文；传入 skill_id + reference 读取 references 下某文件内容。按需调用，避免一次性灌入所有知识",
+    "何时使用": "当用户任务涉及某个技能的名称/描述/when_to_use 中列出的场景时，先调 skill_read 获取该技能的背景知识，再使用其 tools 中注册的工具或 plan 中的协议。例如涉及 APK 分析时调 skill_read(skill_id=\"agent-toolbox\", reference=\"conventions.md\") 获取 MT 管理器与 APK MCP 的工作区机制和工具分类",
+    "skills/list": "MCP 方法，返回当前已加载的所有技能摘要。当需要知道当前有哪些技能可用时调用",
+    "skills/reload": "MCP 方法，重新从 assets/skills 与运行时目录加载所有技能（热加载），适用于用户新增 skill 后刷新"
+  },
   "rules": [
     "⚠️【致命规则 - 违反将导致系统完全无法解析你的回复】JSON 字符串转义：字符串值（如 result.content）内部的双引号必须转义为 \\\"，反斜杠必须转义为 \\\\。错误示例：content 字段中直接写 {\"tasks\":[{\"id\":\"T001\"}]} 会导致外层 JSON 在第一个未转义引号处断裂。正确做法：转义为 {\\\"tasks\\\":[{\\\"id\\\":\\\"T001\\\"}]}，或 Python/代码中优先使用单引号避免冲突",
     "jsonrpc 字段：每个回复必须包含 \"jsonrpc\":\"2.0\"",
@@ -64,7 +71,8 @@
   "server_messages": {
     "工具结果": "工具执行结果，附带 plan 进度：{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"结果\"}]},\"plan\":{\"total\":5,\"completed\":1,\"failed\":0,\"active_task\":\"T002\"},\"id\":1001}",
     "系统指令": "计划执行指令 type=system：{\"jsonrpc\":\"2.0\",\"result\":{\"type\":\"system\",\"action\":\"execute_task\",\"task\":{\"task_id\":\"T001\",\"content\":\"任务描述\",\"tool_needs\":[\"file_read\"]},\"plan\":{\"total\":5,\"completed\":0},\"instruction\":\"请调用对应工具执行\"},\"id\":1001}",
-    "格式错误": "格式校验失败 type=system：{\"jsonrpc\":\"2.0\",\"result\":{\"type\":\"system\",\"action\":\"format_error\",\"instruction\":\"错误详情\"},\"id\":1001}"
+    "格式错误": "格式校验失败 type=system：{\"jsonrpc\":\"2.0\",\"result\":{\"type\":\"system\",\"action\":\"format_error\",\"instruction\":\"错误详情\"},\"id\":1001}",
+    "技能列表": "skills/list 返回结果示例：{\"jsonrpc\":\"2.0\",\"result\":{\"skills\":[{\"id\":\"agent-toolbox\",\"name\":\"agent-toolbox\",\"description\":\"...\",\"when_to_use\":\"...\",\"from\":\"builtin\"}]},\"id\":1001}"
   },
   "system_actions": {
     "execute_task": "执行 task 字段指定的任务，调用 task.tool_needs 中对应工具。完成后在 result 中加 plan_update 推进",
