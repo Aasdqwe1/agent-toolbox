@@ -206,5 +206,20 @@
             </ScrollView>
         </LinearLayout>
 
+        <!-- ======== 技能安装目录 ======== -->
+        <TextView
+            android:id="@+id/tvSkillsPath"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text=""
+            android:textSize="11sp"
+            android:textColor="@color/text_muted"
+            android:clickable="true"
+            android:focusable="true"
+            android:padding="12dp"
+            android:background="@drawable/card_bg"
+            android:visibility="gone" />
+
     </LinearLayout>
 </ScrollView>

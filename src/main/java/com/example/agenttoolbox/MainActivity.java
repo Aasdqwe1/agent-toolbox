@@ -102,6 +102,22 @@ public class MainActivity extends Activity {
             }
         });
 
+        // 技能安装目录
+        final TextView tvSkillsPath = (TextView) findViewById(R.id.tvSkillsPath);
+        String skillsPath = com.example.agenttoolbox.skills.SkillManager.getInstance().getRuntimeSkillsPath();
+        if (skillsPath != null) {
+            tvSkillsPath.setText("技能目录: " + skillsPath);
+            tvSkillsPath.setVisibility(View.VISIBLE);
+            tvSkillsPath.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    cm.setPrimaryClip(ClipData.newPlainText("技能目录", skillsPath));
+                    Toast.makeText(MainActivity.this, "技能目录路径已复制", Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+
         // 申请存储权限
         checkAndRequestPermissions();
 

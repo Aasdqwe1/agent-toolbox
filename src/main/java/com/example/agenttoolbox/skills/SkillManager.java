@@ -72,6 +72,10 @@ public class SkillManager {
         if (context == null) return;
         discoverAssets();
         discoverRuntime();
+        // 确保运行时的技能目录存在并输出路径
+        File base = new File(context.getExternalFilesDir(null), "skills");
+        if (!base.exists()) base.mkdirs();
+        Log.i(TAG, "运行时技能目录: " + base.getAbsolutePath());
         Log.i(TAG, "已加载 " + skills.size() + " 个技能，注册工具 " + registeredToolNames.size() + " 个");
     }
 
@@ -250,6 +254,13 @@ public class SkillManager {
 
     public synchronized Skill getSkill(String id) {
         return skillById.get(id);
+    }
+
+    /** 返回运行时技能目录的绝对路径，用于告知用户技能安装位置 */
+    public synchronized String getRuntimeSkillsPath() {
+        if (context == null) return null;
+        File base = new File(context.getExternalFilesDir(null), "skills");
+        return base.getAbsolutePath();
     }
 
     /** 供 SkillReadTool 使用：返回 SKILL.md 正文，或 references 下某文件内容 */
