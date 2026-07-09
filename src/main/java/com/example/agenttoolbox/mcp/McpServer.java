@@ -1102,6 +1102,21 @@ public class McpServer {
                             log("[LLM] 解析: method=" + method
                                 + " hasResult=" + hasResult + " hasError=" + hasError + " id=" + rpcId);
 
+                            if (replyJson.has("validation_error")) {
+                                // JS 抓取层解析/格式校验不通过：把原因反馈给 LLM 让其重新输出
+                                String ve = replyJson.optString("validation_error", "回复格式不合规");
+                                log("[JS-VALID] JS 格式校验驳回: " + ve);
+                                String planMsg = buildPlanMessage("format_error", null, null, conversationId,
+                                    ve + "\n\n请根据以上提示修正你的回复格式，然后重新输出。");
+                                if (planMsg != null) {
+                                    currentMessage = planMsg;
+                                } else {
+                                    currentMessage = "【系统反馈】\n" + ve
+                                        + "\n\n请根据以上提示修正你的回复格式，然后重新输出。";
+                                }
+                                continue;
+                            }
+
                             if (hasError) {
                                 // LLM 返回错误：当作异常文本回复处理
                                 log("[DONE] LLM 返回错误");

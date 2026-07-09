@@ -401,6 +401,34 @@ public class DeepSeekChatBridge {
             "    return null;\n" +
             "  }\n" +
             "\n" +
+            "  function makeReject(reason, rawText) {\n" +
+            "    var id = null;\n" +
+            "    try { var p = parseJsonRpc(rawText); if (p && p.id != null) id = p.id; } catch(e) {}\n" +
+            "    return JSON.stringify({ jsonrpc: '2.0', validation_error: reason, id: id });\n" +
+            "  }\n" +
+            "\n" +
+            "  function validateJsonRpc(parsed) {\n" +
+            "    if (!parsed || typeof parsed !== 'object') return '回复不是合法的 JSON 对象';\n" +
+            "    if (parsed.jsonrpc !== '2.0') return '缺少或错误的 jsonrpc 字段（必须为 2.0）';\n" +
+            "    if (parsed.method === 'tools/call') {\n" +
+            "      if (!parsed.params || typeof parsed.params !== 'object') return '工具调用缺少 params 对象';\n" +
+            "      if (typeof parsed.params.name !== 'string' || parsed.params.name.length === 0) return '工具调用缺少 params.name';\n" +
+            "      if (!parsed.params.arguments || typeof parsed.params.arguments !== 'object') return '工具调用缺少 params.arguments 对象';\n" +
+            "      return null;\n" +
+            "    }\n" +
+            "    if (parsed.result) {\n" +
+            "      if (typeof parsed.result !== 'object') return 'result 必须是对象';\n" +
+            "      if (parsed.result.plan_update) return null;\n" +
+            "      if (parsed.result.type === 'reply') {\n" +
+            "        if (typeof parsed.result.content !== 'string') return '文本回复 result.content 必须是字符串';\n" +
+            "        return null;\n" +
+            "      }\n" +
+            "      return null;\n" +
+            "    }\n" +
+            "    if (parsed.error) return null;\n" +
+            "    return 'JSON-RPC 结构不合规：必须包含 method=tools/call、result 或 error 之一';\n" +
+            "  }\n" +
+            "\n" +
             "  function pollOnce() {\n" +
             "    if (finished) return;\n" +
             "    pollCount++;\n" +
@@ -474,7 +502,14 @@ public class DeepSeekChatBridge {
             "    var parsed = parseJsonRpc(rawText);\n" +
             "    if (!parsed) {\n" +
             "      Android.log('[JS] JSON 解析失败, rawText=' + rawText);\n" +
-            "      finish(rawText);\n" +
+            "      finish(makeReject('回复不是合法的 JSON（可能含未转义引号或语法错误）', rawText));\n" +
+            "      return;\n" +
+            "    }\n" +
+            "\n" +
+            "    var vReason = validateJsonRpc(parsed);\n" +
+            "    if (vReason) {\n" +
+            "      Android.log('[JS] 格式校验不通过: ' + vReason);\n" +
+            "      finish(makeReject(vReason, rawText));\n" +
             "      return;\n" +
             "    }\n" +
             "\n" +
