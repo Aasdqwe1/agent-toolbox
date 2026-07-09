@@ -220,7 +220,17 @@ public class ApkMcpClient {
 
             int code = conn.getResponseCode();
             if (code != 200) {
-                Log.w(TAG, "HTTP " + code + " for " + method);
+                // 读错误流看看 MT 返回了什么
+                String errBody = "";
+                try {
+                    BufferedReader errReader = new BufferedReader(new InputStreamReader(conn.getErrorStream(), "UTF-8"));
+                    StringBuilder eb = new StringBuilder();
+                    String el;
+                    while ((el = errReader.readLine()) != null) eb.append(el);
+                    errReader.close();
+                    errBody = eb.toString();
+                } catch (Exception ignored) {}
+                Log.w(TAG, "HTTP " + code + " for " + method + " body=" + errBody);
                 return null;
             }
 

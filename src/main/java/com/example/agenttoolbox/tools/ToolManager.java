@@ -275,21 +275,45 @@ public class ToolManager {
                 ApkMcpClient client = ApkMcpClient.getInstance();
                 // mt_apk_status：检查连接状态，不依赖 MT 端是否有此工具
                 if ("mt_apk_status".equals(name)) {
-                    JSONObject st = new JSONObject();
-                    st.put("description", "APK MCP 连接状态");
-                    st.put("enabled", client.isEnabled());
-                    boolean ok = client.connect();
-                    st.put("connected", ok);
-                    st.put("url", client.getUrl());
-                    st.put("tool_count", client.getRemoteTools().length());
+                    StringBuilder diag = new StringBuilder();
+                    diag.append("APK MCP 诊断报告\n");
+                    diag.append("=================\n");
+                    diag.append("目标地址: ").append(client.getUrl()).append("\n");
+
+                    // 1) TCP socket 连通性测试
+                    boolean socketOk = false;
+                    try {
+                        java.net.Socket sock = new java.net.Socket();
+                        sock.connect(new java.net.InetSocketAddress("127.0.0.1", 8787), 2000);
+                        sock.close();
+                        socketOk = true;
+                        diag.append("TCP 端口 8787: ✅ 已开放（服务在监听）\n");
+                    } catch (Exception e) {
+                        diag.append("TCP 端口 8787: ❌ 连接失败 — ").append(e.getClass().getSimpleName()).append(": ").append(e.getMessage()).append("\n");
+                    }
+
+                    // 2) HTTP 连接测试
+                    if (socketOk) {
+                        diag.append("\nHTTP 握手尝试: ");
+                        try {
+                            boolean ok = client.connect();
+                            diag.append(ok ? "✅ 成功" : "❌ 失败").append("\n");
+                            diag.append("已注册工具数: ").append(client.getRemoteTools().length()).append("\n");
+                            if (ok) {
+                                diag.append("\n✅ 服务正常，可调用 mt_apk_* 工具");
+                            } else {
+                                diag.append("\n⚠️ 端口通了但 HTTP 握手失败 — 可能协议/路径不匹配");
+                            }
+                        } catch (Exception e2) {
+                            diag.append("❌ 异常 — ").append(e2.getClass().getSimpleName()).append(": ").append(e2.getMessage()).append("\n");
+                        }
+                    } else {
+                        diag.append("\n❌ 无法连接到 MT APK MCP 服务\n请在 MT 管理器中打开侧拉栏 → 工具 → APK MCP，点击「启动」");
+                    }
+
                     contentItem.put("type", "text");
-                    contentItem.put("text", "APK MCP 状态:\n- 启用: " + client.isEnabled()
-                            + "\n- 已连接: " + ok
-                            + "\n- 地址: " + client.getUrl()
-                            + "\n- 已注册工具数: " + client.getRemoteTools().length()
-                            + "\n\n" + (ok ? "✅ 服务正常，可调用 mt_apk_* 工具" : "❌ 未连接，请在 MT 管理器中启动 APK MCP 服务"));
+                    contentItem.put("text", diag.toString());
                     content.put(contentItem);
-                    result.put("isError", !ok);
                     result.put("content", content);
                     return result;
                 }
