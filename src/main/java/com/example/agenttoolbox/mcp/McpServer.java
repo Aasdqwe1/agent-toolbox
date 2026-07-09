@@ -270,6 +270,8 @@ public class McpServer {
                     contentType = "application/javascript; charset=UTF-8";
                 } else if (fileName.endsWith(".json")) {
                     contentType = "application/json; charset=UTF-8";
+                } else if (fileName.endsWith(".woff2")) {
+                    contentType = "font/woff2";
                 } else {
                     contentType = "application/octet-stream";
                 }
