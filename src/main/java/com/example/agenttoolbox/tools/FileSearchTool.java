@@ -147,17 +147,13 @@ public class FileSearchTool implements Tool {
                                 if (!lower.contains(kw)) { lineMatch = false; break; }
                             }
                             if (lineMatch) {
-                                String trimmed = line.trim();
-                                if (trimmed.length() > 120) trimmed = trimmed.substring(0, 120) + "...";
-                                matchLines.add("  L" + lineNum + ": " + trimmed);
-                                if (matchLines.size() >= 10) break; // 每文件最多10行
+                                matchLines.add("  L" + lineNum + ": " + line.trim());
                             }
                         }
                     } catch (Exception ignored) {}
                     if (!matchLines.isEmpty()) {
                         StringBuilder mb = new StringBuilder();
                         mb.append("[内容匹配] ").append(f.getAbsolutePath()).append(" (").append(formatSize(f.length())).append(")");
-                        if (matchLines.size() >= 10) mb.append(" (仅显示前10行)");
                         mb.append("\n");
                         for (String ml : matchLines) {
                             mb.append(ml).append("\n");
