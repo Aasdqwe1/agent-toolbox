@@ -46,6 +46,7 @@ public class ToolManager {
         registerTool(new PythonTool(context));
         registerTool(new ShTool());
         registerTool(new WebTool());
+        registerTool(new AskTool());
         
         // 注册 GM 工具（内存修改相关）
         registerTool(new RootStatusTool());
