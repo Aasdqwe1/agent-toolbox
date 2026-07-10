@@ -134,38 +134,39 @@ public class FileSearchTool implements Tool {
                         searchFile(f, keywords, searchContent, maxResults, results);
                     }
                 } else if (searchContent && !nameMatch) {
-                    // 搜索文件内容（仅在文件名不匹配时）
-                    try {
-                        String content = readFileHead(f, 4096);
-                        if (content != null) {
-                            boolean contentMatch = true;
+                    // 搜索文件内容：逐行读取，标注行号
+                    java.util.List<String> matchLines = new java.util.ArrayList<>();
+                    try (BufferedReader br = new BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(f), "UTF-8"))) {
+                        String line;
+                        int lineNum = 0;
+                        while ((line = br.readLine()) != null) {
+                            lineNum++;
+                            String lower = line.toLowerCase();
+                            boolean lineMatch = true;
                             for (String kw : keywords) {
-                                if (!content.contains(kw)) { contentMatch = false; break; }
+                                if (!lower.contains(kw)) { lineMatch = false; break; }
                             }
-                            if (contentMatch) {
-                                results.add("[内容匹配] " + f.getAbsolutePath() + " (" + formatSize(f.length()) + ")");
+                            if (lineMatch) {
+                                String trimmed = line.trim();
+                                if (trimmed.length() > 120) trimmed = trimmed.substring(0, 120) + "...";
+                                matchLines.add("  L" + lineNum + ": " + trimmed);
+                                if (matchLines.size() >= 10) break; // 每文件最多10行
                             }
                         }
-                    } catch (Exception ignored) {
-                        // 跳过无法读取的文件（二进制等）
+                    } catch (Exception ignored) {}
+                    if (!matchLines.isEmpty()) {
+                        StringBuilder mb = new StringBuilder();
+                        mb.append("[内容匹配] ").append(f.getAbsolutePath()).append(" (").append(formatSize(f.length())).append(")");
+                        if (matchLines.size() >= 10) mb.append(" (仅显示前10行)");
+                        mb.append("\n");
+                        for (String ml : matchLines) {
+                            mb.append(ml).append("\n");
+                        }
+                        results.add(mb.toString().trim());
                     }
                 }
             } catch (Exception ignored) {}
         }
-    }
-
-    private String readFileHead(File f, int maxBytes) {
-        BufferedReader br = null;
-        try {
-            br = new BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(f), "UTF-8"));
-            char[] buf = new char[Math.min(maxBytes, 8192)];
-            int len = br.read(buf, 0, buf.length);
-            if (len > 0) return new String(buf, 0, len).toLowerCase();
-        } catch (Exception ignored) {
-        } finally {
-            if (br != null) try { br.close(); } catch (Exception ignored) {}
-        }
-        return null;
     }
 
     private String formatSize(long bytes) {
