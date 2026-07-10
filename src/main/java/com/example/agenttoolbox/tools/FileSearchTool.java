@@ -6,7 +6,6 @@ import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -156,11 +155,16 @@ public class FileSearchTool implements Tool {
     }
 
     private String readFileHead(File f, int maxBytes) {
-        try (BufferedReader br = new BufferedReader(new FileReader(f))) {
+        BufferedReader br = null;
+        try {
+            br = new BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(f), "UTF-8"));
             char[] buf = new char[Math.min(maxBytes, 8192)];
             int len = br.read(buf, 0, buf.length);
             if (len > 0) return new String(buf, 0, len).toLowerCase();
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        } finally {
+            if (br != null) try { br.close(); } catch (Exception ignored) {}
+        }
         return null;
     }
 
