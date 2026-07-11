@@ -112,11 +112,17 @@ public class MainActivity extends Activity {
         });
 
         // DeepSeek 的新会话和刷新按钮
-        findViewById(R.id.btnNewChat).setOnClickListener(v -> {
-            if (deepSeekPanel != null) deepSeekPanel.newChat();
+        findViewById(R.id.btnNewChat).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (deepSeekPanel != null) deepSeekPanel.newChat();
+            }
         });
-        findViewById(R.id.btnRefreshDS).setOnClickListener(v -> {
-            if (deepSeekPanel != null) { openDeepSeek(); }
+        findViewById(R.id.btnRefreshDS).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (deepSeekPanel != null) { openDeepSeek(); }
+            }
         });
 
         // 点击监听地址复制到剪贴板
