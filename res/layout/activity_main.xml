@@ -215,5 +215,4 @@
             android:background="@drawable/card_bg"
             android:visibility="gone" />
 
-    </LinearLayout>
 </LinearLayout>
