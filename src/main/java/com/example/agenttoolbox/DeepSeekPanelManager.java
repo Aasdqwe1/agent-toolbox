@@ -119,9 +119,16 @@ public class DeepSeekPanelManager {
         jsBridge = new JavaScriptBridge(context, wv);
         wv.addJavascriptInterface(jsBridge, "Android");
         jsBridge.setOnToolCallListener(new JavaScriptBridge.OnToolCallListener() {
-            @Override public void onToolCallDetected(String toolName, String arguments) { setStatus("检测到工具调用: " + toolName); }
-            @Override public void onToolResult(String toolName, String result) { setStatus("工具执行完成: " + toolName); }
-            @Override public void onPageHtmlExtracted(String html, boolean success, String error) {
+            @Override
+            public void onToolCallDetected(String toolName, String arguments) {
+                setStatus("检测到工具调用: " + toolName);
+            }
+            @Override
+            public void onToolResult(String toolName, String result) {
+                setStatus("工具执行完成: " + toolName);
+            }
+            @Override
+            public void onPageHtmlExtracted(String html, boolean success, String error) {
                 if (success) {
                     copyToClipboard(html);
                     setStatus("页面源码已复制到剪贴板");
@@ -148,8 +155,15 @@ public class DeepSeekPanelManager {
                 isPageLoaded = true;
                 setStatus("加载完成");
                 DeepSeekChatBridge.getInstance().markAsLoaded();
-                handler.postDelayed(new Runnable() { @Override public void run() { checkLoginStatus(); } }, 1500);
-                handler.postDelayed(new Runnable() { @Override public void run() {
+                handler.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        checkLoginStatus();
+                    }
+                }, 1500);
+                handler.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
                     if (jsBridge != null) {
                         jsBridge.injectObserverScript();
                         setStatus("MCP 监听已激活");
@@ -215,10 +229,16 @@ public class DeepSeekPanelManager {
             "  if (link) { link.click(); return 'clicked'; }" +
             "  return 'not_found';" +
             "})()",
-            new ValueCallback<String>() { @Override public void onReceiveValue(String value) {
-                if (value != null && value.contains("clicked")) setStatus("已新建会话");
-                else webView.loadUrl(DEEPSEEK_URL);
-            } }
+            new ValueCallback<String>() {
+                @Override
+                public void onReceiveValue(String value) {
+                    if (value != null && value.contains("clicked")) {
+                        setStatus("已新建会话");
+                    } else {
+                        webView.loadUrl(DEEPSEEK_URL);
+                    }
+                }
+            }
         );
     }
 
@@ -236,7 +256,9 @@ public class DeepSeekPanelManager {
             "  try { r.hasChatInput = !!(document.querySelector('textarea') || document.querySelector('[contenteditable=\"true\"]')); } catch(e){}" +
             "  return JSON.stringify(r);" +
             "})()",
-            new ValueCallback<String>() { @Override public void onReceiveValue(String value) {
+            new ValueCallback<String>() {
+                @Override
+                public void onReceiveValue(String value) {
                 boolean loggedIn = false;
                 String detail = "";
                 try {
@@ -288,11 +310,15 @@ public class DeepSeekPanelManager {
 
     public void startMessageMonitor() {
         if (msgChecker != null) msgHandler.removeCallbacks(msgChecker);
-        msgChecker = new Runnable() { @Override public void run() {
+        msgChecker = new Runnable() {
+            @Override
+            public void run() {
             if (webView == null) return;
             webView.evaluateJavascript(
                 "((typeof processedMessages !== 'undefined') ? processedMessages.size : -1).toString()",
-                new ValueCallback<String>() { @Override public void onReceiveValue(String value) {
+                new ValueCallback<String>() {
+                @Override
+                public void onReceiveValue(String value) {
                     if (value == null || value.equals("null") || value.equals("-1")) {
                         msgHandler.postDelayed(msgChecker, 30000);
                         return;
