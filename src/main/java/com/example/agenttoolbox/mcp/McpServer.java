@@ -1606,27 +1606,22 @@ public class McpServer {
         }
 
         private void writeEventChunk(final OutputStream out, final String type, final String jsonData) {
-            writeHandler.post(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        synchronized (out) {
-                            String event = "event: " + type + "\n" + "data: " + jsonData + "\n\n";
-                            byte[] data = event.getBytes("UTF-8");
-                            out.write(Integer.toHexString(data.length).getBytes("UTF-8"));
-                            out.write("\r\n".getBytes("UTF-8"));
-                            out.write(data);
-                            out.write("\r\n".getBytes("UTF-8"));
-                            out.flush();
-                        }
-                    } catch (IOException e) {
-                        // Socket closed is expected when client disconnects, only log other IOExceptions
-                        if (!isSocketClosed(e)) {
-                            log("SSE写入异常: " + e.getMessage());
-                        }
-                    }
+            // 直接写入而非通过 writeHandler.post，避免异步投递丢失
+            try {
+                synchronized (out) {
+                    String event = "event: " + type + "\n" + "data: " + jsonData + "\n\n";
+                    byte[] data = event.getBytes("UTF-8");
+                    out.write(Integer.toHexString(data.length).getBytes("UTF-8"));
+                    out.write("\r\n".getBytes("UTF-8"));
+                    out.write(data);
+                    out.write("\r\n".getBytes("UTF-8"));
+                    out.flush();
                 }
-            });
+            } catch (IOException e) {
+                if (!isSocketClosed(e)) {
+                    log("SSE写入异常: " + e.getMessage());
+                }
+            }
         }
 
         /**
