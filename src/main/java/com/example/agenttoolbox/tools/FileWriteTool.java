@@ -40,7 +40,9 @@ public class FileWriteTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "文件写入工具，支持三种模式：" +
+        return "文件写入工具，仅限 Download/Documents/Pictures/DCIM/Movies 等安全目录。" +
+                "如需写入其他目录，请用 Python 或 Shell 工具。" +
+                "支持三种模式：" +
                 "replace（替换指定行）、insert（在指定行前插入）、append（追加到末尾）。" +
                 "返回 diff 对比。自动兼容读取工具的行号前缀格式。";
     }
@@ -113,7 +115,16 @@ public class FileWriteTool implements Tool {
         content = stripLineNumbers(content);
 
         // 路径解析
-        File file = FilePathResolver.resolveForWrite(path);
+        File file;
+        try {
+            file = FilePathResolver.resolveForWrite(path);
+        } catch (Exception e) {
+            String msg = e.getMessage();
+            if (msg != null && msg.contains("不允许")) {
+                throw new Exception(msg + "\n提示：如需写入其他路径，请使用 Python 或 Shell 工具");
+            }
+            throw e;
+        }
 
         // 确保父目录存在
         File parentDir = file.getParentFile();
