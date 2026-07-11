@@ -194,10 +194,13 @@ public class DeepSeekChatBridge {
         replyById.put(requestId, replyRef);
         errorById.put(requestId, errorRef);
 
+        // 在当前线程（后台）构建 JS 脚本字符串，避免 UI 线程卡顿
+        // injectChatScript 内部会把 evaluateJavascript 投递到 UI 线程执行
+        injectChatScript(wb, requestId, message);
+
         handler.post(new Runnable() {
             @Override
             public void run() {
-                injectChatScript(wb, requestId, message);
                 AppLogger.d("DeepSeekChatBridge", "[" + requestId + "] injectChatScript完成, 准备启动后台等待线程");
 
                 // 后台线程等待完成，以便调 onDone / onError
@@ -735,20 +738,20 @@ public class DeepSeekChatBridge {
         handler.post(new Runnable() {
             @Override
             public void run() {
-                if (boundWebView == null) {
+                if (webView == null) {
                     StreamCallback cb = callbacksById.get(requestId);
                     if (cb != null) cb.onError("WebView 已释放");
                     cleanupRequest(requestId);
                     return;
                 }
                 // 先启动监听，再发送消息（分开调用）
-                boundWebView.evaluateJavascript(observerScript, new ValueCallback<String>() {
+                webView.evaluateJavascript(observerScript, new ValueCallback<String>() {
                     @Override
                     public void onReceiveValue(String result) {
                         AppLogger.d("DeepSeekChatBridge", "[" + requestId + "] observerScript 返回: " + result);
                     }
                 });
-                boundWebView.evaluateJavascript(sendScript, new ValueCallback<String>() {
+                webView.evaluateJavascript(sendScript, new ValueCallback<String>() {
                     @Override
                     public void onReceiveValue(String sendResult) {
                         AppLogger.d("DeepSeekChatBridge", "[" + requestId + "] 发送结果: " + sendResult);
