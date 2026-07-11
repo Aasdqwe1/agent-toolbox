@@ -215,5 +215,61 @@
             android:background="@drawable/card_bg"
             android:visibility="gone" />
 
-    </LinearLayout>
+    <!-- ======== DeepSeek WebView 容器 ======== -->
+    <FrameLayout
+        android:id="@+id/deepseekContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical">
+
+            <!-- 顶部工具栏 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@color/surface"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp"
+                android:elevation="2dp">
+
+                <TextView
+                    android:id="@+id/btnDeepSeekBack"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:text="← 返回工具箱"
+                    android:textSize="14sp"
+                    android:textColor="@color/text_secondary"
+                    android:gravity="center"
+                    android:paddingLeft="12dp"
+                    android:paddingRight="12dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="@drawable/card_bg" />
+
+                <TextView
+                    android:id="@+id/tvDeepSeekStatus"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="DeepSeek 助手"
+                    android:textSize="13sp"
+                    android:textColor="@color/text_muted"
+                    android:gravity="center" />
+            </LinearLayout>
+
+            <FrameLayout
+                android:id="@+id/deepseekWebView"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+        </LinearLayout>
+    </FrameLayout>
+
+</LinearLayout>
 </LinearLayout>

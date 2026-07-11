@@ -17,6 +17,7 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.view.View;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -40,6 +41,10 @@ public class MainActivity extends Activity {
     private Button btnStop;
     private Button btnDeepSeek;
     private TextView statusChip;
+    private View deepseekContainer;
+    private FrameLayout deepseekWebViewContainer;
+    private TextView tvDeepSeekStatus;
+    private android.webkit.WebView deepseekWebView;
 
     
     private McpServer mcpServer;
@@ -64,6 +69,9 @@ public class MainActivity extends Activity {
         btnStop = (Button) findViewById(R.id.btnStop);
         btnDeepSeek = (Button) findViewById(R.id.btnDeepSeek);
         statusChip = (TextView) findViewById(R.id.statusChip);
+        deepseekContainer = findViewById(R.id.deepseekContainer);
+        deepseekWebViewContainer = (FrameLayout) findViewById(R.id.deepseekWebView);
+        tvDeepSeekStatus = (TextView) findViewById(R.id.tvDeepSeekStatus);
 
         // 初始化文件目录
         initFileDir();
@@ -87,6 +95,14 @@ public class MainActivity extends Activity {
             @Override
             public void onClick(View v) {
                 openDeepSeek();
+            }
+        });
+
+        // DeepSeek WebView 返回按钮
+        findViewById(R.id.btnDeepSeekBack).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                closeDeepSeek();
             }
         });
 
@@ -338,13 +354,34 @@ public class MainActivity extends Activity {
      * 打开 DeepSeek 助手页面
      */
     private void openDeepSeek() {
-        // 如果 MCP 服务没启动，先提示用户启动
         if (mcpServer == null || !mcpServer.isRunning()) {
             appendLog("提示：请先启动 MCP 服务，以便 DeepSeek 使用工具能力");
         }
 
-        Intent intent = new Intent(MainActivity.this, DeepSeekActivity.class);
-        startActivity(intent);
+        // 首次打开时创建 WebView
+        if (deepseekWebView == null) {
+            deepseekWebView = new android.webkit.WebView(this);
+            deepseekWebView.getSettings().setJavaScriptEnabled(true);
+            deepseekWebView.getSettings().setDomStorageEnabled(true);
+            deepseekWebView.getSettings().setUserAgentString("Mozilla/5.0 (Linux; Android)");
+            deepseekWebView.setLayoutParams(new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            ));
+            deepseekWebView.loadUrl("https://chat.deepseek.com");
+        }
+
+        // 把 WebView 放进容器，显示 DeepSeek 面板
+        if (deepseekWebView.getParent() == null) {
+            deepseekWebViewContainer.addView(deepseekWebView);
+        }
+        deepseekContainer.setVisibility(View.VISIBLE);
+        tvDeepSeekStatus.setText("DeepSeek");
+    }
+
+    private void closeDeepSeek() {
+        deepseekContainer.setVisibility(View.GONE);
+        tvDeepSeekStatus.setText("已隐藏");
     }
     
     /**
