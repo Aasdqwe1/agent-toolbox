@@ -36,7 +36,7 @@
         android:usesCleartextTraffic="true"
         android:debuggable="true"
         android:requestLegacyExternalStorage="true"
-        android:theme="@android:style/Theme.Holo.Light">
+        android:theme="@android:style/Theme.Holo.Light.NoActionBar">
         
         <activity
             android:name=".MainActivity"
