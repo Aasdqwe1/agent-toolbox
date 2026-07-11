@@ -221,15 +221,24 @@ public class DeepSeekChatBridge {
                             String reply = replyRef.get();
                             String err = errorRef.get();
                             if (cb != null) {
+                                AppLogger.d("DeepSeekChatBridge",
+                                    "[" + requestId + "] 回调准备: reply=" + (reply != null ? reply.length() : 0)
+                                    + "字 err=" + err + " cb=" + cb.getClass().getSimpleName());
                                 if (err != null) {
+                                    AppLogger.d("DeepSeekChatBridge", "[" + requestId + "] 调用 onError");
                                     cb.onError(err);
                                 } else if (reply != null && !reply.isEmpty()) {
+                                    AppLogger.d("DeepSeekChatBridge", "[" + requestId + "] 调用 onDone, 长度=" + reply.length());
                                     cb.onDone(reply);
                                 } else if (completed) {
+                                    AppLogger.d("DeepSeekChatBridge", "[" + requestId + "] 调用 onError(收到回复为空)");
                                     cb.onError("收到回复为空");
                                 } else {
+                                    AppLogger.d("DeepSeekChatBridge", "[" + requestId + "] 调用 onError(等待超时)");
                                     cb.onError("等待超时，JavaScript 端未触发完成");
                                 }
+                            } else {
+                                AppLogger.e("DeepSeekChatBridge", "[" + requestId + "] 回调为NULL! 无法调用 onDone/onError");
                             }
                         } catch (InterruptedException e) {
                             StreamCallback cb = callbacksById.get(requestId);
@@ -786,8 +795,15 @@ public class DeepSeekChatBridge {
         }
         AtomicReference<String> ref = replyById.get(requestId);
         if (ref != null) ref.set(reply);
+        else AppLogger.w("DeepSeekChatBridge", "[" + requestId + "] replyRef 为null!");
         CountDownLatch l = latchById.get(requestId);
-        if (l != null) l.countDown();
+        if (l != null) {
+            l.countDown();
+            AppLogger.d("DeepSeekChatBridge",
+                "[" + requestId + "] latch已释放 (剩余计数前=1)");
+        } else {
+            AppLogger.e("DeepSeekChatBridge", "[" + requestId + "] latch为null! 无法释放");
+        }
         
         // 所有 LLM 回复必须完整记录，不截断
         AppLogger.d("DeepSeekChatBridge",
