@@ -752,7 +752,7 @@ public class McpServer {
                         // 用于标记是否正在接收工具调用 JSON 流：当检测到工具调用时设为 true，接收完成后设为 false
                         final AtomicBoolean inToolCallStream = new AtomicBoolean(false);
 
-                        Thread heartbeat = new Thread(new Runnable() {
+                        threadPool.execute(new Runnable() {
                             @Override
                             public void run() {
                                 try {
@@ -1533,9 +1533,7 @@ public class McpServer {
                         Thread hb = heartbeatThread;
                         if (hb != null) {
                             log("Shutting down heartbeat thread...");
-                            // Stop heartbeat thread via interrupt (more reliable method)
                             hb.interrupt();
-                            // Wait for thread to end, but set timeout to prevent deadlock
                             try {
                                 hb.join(HEARTBEAT_THREAD_JOIN_TIMEOUT_MS);
                             } catch (InterruptedException ie) {

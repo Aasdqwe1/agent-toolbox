@@ -11,6 +11,8 @@ import org.json.JSONObject;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -53,6 +55,7 @@ public class DeepSeekChatBridge {
     // ---- 并发请求管理：每个 requestId 保存一份回调 ----
     private final AtomicLong requestIdCounter = new AtomicLong(0);
     private final ConcurrentHashMap<String, StreamCallback> callbacksById = new ConcurrentHashMap<>();
+    private final ExecutorService threadPool = Executors.newCachedThreadPool();
     private final ConcurrentHashMap<String, CountDownLatch> latchById = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicReference<String>> replyById = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicReference<String>> errorById = new ConcurrentHashMap<>();
@@ -96,6 +99,13 @@ public class DeepSeekChatBridge {
     public synchronized boolean isRegistered() { return boundWebView != null; }
     public synchronized boolean isWebViewLoaded() { return webViewLoaded && boundWebView != null; }
     public synchronized void markAsLoaded() { this.webViewLoaded = true; }
+
+    /** 关闭线程池 */
+    public synchronized void shutdown() {
+        if (threadPool != null && !threadPool.isShutdown()) {
+            threadPool.shutdownNow();
+        }
+    }
 
     /**
      * 流式回调接口
@@ -200,7 +210,7 @@ public class DeepSeekChatBridge {
                 injectChatScript(wb, requestId, message);
 
                 // 后台线程等待完成，以便调 onDone / onError
-                new Thread(new Runnable() {
+                threadPool.execute(new Runnable() {
                     @Override
                     public void run() {
                         try {
