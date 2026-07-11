@@ -129,12 +129,9 @@ public class DeepSeekActivity extends Activity {
         ms.setDomStorageEnabled(true);
         ms.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         btnCloseMcp = (android.widget.TextView) findViewById(R.id.btnCloseMcp);
-        btnCloseMcp.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                mcpOverlay.setVisibility(View.GONE);
-            }
-        });
+        // 关闭按钮改为程序化创建（可拖动 + 同 MCP 按钮样式）
+        // 不需要 XML 定义的 btnCloseMcp，创建新的浮动关闭按钮
+        createCloseButton();
 
         // 创建毛玻璃浮动按钮
         createFloatButton();
@@ -243,6 +240,51 @@ public class DeepSeekActivity extends Activity {
                         if (Math.abs(event.getRawX() - dx - v.getTranslationX()) < 10
                                 && Math.abs(event.getRawY() - dy - v.getTranslationY()) < 10) {
                             openMcpToolbox();
+                        }
+                        return true;
+                }
+                return false;
+            }
+        });
+    }
+
+    /** 创建可拖动的关闭按钮（同 MCP 按钮样式） */
+    private void createCloseButton() {
+        btnCloseMcp = new TextView(this);
+        btnCloseMcp.setText("✕");
+        btnCloseMcp.setTextSize(16f);
+        btnCloseMcp.setTypeface(null, android.graphics.Typeface.BOLD);
+        btnCloseMcp.setGravity(android.view.Gravity.CENTER);
+        btnCloseMcp.setTextColor(0xFFFFFFFF);
+        btnCloseMcp.setBackgroundColor(0xBB1E293B);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+            btnCloseMcp.setElevation(8f);
+        }
+        android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT);
+        lp.gravity = android.view.Gravity.TOP | android.view.Gravity.RIGHT;
+        lp.topMargin = 8;
+        lp.rightMargin = 8;
+        mcpOverlay.addView(btnCloseMcp, lp);
+
+        btnCloseMcp.setOnTouchListener(new View.OnTouchListener() {
+            private float dx, dy;
+            @Override
+            public boolean onTouch(View v, android.view.MotionEvent event) {
+                switch (event.getAction()) {
+                    case android.view.MotionEvent.ACTION_DOWN:
+                        dx = event.getRawX() - v.getTranslationX();
+                        dy = event.getRawY() - v.getTranslationY();
+                        return true;
+                    case android.view.MotionEvent.ACTION_MOVE:
+                        v.setTranslationX(event.getRawX() - dx);
+                        v.setTranslationY(event.getRawY() - dy);
+                        return true;
+                    case android.view.MotionEvent.ACTION_UP:
+                        if (Math.abs(event.getRawX() - dx - v.getTranslationX()) < 10
+                                && Math.abs(event.getRawY() - dy - v.getTranslationY()) < 10) {
+                            mcpOverlay.setVisibility(View.GONE);
                         }
                         return true;
                 }

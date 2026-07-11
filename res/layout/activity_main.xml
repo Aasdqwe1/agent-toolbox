@@ -6,33 +6,32 @@
     android:background="@color/background"
     android:padding="16dp">
 
-        <!-- ======== 头部 ======== -->
+        <!-- ======== 头部（紧凑） ======== -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginBottom="20dp">
+            android:layout_marginBottom="8dp">
 
-            <LinearLayout
-                android:layout_width="0dp"
+            <TextView
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
+                android:text="MCP 工具箱"
+                style="@style/TextTitle" />
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="MCP 工具箱"
-                    style="@style/TextTitle" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Agent"
+                style="@style/TextCaption"
+                android:layout_marginLeft="6dp"
+                android:layout_marginTop="3dp" />
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Agent 服务端"
-                    style="@style/TextCaption"
-                    android:layout_marginTop="2dp" />
-            </LinearLayout>
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
 
             <TextView
                 android:id="@+id/statusChip"
