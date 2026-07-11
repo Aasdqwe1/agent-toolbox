@@ -148,13 +148,13 @@ public class DeepSeekPanelManager {
                 isPageLoaded = true;
                 setStatus("加载完成");
                 DeepSeekChatBridge.getInstance().markAsLoaded();
-                handler.postDelayed(new Runnable() { @Override public void run() { checkLoginStatus(); } }, 1500);
-                handler.postDelayed(new Runnable() { @Override public void run() {
+                handler.postDelayed(() -> checkLoginStatus(), 1500);
+                handler.postDelayed(() -> {
                     if (jsBridge != null) {
                         jsBridge.injectObserverScript();
                         setStatus("MCP 监听已激活");
                     }
-                } }, 2000);
+                }, 2000);
             }
 
             @Override
@@ -215,10 +215,10 @@ public class DeepSeekPanelManager {
             "  if (link) { link.click(); return 'clicked'; }" +
             "  return 'not_found';" +
             "})()",
-            new ValueCallback<String>() { @Override public void onReceiveValue(String value) {
+            value -> {
                 if (value != null && value.contains("clicked")) setStatus("已新建会话");
                 else webView.loadUrl(DEEPSEEK_URL);
-            } }
+            }
         );
     }
 
@@ -236,7 +236,7 @@ public class DeepSeekPanelManager {
             "  try { r.hasChatInput = !!(document.querySelector('textarea') || document.querySelector('[contenteditable=\"true\"]')); } catch(e){}" +
             "  return JSON.stringify(r);" +
             "})()",
-            new ValueCallback<String>() { @Override public void onReceiveValue(String value) {
+            value -> {
                 boolean loggedIn = false;
                 String detail = "";
                 try {
@@ -255,7 +255,7 @@ public class DeepSeekPanelManager {
                 updateLoginStatus(loggedIn, detail);
             }
         );
-        } }
+    }
 
     private void updateLoginStatus(boolean loggedIn, String detail) {
         isLoggedIn = loggedIn;
@@ -288,11 +288,11 @@ public class DeepSeekPanelManager {
 
     public void startMessageMonitor() {
         if (msgChecker != null) msgHandler.removeCallbacks(msgChecker);
-        msgChecker = new Runnable() { @Override public void run() {
+        msgChecker = () -> {
             if (webView == null) return;
             webView.evaluateJavascript(
                 "((typeof processedMessages !== 'undefined') ? processedMessages.size : -1).toString()",
-                new ValueCallback<String>() { @Override public void onReceiveValue(String value) {
+                value -> {
                     if (value == null || value.equals("null") || value.equals("-1")) {
                         msgHandler.postDelayed(msgChecker, 30000);
                         return;
@@ -316,7 +316,7 @@ public class DeepSeekPanelManager {
                     msgHandler.postDelayed(msgChecker, 30000);
                 }
             );
-        } } };
+        };
         msgHandler.postDelayed(msgChecker, 30000);
     }
 
