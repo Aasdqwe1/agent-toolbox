@@ -43,6 +43,7 @@ public class DeepSeekActivity extends Activity {
     // 毛玻璃浮动按钮 + MCP 工具箱覆盖层
     private android.widget.FrameLayout mcpOverlay;
     private boolean mcpWebViewLoaded = false;
+    private android.app.Dialog mcpDialog;
     private android.webkit.WebView mcpWebView;
     private android.widget.TextView btnCloseMcp;
     private TextView mcpFloatBtn;
@@ -283,7 +284,9 @@ public class DeepSeekActivity extends Activity {
                     case android.view.MotionEvent.ACTION_UP:
                         if (Math.abs(event.getRawX() - dx - v.getTranslationX()) < 10
                                 && Math.abs(event.getRawY() - dy - v.getTranslationY()) < 10) {
-                            mcpOverlay.setVisibility(View.GONE);
+                            if (mcpDialog != null && mcpDialog.isShowing()) {
+                                mcpDialog.dismiss();
+                            }
                         }
                         return true;
                 }
@@ -292,22 +295,33 @@ public class DeepSeekActivity extends Activity {
         });
     }
 
-    /** 打开 MCP 工具箱覆盖层 */
+    /** 打开 MCP 工具箱（用 Dialog 代替 overlay，避免覆盖 DeepSeek WebView 导致冻结） */
     private void openMcpToolbox() {
-        // 重新注入可见性覆盖（防止 SPA 导航后覆盖丢失）
-        if (webView != null) {
-            webView.evaluateJavascript(
-                "try {" +
-                "  Object.defineProperty(document, 'visibilityState', {get:function(){return 'visible';}, configurable:true});" +
-                "  Object.defineProperty(document, 'hidden', {get:function(){return false;}, configurable:true});" +
-                "  window.requestAnimationFrame = function(cb) { return setTimeout(function() { cb(Date.now()); }, 16); };" +
-                "  window.cancelAnimationFrame = function(id) { clearTimeout(id); };" +
-                "} catch(e){}", null);
+        if (mcpDialog == null) {
+            mcpDialog = new android.app.Dialog(this);
+            mcpDialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+            mcpDialog.getWindow().setBackgroundDrawable(
+                new android.graphics.drawable.ColorDrawable(0xFF000000));
+            // 将 mcpOverlay 从 Activity 布局移到 Dialog
+            android.view.ViewParent parent = mcpOverlay.getParent();
+            if (parent instanceof android.view.ViewGroup) {
+                ((android.view.ViewGroup) parent).removeView(mcpOverlay);
+            }
+            mcpOverlay.setVisibility(View.VISIBLE);
+            mcpDialog.setContentView(mcpOverlay);
+            mcpDialog.getWindow().setLayout(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT);
+            mcpDialog.setOnDismissListener(new android.content.DialogInterface.OnDismissListener() {
+                @Override
+                public void onDismiss(android.content.DialogInterface dialog) {
+                    setStatus("MCP 工具箱已关闭");
+                }
+            });
         }
         // 只首次加载 URL，后续打开不再刷新（保持页面状态）
         if (!mcpWebViewLoaded) {
             String mcpUrl = "http://127.0.0.1:8080";
-            // 尝试从 McpServer 获取实际地址
             try {
                 com.example.agenttoolbox.mcp.McpServer server = McpForegroundService.getInstance() != null
                     ? McpForegroundService.getInstance().getMcpServer() : null;
@@ -318,7 +332,7 @@ public class DeepSeekActivity extends Activity {
             mcpWebView.loadUrl(mcpUrl);
             mcpWebViewLoaded = true;
         }
-        mcpOverlay.setVisibility(View.VISIBLE);
+        mcpDialog.show();
     }
 
     /**
@@ -1178,6 +1192,9 @@ public class DeepSeekActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (mcpDialog != null && mcpDialog.isShowing()) {
+            mcpDialog.dismiss();
+        }
         // 关键改动：Activity 销毁时不销毁 WebView
         // 仅从当前容器 detach，保持 WebView 存活 — HTTP API 继续可用，DeepSeek 会话保持登录
         if (webView != null) {
