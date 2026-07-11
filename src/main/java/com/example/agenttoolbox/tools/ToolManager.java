@@ -244,10 +244,13 @@ public class ToolManager {
         }
     }
 
+    private JSONObject promptTemplateCache = null;
+
     /**
-     * 从 assets/system_prompt_template.json 加载静态提示词模板
+     * 从 assets/system_prompt_template.json 加载静态提示词模板（缓存）
      */
     private JSONObject loadPromptTemplate() {
+        if (promptTemplateCache != null) return promptTemplateCache;
         try {
             java.io.InputStream is = context.getAssets().open("system_prompt_template.json");
             java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(is, "UTF-8"));
@@ -257,7 +260,8 @@ public class ToolManager {
                 sb.append(line);
             }
             reader.close();
-            return new JSONObject(sb.toString());
+            promptTemplateCache = new JSONObject(sb.toString());
+            return promptTemplateCache;
         } catch (Exception e) {
             e.printStackTrace();
             return null;

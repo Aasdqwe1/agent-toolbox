@@ -3,6 +3,9 @@ package com.example.agenttoolbox.tools;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * 进程执行器 - 统一处理 shell 命令执行
@@ -10,6 +13,7 @@ import java.io.InputStreamReader;
 public class ProcessRunner {
 
     private static final int MAX_OUTPUT_CHARS = 64 * 1024;
+    private static final ExecutorService threadPool = Executors.newCachedThreadPool();
 
     public static class Result {
         public final int exitCode;
@@ -45,27 +49,25 @@ public class ProcessRunner {
         final StringBuilder stdoutBuf = new StringBuilder();
         final StringBuilder stderrBuf = new StringBuilder();
         final boolean[] truncated = {false};
+        final CountDownLatch doneLatch = new CountDownLatch(2);
 
-        Thread stdoutThread = new Thread(new Runnable() {
+        threadPool.execute(new Runnable() {
             public void run() {
                 try {
                     truncated[0] = readStream(process.getInputStream(), stdoutBuf) || truncated[0];
                 } catch (Exception ignored) {
-                }
+                } finally { doneLatch.countDown(); }
             }
         });
 
-        Thread stderrThread = new Thread(new Runnable() {
+        threadPool.execute(new Runnable() {
             public void run() {
                 try {
                     truncated[0] = readStream(process.getErrorStream(), stderrBuf) || truncated[0];
                 } catch (Exception ignored) {
-                }
+                } finally { doneLatch.countDown(); }
             }
         });
-
-        stdoutThread.start();
-        stderrThread.start();
 
         // 等待进程完成（轮询方式，兼容所有 Android 版本）
         boolean finished = false;
@@ -81,8 +83,8 @@ public class ProcessRunner {
             }
         }
 
-        stdoutThread.join(5000);
-        stderrThread.join(5000);
+        // 等待输出读完（最多5秒）
+        try { doneLatch.await(5000, java.util.concurrent.TimeUnit.MILLISECONDS); } catch (Exception ignored) {}
 
         int exitCode;
         boolean timedOut = false;
@@ -99,15 +101,19 @@ public class ProcessRunner {
     }
 
     private static boolean readStream(InputStream is, StringBuilder buf) throws Exception {
-        int ch;
-        while ((ch = is.read()) != -1) {
-            if (buf.length() >= MAX_OUTPUT_CHARS) {
+        java.io.Reader reader = new java.io.InputStreamReader(is, "UTF-8");
+        char[] buffer = new char[4096];
+        int len;
+        while ((len = reader.read(buffer)) != -1) {
+            if (buf.length() + len > MAX_OUTPUT_CHARS) {
+                int allowed = MAX_OUTPUT_CHARS - buf.length();
+                if (allowed > 0) buf.append(buffer, 0, allowed);
                 buf.append("\n... [输出截断，超过 64KB 限制]");
-                while (is.read() != -1) {
-                }
+                // 消耗剩余数据
+                while (reader.read(buffer) != -1) {}
                 return true;
             }
-            buf.append((char) ch);
+            buf.append(buffer, 0, len);
         }
         return false;
     }
