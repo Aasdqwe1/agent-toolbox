@@ -40,6 +40,13 @@ public class DeepSeekActivity extends Activity {
     private Button btnRefresh;
     private Button btnExtractHtml;
 
+    // 毛玻璃浮动按钮 + MCP 工具箱覆盖层
+    private android.widget.FrameLayout mcpOverlay;
+    private android.webkit.WebView mcpWebView;
+    private android.widget.TextView btnCloseMcp;
+    private TextView mcpFloatBtn;
+    private float floatBtnX, floatBtnY;
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean isLoggedIn = false;
     private JavaScriptBridge jsBridge;
@@ -113,6 +120,20 @@ public class DeepSeekActivity extends Activity {
         // 更新 MCP 状态
         updateMcpStatus();
 
+        // MCP 工具箱浮动层初始化
+        mcpOverlay = (android.widget.FrameLayout) findViewById(R.id.mcpOverlay);
+        mcpWebView = (android.webkit.WebView) findViewById(R.id.mcpWebView);
+        btnCloseMcp = (android.widget.TextView) findViewById(R.id.btnCloseMcp);
+        btnCloseMcp.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                mcpOverlay.setVisibility(View.GONE);
+            }
+        });
+
+        // 创建毛玻璃浮动按钮
+        createFloatButton();
+
         // 启动消息数监控（每 30 秒检查一次页面消息量，超阈值提醒新建会话）
         startMessageMonitor();
     }
@@ -174,6 +195,74 @@ public class DeepSeekActivity extends Activity {
     /** 新建会话时重置消息监控状态 */
     private void resetMessageMonitor() {
         lastMsgWarnLevel = 0;
+    }
+
+    // ============ 毛玻璃浮动按钮（可拖动，点击打开 MCP 工具箱） ============
+    private void createFloatButton() {
+        mcpFloatBtn = new TextView(this);
+        mcpFloatBtn.setText("🔧");
+        mcpFloatBtn.setTextSize(20f);
+        mcpFloatBtn.setGravity(android.view.Gravity.CENTER);
+        // 毛玻璃效果：半透明 + 圆角 + 边框
+        mcpFloatBtn.setBackgroundResource(android.R.drawable.ic_menu_compass);
+        mcpFloatBtn.setBackgroundColor(0xCC1E293B);
+        mcpFloatBtn.getBackground().mutate();
+        android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+        gd.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        gd.setSize(56, 56);
+        gd.setColor(0xCC1E293B);
+        gd.setStroke(2, 0x4FFFFFFF);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+            gd.setCornerRadius(28f);
+            mcpFloatBtn.setElevation(6f);
+        }
+        mcpFloatBtn.setBackground(gd);
+        // LayoutParams：固定在底部中央偏右
+        android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(56, 56);
+        lp.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL;
+        lp.bottomMargin = 60;
+        webViewContainer.addView(mcpFloatBtn, lp);
+
+        // 拖动逻辑
+        mcpFloatBtn.setOnTouchListener(new View.OnTouchListener() {
+            private float dx, dy;
+            @Override
+            public boolean onTouch(View v, android.view.MotionEvent event) {
+                switch (event.getAction()) {
+                    case android.view.MotionEvent.ACTION_DOWN:
+                        dx = event.getRawX() - v.getTranslationX();
+                        dy = event.getRawY() - v.getTranslationY();
+                        return true;
+                    case android.view.MotionEvent.ACTION_MOVE:
+                        v.setTranslationX(event.getRawX() - dx);
+                        v.setTranslationY(event.getRawY() - dy);
+                        return true;
+                    case android.view.MotionEvent.ACTION_UP:
+                        // 点击（拖动距离很小）时打开工具箱
+                        if (Math.abs(event.getRawX() - dx - v.getTranslationX()) < 10
+                                && Math.abs(event.getRawY() - dy - v.getTranslationY()) < 10) {
+                            openMcpToolbox();
+                        }
+                        return true;
+                }
+                return false;
+            }
+        });
+    }
+
+    /** 打开 MCP 工具箱覆盖层 */
+    private void openMcpToolbox() {
+        String mcpUrl = "http://127.0.0.1:8080";
+        // 尝试从 McpServer 获取实际地址
+        try {
+            com.example.agenttoolbox.mcp.McpServer server = McpForegroundService.getInstance() != null
+                ? McpForegroundService.getInstance().getMcpServer() : null;
+            if (server != null && server.getLocalIpAddress() != null) {
+                mcpUrl = "http://" + server.getLocalIpAddress() + ":8080";
+            }
+        } catch (Exception ignored) {}
+        mcpWebView.loadUrl(mcpUrl);
+        mcpOverlay.setVisibility(View.VISIBLE);
     }
 
     /**

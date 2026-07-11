@@ -83,6 +83,35 @@
         android:layout_height="0dp"
         android:layout_weight="1" />
 
+    <!-- ======== MCP 工具箱浮动层（覆盖全屏，与 DeepSeek 共存） ======== -->
+    <FrameLayout
+        android:id="@+id/mcpOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#E6000000"
+        android:visibility="gone">
+
+        <WebView
+            android:id="@+id/mcpWebView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <TextView
+            android:id="@+id/btnCloseMcp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="✕ 关闭工具箱"
+            android:textSize="14sp"
+            android:textColor="#ffffff"
+            android:padding="12dp"
+            android:background="#80000000"
+            android:layout_gravity="top|right"
+            android:layout_marginTop="8dp"
+            android:layout_marginRight="8dp"
+            android:clickable="true"
+            android:focusable="true" />
+    </FrameLayout>
+
     <!-- ======== 底部状态栏 ======== -->
     <LinearLayout
         android:layout_width="match_parent"
