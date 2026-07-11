@@ -794,8 +794,6 @@ public class McpServer {
                         int round = 0;
                         boolean finalDone = false;
                         int toolCallCount = 0; // 防止工具调用循环
-                        int jsonParseFailCount = 0; // JSON 解析失败重试计数，防止死循环烧光轮次
-                        final int MAX_JSON_PARSE_RETRY = 3; // 解析失败最多回灌 3 次 format_error
                         // 新会话：创建缓存
                         if (isNewSession) {
                             String systemPrompt = ToolManager.getInstance().getSystemPrompt();
@@ -1114,32 +1112,12 @@ public class McpServer {
                             // 提取并解析 JSON 回复（JSON-RPC 2.0）
                             JSONObject replyJson = extractJsonObject(reply);
                             if (replyJson == null) {
-                                log("[LLM] 无法提取JSON（即使尝试修复未转义引号后仍失败）");
+                                log("[LLM] 无法提取JSON，作为纯文本回复处理");
                                 log("[LLM] 回复全文 (" + reply.length() + " 字符):\n" + reply);
-                                jsonParseFailCount++;
-                                if (jsonParseFailCount <= MAX_JSON_PARSE_RETRY) {
-                                    // 兜底：把原始回复反馈给 LLM，要求输出合法 JSON-RPC，保住反馈链路
-                                    String ve = "你的回复不是合法的 JSON-RPC 2.0 结构（解析失败，可能含未转义引号、"
-                                            + "括号不匹配或粘连了多余文本）。请只输出一个完整 JSON 对象，例如："
-                                            + "{\"jsonrpc\":\"2.0\",\"method\":\"tools/call\","
-                                            + "\"params\":{\"name\":\"...\",\"arguments\":{...}},\"id\":" + currentRound + "}"
-                                            + " 或 {\"jsonrpc\":\"2.0\",\"result\":{\"type\":\"reply\",\"content\":\"...\"},"
-                                            + "\"id\":" + currentRound + "}。请用 ```json 代码块包裹整个 JSON 对象（DeepSeek 会按 Markdown 渲染，不包裹会导致代码里的 `__name__`、`**` 等被改写）。注意：字符串内部的双引号必须转义为 \\\"。";
-                                    log("[JSON-FALLBACK] 解析失败第 " + jsonParseFailCount + "/" + MAX_JSON_PARSE_RETRY
-                                            + " 次，回灌 format_error 让 LLM 重输出");
-                                    String planMsg = buildPlanMessage("format_error", null, null, conversationId,
-                                            ve + "\n\n请修正后重新输出完整 JSON（不要附带任何解释文本）。");
-                                    if (planMsg != null) {
-                                        currentMessage = planMsg;
-                                    } else {
-                                        currentMessage = "【系统反馈】\n" + ve
-                                                + "\n\n请修正后重新输出完整 JSON（不要附带任何解释文本）。";
-                                    }
-                                    continue;
-                                }
-                                log("[JSON-FALLBACK] 解析失败超过 " + MAX_JSON_PARSE_RETRY + " 次，结束对话");
+                                // 纯文本回复：直接结束对话，前端已从 done 事件获得内容
+                                // 不发送 format_error 回 LLM，避免额外轮次和混淆
                                 finalDone = true;
-                                log("[DONE] 对话完成");
+                                log("[DONE] 纯文本回复");
                                 break;
                             }
 

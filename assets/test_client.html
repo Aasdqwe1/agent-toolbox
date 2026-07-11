@@ -3095,6 +3095,7 @@
                         gotDone = true;
                         if (obj && typeof obj.content === 'string') {
                             const extracted = tryExtractJsonContent(obj.content);
+                            console.log('[SSE] done事件收到, content长度=' + obj.content.length + ', 提取结果:', extracted);
                             if (extracted.isJson && extracted.action === 'tool_call') {
                                 finalToolCall = obj.content;
                                 if (!hasToolCallDetected) {
@@ -3205,7 +3206,7 @@
                         }
                     } else {
                         // 非JSON或解析失败，直接显示原文
-                        if (displayText.indexOf('🔧') !== 0) {
+                        if (displayText && displayText.trim()) {
                             bubbleEl.innerHTML = '<div class="md-body">' + renderMarkdown(displayText) + '</div>';
                             if (finalCanContinue) {
                                 addContinueButton(contentEl, displayText);

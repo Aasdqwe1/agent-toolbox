@@ -204,17 +204,18 @@ public class DeepSeekChatBridge {
                     @Override
                     public void run() {
                         try {
-                            // 第一阶段：等待 JS observer 捕获回复（30 秒）
+                            // 第一阶段：等待 JS observer 捕获回复（120 秒）
                             // 正常情况下 observer 会在几秒内捕获 LLM 回复
-                            boolean completed = latch.await(30, TimeUnit.SECONDS);
+                            // 增加超时时间，因为 LLM 生成复杂回复可能需要较长时间
+                            boolean completed = latch.await(120, TimeUnit.SECONDS);
                             StreamCallback cb = callbacksById.get(requestId);
                             if (!completed) {
                                 // observer 未触发，尝试 Java 端兜底：直接 JS 提取 DOM 内容
                                 AppLogger.w("DeepSeekChatBridge",
                                     "[" + requestId + "] observer 未捕获回复，触发兜底 DOM 提取");
                                 tryExtractFromDOMAndRelease(requestId);
-                                // 第二阶段：等待兜底提取结果（额外 15 秒）
-                                completed = latch.await(15, TimeUnit.SECONDS);
+                                // 第二阶段：等待兜底提取结果（额外 30 秒）
+                                completed = latch.await(30, TimeUnit.SECONDS);
                                 cb = callbacksById.get(requestId);
                             }
                             String reply = replyRef.get();
