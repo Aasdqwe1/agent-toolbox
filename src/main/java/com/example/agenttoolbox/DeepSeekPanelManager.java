@@ -276,7 +276,8 @@ public class DeepSeekPanelManager {
                 } catch (Exception ignored) {}
                 updateLoginStatus(loggedIn, detail);
             }
-        });
+        }
+        );
     }
 
     private void updateLoginStatus(boolean loggedIn, String detail) {
@@ -341,8 +342,10 @@ public class DeepSeekPanelManager {
                     } catch (Exception ignored) {}
                     msgHandler.postDelayed(msgChecker, 30000);
                 }
-            });
-        } };
+            }
+            );
+        }
+        };
         msgHandler.postDelayed(msgChecker, 30000);
     }
 
