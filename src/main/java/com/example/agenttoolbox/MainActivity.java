@@ -42,6 +42,7 @@ public class MainActivity extends Activity {
     private Button btnDeepSeek;
     private TextView statusChip;
     private View deepseekContainer;
+    private View mainPanel;
     private DeepSeekPanelManager deepSeekPanel;
 
     
@@ -68,6 +69,7 @@ public class MainActivity extends Activity {
         btnDeepSeek = (Button) findViewById(R.id.btnDeepSeek);
         statusChip = (TextView) findViewById(R.id.statusChip);
         deepseekContainer = findViewById(R.id.deepseekContainer);
+        mainPanel = findViewById(R.id.mainPanel);
 
         // DeepSeek 面板管理器
         deepSeekPanel = new DeepSeekPanelManager(this,
@@ -379,12 +381,14 @@ public class MainActivity extends Activity {
         if (deepSeekPanel != null) {
             deepSeekPanel.open();
             deepSeekPanel.startMessageMonitor();
+            mainPanel.setVisibility(View.GONE);
             deepseekContainer.setVisibility(View.VISIBLE);
         }
     }
 
     private void closeDeepSeek() {
         deepseekContainer.setVisibility(View.GONE);
+        mainPanel.setVisibility(View.VISIBLE);
         if (deepSeekPanel != null) deepSeekPanel.close();
     }
     
