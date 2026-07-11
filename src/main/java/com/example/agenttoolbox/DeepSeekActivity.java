@@ -294,6 +294,14 @@ public class DeepSeekActivity extends Activity {
 
     /** 打开 MCP 工具箱覆盖层 */
     private void openMcpToolbox() {
+        // 重新注入可见性覆盖（防止 SPA 导航后覆盖丢失）
+        if (webView != null) {
+            webView.evaluateJavascript(
+                "try {" +
+                "  Object.defineProperty(document, 'visibilityState', {get:function(){return 'visible';}, configurable:true});" +
+                "  Object.defineProperty(document, 'hidden', {get:function(){return false;}, configurable:true});" +
+                "} catch(e){}", null);
+        }
         // 只首次加载 URL，后续打开不再刷新（保持页面状态）
         if (!mcpWebViewLoaded) {
             String mcpUrl = "http://127.0.0.1:8080";
@@ -422,6 +430,17 @@ public class DeepSeekActivity extends Activity {
 
                 // 标记 Bridge 中 WebView 已加载
                 DeepSeekChatBridge.getInstance().markAsLoaded();
+
+                // 注入可见性覆盖：防止 MCP 悬浮窗覆盖时 DeepSeek 页面冻结
+                view.evaluateJavascript(
+                    "try {" +
+                    "  Object.defineProperty(document, 'visibilityState', {get:function(){return 'visible';}, configurable:true});" +
+                    "  Object.defineProperty(document, 'hidden', {get:function(){return false;}, configurable:true});" +
+                    "  Object.defineProperty(document, 'webkitVisibilityState', {get:function(){return 'visible';}, configurable:true});" +
+                    "  Object.defineProperty(document, 'webkitHidden', {get:function(){return false;}, configurable:true});" +
+                    "  document.addEventListener('visibilitychange', function(e){e.stopImmediatePropagation();}, true);" +
+                    "  document.addEventListener('webkitvisibilitychange', function(e){e.stopImmediatePropagation();}, true);" +
+                    "} catch(e){}", null);
 
                 // 延迟检测登录状态
                 handler.postDelayed(new Runnable() {
