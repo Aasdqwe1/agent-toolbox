@@ -242,7 +242,7 @@
                     android:id="@+id/btnDeepSeekBack"
                     android:layout_width="wrap_content"
                     android:layout_height="40dp"
-                    android:text="← 返回工具箱"
+                    android:text="← 返回"
                     android:textSize="14sp"
                     android:textColor="@color/text_secondary"
                     android:gravity="center"
@@ -257,10 +257,47 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="DeepSeek 助手"
+                    android:text="DeepSeek"
                     android:textSize="13sp"
                     android:textColor="@color/text_muted"
                     android:gravity="center" />
+
+                <TextView
+                    android:id="@+id/tvLoginStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="检测中..."
+                    android:textSize="12sp"
+                    android:textColor="@color/text_muted"
+                    android:layout_marginRight="8dp" />
+
+                <TextView
+                    android:id="@+id/btnNewChat"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:text="新会话"
+                    android:textSize="13sp"
+                    android:textColor="@color/accent"
+                    android:textStyle="bold"
+                    android:gravity="center"
+                    android:paddingLeft="12dp"
+                    android:paddingRight="12dp"
+                    android:clickable="true"
+                    android:focusable="true" />
+
+                <TextView
+                    android:id="@+id/btnRefreshDS"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:text="刷新"
+                    android:textSize="13sp"
+                    android:textColor="@color/text_secondary"
+                    android:gravity="center"
+                    android:paddingLeft="12dp"
+                    android:paddingRight="12dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="@drawable/card_bg" />
             </LinearLayout>
 
             <FrameLayout
@@ -268,6 +305,16 @@
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
                 android:layout_weight="1" />
+
+            <!-- 底部 MCP 状态栏 -->
+            <TextView
+                android:id="@+id/tvMcpStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textSize="12sp"
+                android:padding="4dp"
+                android:layout_margin="4dp" />
         </LinearLayout>
     </FrameLayout>
 
