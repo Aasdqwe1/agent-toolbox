@@ -42,6 +42,7 @@ public class DeepSeekActivity extends Activity {
 
     // 毛玻璃浮动按钮 + MCP 工具箱覆盖层
     private android.widget.FrameLayout mcpOverlay;
+    private boolean mcpWebViewLoaded = false;
     private android.webkit.WebView mcpWebView;
     private android.widget.TextView btnCloseMcp;
     private TextView mcpFloatBtn;
@@ -293,16 +294,20 @@ public class DeepSeekActivity extends Activity {
 
     /** 打开 MCP 工具箱覆盖层 */
     private void openMcpToolbox() {
-        String mcpUrl = "http://127.0.0.1:8080";
-        // 尝试从 McpServer 获取实际地址
-        try {
-            com.example.agenttoolbox.mcp.McpServer server = McpForegroundService.getInstance() != null
-                ? McpForegroundService.getInstance().getMcpServer() : null;
-            if (server != null && server.getLocalIpAddress() != null) {
-                mcpUrl = "http://" + server.getLocalIpAddress() + ":8080";
-            }
-        } catch (Exception ignored) {}
-        mcpWebView.loadUrl(mcpUrl);
+        // 只首次加载 URL，后续打开不再刷新（保持页面状态）
+        if (!mcpWebViewLoaded) {
+            String mcpUrl = "http://127.0.0.1:8080";
+            // 尝试从 McpServer 获取实际地址
+            try {
+                com.example.agenttoolbox.mcp.McpServer server = McpForegroundService.getInstance() != null
+                    ? McpForegroundService.getInstance().getMcpServer() : null;
+                if (server != null && server.getLocalIpAddress() != null) {
+                    mcpUrl = "http://" + server.getLocalIpAddress() + ":8080";
+                }
+            } catch (Exception ignored) {}
+            mcpWebView.loadUrl(mcpUrl);
+            mcpWebViewLoaded = true;
+        }
         mcpOverlay.setVisibility(View.VISIBLE);
     }
 
