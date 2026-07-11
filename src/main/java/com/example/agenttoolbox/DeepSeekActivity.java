@@ -205,8 +205,8 @@ public class DeepSeekActivity extends Activity {
     // ============ 毛玻璃浮动按钮（可拖动，点击打开 MCP 工具箱） ============
     private void createFloatButton() {
         mcpFloatBtn = new TextView(this);
-        mcpFloatBtn.setText("🔧");
-        mcpFloatBtn.setTextSize(22f);
+        mcpFloatBtn.setText("MCP工具箱");
+        mcpFloatBtn.setTextSize(12f);
         mcpFloatBtn.setGravity(android.view.Gravity.CENTER);
         // 毛玻璃效果：半透明深色背景 + 圆角
         mcpFloatBtn.setPadding(0, 0, 0, 0);
@@ -216,7 +216,9 @@ public class DeepSeekActivity extends Activity {
         }
         mcpFloatBtn.setBackgroundColor(0xBB1E293B);
         // LayoutParams：固定在底部中央
-        android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(52, 52);
+        android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT);
         lp.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL;
         lp.bottomMargin = 16;
         lp.leftMargin = 16;

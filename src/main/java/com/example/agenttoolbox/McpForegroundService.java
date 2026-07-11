@@ -134,9 +134,14 @@ public class McpForegroundService extends Service {
     }
 
     private Notification createNotification() {
+        // 通知点击回到 DeepSeek 页面（如果存在的话），否则回 MainActivity
         Intent notificationIntent = new Intent(this, MainActivity.class);
+        notificationIntent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+        Intent deepSeekIntent = new Intent(this, com.example.agenttoolbox.DeepSeekActivity.class);
+        deepSeekIntent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+        // 使用 DeepSeek 作为首选
         PendingIntent pendingIntent = PendingIntent.getActivity(
-            this, 0, notificationIntent,
+            this, 0, deepSeekIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
