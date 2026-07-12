@@ -272,14 +272,12 @@ public class McpServer {
         @Override
         public void run() {
             try {
-                BufferedReader in = new BufferedReader(
-                    new InputStreamReader(clientSocket.getInputStream(), java.nio.charset.StandardCharsets.UTF_8));
+                java.io.InputStream rawIn = clientSocket.getInputStream();
                 OutputStream out = clientSocket.getOutputStream();
 
-                // 设置 socket 超时，防止恶意连接永久阻塞
                 clientSocket.setSoTimeout(300000);
 
-                String requestLine = in.readLine();
+                String requestLine = readLine(rawIn);
                 if (requestLine == null) {
                     clientSocket.close();
                     return;
@@ -289,11 +287,11 @@ public class McpServer {
                 String method = parts[0];
                 String path = parts.length > 1 ? parts[1] : "/";
 
-                StringBuilder headersBuilder = new StringBuilder();
-                String line;
                 int contentLength = 0;
-
-                while ((line = in.readLine()) != null && !line.isEmpty()) {
+                StringBuilder headersBuilder = new StringBuilder();
+                while (true) {
+                    String line = readLine(rawIn);
+                    if (line == null || line.isEmpty()) break;
                     headersBuilder.append(line).append("\n");
                     if (line.toLowerCase().startsWith("content-length:")) {
                         contentLength = Integer.parseInt(line.split(":")[1].trim());
@@ -303,18 +301,12 @@ public class McpServer {
                 if ("GET".equalsIgnoreCase(method)) {
                     handleGetRequest(path, out);
                 } else if ("POST".equalsIgnoreCase(method)) {
-                    // 限制 body 大小，防止恶意 Content-Length 导致 OOM
                     if (contentLength > 8 * 1024 * 1024) {
                         sendErrorResponse(out, 413, "Payload Too Large");
                         out.flush();
-                        in.close();
-                        out.close();
                         clientSocket.close();
                         return;
                     }
-                    // 循环读满，防止 read 返回部分数据
-                    // 注意：Content-Length 是字节数，需要用 InputStream 读取而非 BufferedReader
-                    java.io.InputStream rawIn = clientSocket.getInputStream();
                     byte[] bodyBytes = new byte[contentLength];
                     int totalRead = 0;
                     while (totalRead < contentLength) {
@@ -331,7 +323,7 @@ public class McpServer {
                 }
 
                 out.flush();
-                in.close();
+                rawIn.close();
                 out.close();
                 clientSocket.close();
 
@@ -341,10 +333,19 @@ public class McpServer {
                     if (clientSocket != null && !clientSocket.isClosed()) {
                         clientSocket.close();
                     }
-                } catch (IOException ex) {
-                    // ignore
-                }
+                } catch (IOException ex) {}
             }
+        }
+
+        private String readLine(java.io.InputStream in) throws IOException {
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            int b;
+            while ((b = in.read()) != -1) {
+                if (b == '\n') break;
+                if (b != '\r') baos.write(b);
+            }
+            if (baos.size() == 0 && b == -1) return null;
+            return baos.toString("UTF-8");
         }
 
         private void handleGetRequest(String path, OutputStream out) throws IOException {
