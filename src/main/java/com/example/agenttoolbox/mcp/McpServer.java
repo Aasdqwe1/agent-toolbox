@@ -313,14 +313,16 @@ public class McpServer {
                         return;
                     }
                     // 循环读满，防止 read 返回部分数据
-                    char[] body = new char[contentLength];
+                    // 注意：Content-Length 是字节数，需要用 InputStream 读取而非 BufferedReader
+                    java.io.InputStream rawIn = clientSocket.getInputStream();
+                    byte[] bodyBytes = new byte[contentLength];
                     int totalRead = 0;
                     while (totalRead < contentLength) {
-                        int n = in.read(body, totalRead, contentLength - totalRead);
+                        int n = rawIn.read(bodyBytes, totalRead, contentLength - totalRead);
                         if (n < 0) break;
                         totalRead += n;
                     }
-                    String requestBody = new String(body, 0, totalRead);
+                    String requestBody = new String(bodyBytes, 0, totalRead, "UTF-8");
                     handlePostRequest(path, requestBody, out);
                 } else if ("OPTIONS".equalsIgnoreCase(method)) {
                     handleOptionsRequest(out);
