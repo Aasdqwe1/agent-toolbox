@@ -106,7 +106,7 @@
         "EXEC_SUCCESS → 执行成功，收到结果",
         "EXEC_ERROR → 执行失败，修正代码重试"
       ],
-      "note": "Python 3.14 已内嵌。禁止 os.system/subprocess/ctypes。超时 60 秒。优先使用单引号。script 字段里的 Python 代码：换行用 JSON 转义换行符（反斜杠+n 两个字符，不要真换行），缩进用 4 个空格字符直接写在字符串中（不要转义、不要用 Tab、不要用 1~3 个空格），代码内双引号和反斜杠按 JSON 规则转义。缩进不是 4 的倍数会直接导致 IndentationError"
+      "note": "Python 3.14 已内嵌。禁止 os.system/subprocess/ctypes。超时 60 秒。优先使用单引号。script 字段里的 Python 代码：换行用 JSON 转义换行符（反斜杠+n 两个字符，不要真换行），缩进用 4 个空格字符直接写在字符串中（不要转义、不要用 Tab、不要用 1~3 个空格），代码内双引号和反斜杠按 JSON 规则转义。缩进不是 4 的倍数会直接导致 IndentationError。内嵌 Python 支持 pip 安装纯 Python 包：可通过 shell 命令 pip install 包名 或直接在 Python 代码中用 import pip; pip.main(['install','包名']) 安装"
     },
     "shell": {
       "trigger": "用户要求执行 Shell 命令时自动激活",
@@ -117,7 +117,7 @@
         "CMD_SUCCESS → 执行成功，收到输出",
         "CMD_ERROR → 执行失败，修正命令"
       ],
-      "note": "禁止 rm -rf /、su、mount、mkfs、dd if=/dev/zero 等破坏性操作。超时 30 秒"
+      "note": "禁止 rm -rf /、su、mount、mkfs、dd if=/dev/zero 等破坏性操作。超时 30 秒。shell 中也可使用 python 命令（python -c '代码' / python 脚本.py）和 pip 命令（pip install 包名），shell 工具会自动桥接到内嵌 Python 环境"
     }
   },
   "plan_system": {

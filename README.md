@@ -57,6 +57,7 @@
 - 通过 JNI 嵌入 `libpython3.14.so`，无需 Termux 或外部 Python
 - 完整标准库（含 `lib-dynload/*.so` 扩展模块）
 - 支持 `asyncio`、`ssl`、`sqlite3`、`hashlib` 等扩展模块
+- 内置 `ensurepip`，支持 pip 安装纯 Python 包（`pip install requests`）
 - 信号保护机制：`Py_Initialize` 崩溃不杀进程
 - GIL 安全管理：`PyEval_SaveThread` + `PyGILState_Ensure/Release`
 
@@ -67,7 +68,7 @@
 | 分类 | 工具名 | 说明 |
 |------|--------|------|
 | **Python** | `python` | 内嵌 Python 3.14 代码执行 |
-| **Shell** | `shell` | Shell 命令执行（需 root） |
+| **Shell** | `shell` | Shell 命令执行（内嵌 python/pip 命令自动桥接） |
 | | `sh` | sh 命令执行 |
 | | `cmd` | 命令执行（无 root） |
 | **文件** | `file_read` | 文件读取（支持行范围） |
