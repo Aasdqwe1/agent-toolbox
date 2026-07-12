@@ -117,6 +117,80 @@
             </LinearLayout>
         </LinearLayout>
 
+        <!-- ======== 端口配置 ======== -->
+        <LinearLayout
+            style="@style/Card"
+            android:layout_marginBottom="12dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="端口配置"
+                style="@style/TextCaption"
+                android:layout_marginBottom="12dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="8dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="端口:"
+                    style="@style/TextBody"
+                    android:layout_marginRight="8dp" />
+
+                <EditText
+                    android:id="@+id/etPort"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:inputType="number"
+                    android:text="8080"
+                    android:textSize="14sp"
+                    android:fontFamily="monospace"
+                    android:background="@drawable/card_bg"
+                    android:paddingLeft="12dp"
+                    android:paddingRight="12dp"
+                    android:layout_marginRight="8dp" />
+
+                <Button
+                    android:id="@+id/btnCheckPort"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:text="检查"
+                    android:textSize="13sp"
+                    android:background="@drawable/card_bg"
+                    android:textColor="@color/accent"
+                    android:stateListAnimator="@null" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="绑定:"
+                    style="@style/TextBody"
+                    android:layout_marginRight="8dp" />
+
+                <Spinner
+                    android:id="@+id/spinnerBind"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/card_bg" />
+            </LinearLayout>
+        </LinearLayout>
+
         <!-- ======== 操作按钮区 ======== -->
         <LinearLayout
             style="@style/Card"

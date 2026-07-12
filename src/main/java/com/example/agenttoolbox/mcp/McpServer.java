@@ -15,6 +15,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.NetworkInterface;
@@ -54,6 +55,7 @@ public class McpServer {
     private static final long HEARTBEAT_THREAD_JOIN_TIMEOUT_MS = 2000L;
 
     private int port;
+    private String bindAddress = "0.0.0.0";  // 默认监听所有网卡
     private ServerSocket serverSocket;
     private boolean running = false;
     private Thread serverThread;
@@ -76,6 +78,12 @@ public class McpServer {
         this.context = context;
     }
 
+    public McpServer(int port, String bindAddress, Context context) {
+        this.port = port;
+        this.bindAddress = bindAddress;
+        this.context = context;
+    }
+
     public void setOnLogListener(OnLogListener listener) {
         this.logListener = listener;
     }
@@ -88,6 +96,48 @@ public class McpServer {
         Log.d("McpServer", message);
     }
 
+    /**
+     * 检查端口是否可用
+     * @param port 要检查的端口号
+     * @param bindAddr 绑定地址，null 或 "0.0.0.0" 表示所有网卡
+     * @return 端口可用返回 null，不可用返回原因描述
+     */
+    public static String checkPortAvailable(int port, String bindAddr) {
+        if (port < 1 || port > 65535) {
+            return "端口号无效: " + port + " (范围 1-65535)";
+        }
+        try {
+            ServerSocket probe = new ServerSocket();
+            probe.setReuseAddress(true);
+            InetAddress addr = (bindAddr == null || bindAddr.equals("0.0.0.0") || bindAddr.isEmpty())
+                ? null : InetAddress.getByName(bindAddr);
+            probe.bind(new InetSocketAddress(addr, port), 1);
+            probe.close();
+            return null; // 可用
+        } catch (IOException e) {
+            return "端口 " + port + " 被占用: " + e.getMessage();
+        }
+    }
+
+    /**
+     * 检查端口是否可用（使用当前绑定地址）
+     */
+    public String checkPortAvailable(int port) {
+        return checkPortAvailable(port, this.bindAddress);
+    }
+
+    public void setBindAddress(String addr) {
+        this.bindAddress = addr;
+    }
+
+    public String getBindAddress() {
+        return bindAddress;
+    }
+
+    public void setPort(int port) {
+        this.port = port;
+    }
+
     public void start() throws IOException {
         if (running) {
             return;
@@ -95,7 +145,12 @@ public class McpServer {
 
         ToolManager.getInstance().init(context);
 
-        serverSocket = new ServerSocket(port);
+        // 绑定地址
+        InetAddress bindAddr = (bindAddress == null || bindAddress.equals("0.0.0.0") || bindAddress.isEmpty())
+            ? null : InetAddress.getByName(bindAddress);
+        serverSocket = new ServerSocket();
+        serverSocket.setReuseAddress(true);
+        serverSocket.bind(new InetSocketAddress(bindAddr, port), 64);
         running = true;
         serverRunning = true;
         threadPool = new java.util.concurrent.ThreadPoolExecutor(
@@ -106,9 +161,14 @@ public class McpServer {
         serverThread = new Thread(new Runnable() {
             @Override
             public void run() {
-                log("MCP服务已启动，监听端口: " + port);
+                String bindDesc = (bindAddress == null || bindAddress.equals("0.0.0.0") || bindAddress.isEmpty())
+                    ? "0.0.0.0 (所有网卡)" : bindAddress;
+                log("MCP服务已启动，监听: " + bindDesc + ":" + port);
                 log("本机IP地址: " + getLocalIpAddress());
                 log("浏览器访问: http://" + getLocalIpAddress() + ":" + port);
+                if (!bindAddress.equals("127.0.0.1") && !bindAddress.equals("localhost")) {
+                    log("局域网访问: http://" + getLocalIpAddress() + ":" + port);
+                }
 
                 while (running) {
                     try {

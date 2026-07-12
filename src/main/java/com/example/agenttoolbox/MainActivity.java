@@ -17,7 +17,10 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.ScrollView;
+import android.widget.Spinner;
+import android.widget.ArrayAdapter;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -39,6 +42,9 @@ public class MainActivity extends Activity {
     private Button btnStart;
     private Button btnStop;
     private Button btnDeepSeek;
+    private Button btnCheckPort;
+    private EditText etPort;
+    private Spinner spinnerBind;
     private TextView statusChip;
 
     
@@ -47,7 +53,9 @@ public class MainActivity extends Activity {
     private Deque<String> logDeque = new LinkedList<>();
     private static final int MAX_LOGS = 1000;  // 最多保存1000条日志
     
-    private static final int PORT = 8080;
+    private static final int DEFAULT_PORT = 8080;
+    private int currentPort = DEFAULT_PORT;
+    private String currentBindAddress = "0.0.0.0";
     private static final int PERMISSION_REQUEST_CODE = 1001;
     private static final int MANAGE_STORAGE_REQUEST_CODE = 1002;
 
@@ -64,6 +72,24 @@ public class MainActivity extends Activity {
         btnStop = (Button) findViewById(R.id.btnStop);
         btnDeepSeek = (Button) findViewById(R.id.btnDeepSeek);
         statusChip = (TextView) findViewById(R.id.statusChip);
+        etPort = (EditText) findViewById(R.id.etPort);
+        spinnerBind = (Spinner) findViewById(R.id.spinnerBind);
+        btnCheckPort = (Button) findViewById(R.id.btnCheckPort);
+
+        // 绑定地址下拉选项
+        String[] bindOptions = {"0.0.0.0 (所有网卡)", "127.0.0.1 (仅本机)"};
+        ArrayAdapter<String> bindAdapter = new ArrayAdapter<>(this,
+            android.R.layout.simple_spinner_item, bindOptions);
+        bindAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinnerBind.setAdapter(bindAdapter);
+
+        // 端口检查按钮
+        btnCheckPort.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                checkPort();
+            }
+        });
 
         // 初始化文件目录
         initFileDir();
@@ -264,7 +290,24 @@ public class MainActivity extends Activity {
                 mcpServer = null;
             }
 
-            mcpServer = new McpServer(PORT, MainActivity.this);
+            // 读取用户输入的端口和绑定地址
+            try {
+                currentPort = Integer.parseInt(etPort.getText().toString().trim());
+            } catch (NumberFormatException e) {
+                currentPort = DEFAULT_PORT;
+                appendLog("端口格式错误，使用默认端口 " + DEFAULT_PORT);
+            }
+            currentBindAddress = spinnerBind.getSelectedItemPosition() == 0 ? "0.0.0.0" : "127.0.0.1";
+
+            // 先检查端口可用性
+            String portError = McpServer.checkPortAvailable(currentPort, currentBindAddress);
+            if (portError != null) {
+                appendLog("❌ " + portError);
+                appendLog("请更换端口后重试");
+                return;
+            }
+
+            mcpServer = new McpServer(currentPort, currentBindAddress, MainActivity.this);
             // 初始化统一日志门面（同时输出到 UI 和 logcat）
             final Handler h = handler;
             AppLogger.init(new AppLogger.OnLogListener() {
@@ -296,7 +339,9 @@ public class MainActivity extends Activity {
             statusChip.setText("运行中");
             statusChip.setBackgroundResource(R.drawable.chip_on);
             statusChip.setTextColor(getResources().getColor(R.color.success));
-            tvAddress.setText("http://" + mcpServer.getLocalIpAddress() + ":" + PORT);
+            String displayAddr = currentBindAddress.equals("127.0.0.1")
+                ? "127.0.0.1" : mcpServer.getLocalIpAddress();
+            tvAddress.setText("http://" + displayAddr + ":" + currentPort);
             btnStart.setEnabled(false);
             btnStop.setEnabled(true);
             appendLog("MCP服务启动成功");
@@ -325,6 +370,26 @@ public class MainActivity extends Activity {
         tvAddress.setText("--");
         btnStart.setEnabled(true);
         btnStop.setEnabled(false);
+    }
+
+    /**
+     * 检查端口可用性
+     */
+    private void checkPort() {
+        int port;
+        try {
+            port = Integer.parseInt(etPort.getText().toString().trim());
+        } catch (NumberFormatException e) {
+            appendLog("❌ 端口格式错误: " + etPort.getText());
+            return;
+        }
+        String bindAddr = spinnerBind.getSelectedItemPosition() == 0 ? "0.0.0.0" : "127.0.0.1";
+        String result = McpServer.checkPortAvailable(port, bindAddr);
+        if (result == null) {
+            appendLog("✅ 端口 " + port + " 可用 (绑定: " + bindAddr + ")");
+        } else {
+            appendLog("❌ " + result);
+        }
     }
 
     /**
