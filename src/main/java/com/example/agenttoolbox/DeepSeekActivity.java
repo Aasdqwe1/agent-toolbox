@@ -1192,6 +1192,13 @@ public class DeepSeekActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        // 清理所有 Handler 回调，防止 Activity 销毁后仍执行
+        if (msgHandler != null && msgChecker != null) {
+            msgHandler.removeCallbacks(msgChecker);
+        }
+        if (handler != null) {
+            handler.removeCallbacksAndMessages(null);
+        }
         if (mcpDialog != null && mcpDialog.isShowing()) {
             mcpDialog.dismiss();
         }

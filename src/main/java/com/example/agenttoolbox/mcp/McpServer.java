@@ -58,7 +58,7 @@ public class McpServer {
     private boolean running = false;
     private Thread serverThread;
     private ExecutorService threadPool;
-    private static boolean serverRunning = false;
+    private static volatile boolean serverRunning = false;
 
     public static boolean isServiceRunning() {
         return serverRunning;
@@ -98,7 +98,10 @@ public class McpServer {
         serverSocket = new ServerSocket(port);
         running = true;
         serverRunning = true;
-        threadPool = Executors.newCachedThreadPool();
+        threadPool = new java.util.concurrent.ThreadPoolExecutor(
+            4, 32, 60L, java.util.concurrent.TimeUnit.SECONDS,
+            new java.util.concurrent.LinkedBlockingQueue<Runnable>(64),
+            new java.util.concurrent.ThreadPoolExecutor.DiscardPolicy());
 
         serverThread = new Thread(new Runnable() {
             @Override
@@ -167,22 +170,34 @@ public class McpServer {
         return port;
     }
 
-    private String readAssetFile(String fileName) {
+    // Asset 文件缓存，避免每次请求重新读盘
+    private final java.util.concurrent.ConcurrentHashMap<String, byte[]> assetCache =
+        new java.util.concurrent.ConcurrentHashMap<>();
+
+    private byte[] readAssetFileBytes(String fileName) {
+        byte[] cached = assetCache.get(fileName);
+        if (cached != null) return cached;
         try {
             InputStream is = context.getAssets().open(fileName);
-            BufferedReader reader = new BufferedReader(new InputStreamReader(is, "UTF-8"));
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                sb.append(line).append("\n");
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int len;
+            while ((len = is.read(buf)) != -1) {
+                baos.write(buf, 0, len);
             }
-            reader.close();
             is.close();
-            return sb.toString();
+            byte[] data = baos.toByteArray();
+            assetCache.put(fileName, data);
+            return data;
         } catch (IOException e) {
             log("读取文件失败: " + fileName + " - " + e.getMessage());
             return null;
         }
+    }
+
+    private String readAssetFile(String fileName) {
+        byte[] data = readAssetFileBytes(fileName);
+        return data != null ? new String(data, java.nio.charset.StandardCharsets.UTF_8) : null;
     }
 
     private class ClientHandler implements Runnable {
@@ -201,13 +216,11 @@ public class McpServer {
                     new InputStreamReader(clientSocket.getInputStream()));
                 OutputStream out = clientSocket.getOutputStream();
 
-                writeThread = new HandlerThread("SSE-WriteThread");
-                writeThread.start();
-                writeHandler = new Handler(writeThread.getLooper());
+                // 设置 socket 超时，防止恶意连接永久阻塞
+                clientSocket.setSoTimeout(30000);
 
                 String requestLine = in.readLine();
                 if (requestLine == null) {
-                    writeThread.quitSafely();
                     clientSocket.close();
                     return;
                 }
@@ -230,9 +243,24 @@ public class McpServer {
                 if ("GET".equalsIgnoreCase(method)) {
                     handleGetRequest(path, out);
                 } else if ("POST".equalsIgnoreCase(method)) {
+                    // 限制 body 大小，防止恶意 Content-Length 导致 OOM
+                    if (contentLength > 8 * 1024 * 1024) {
+                        sendErrorResponse(out, 413, "Payload Too Large");
+                        out.flush();
+                        in.close();
+                        out.close();
+                        clientSocket.close();
+                        return;
+                    }
+                    // 循环读满，防止 read 返回部分数据
                     char[] body = new char[contentLength];
-                    in.read(body, 0, contentLength);
-                    String requestBody = new String(body);
+                    int totalRead = 0;
+                    while (totalRead < contentLength) {
+                        int n = in.read(body, totalRead, contentLength - totalRead);
+                        if (n < 0) break;
+                        totalRead += n;
+                    }
+                    String requestBody = new String(body, 0, totalRead);
                     handlePostRequest(path, requestBody, out);
                 } else if ("OPTIONS".equalsIgnoreCase(method)) {
                     handleOptionsRequest(out);
@@ -243,7 +271,6 @@ public class McpServer {
                 out.flush();
                 in.close();
                 out.close();
-                writeThread.quitSafely();
                 clientSocket.close();
 
             } catch (Exception e) {
@@ -254,9 +281,6 @@ public class McpServer {
                     }
                 } catch (IOException ex) {
                     // ignore
-                }
-                if (writeThread != null) {
-                    writeThread.quitSafely();
                 }
             }
         }
@@ -1635,25 +1659,10 @@ public class McpServer {
         }
 
         /**
-         * 等待所有待处理的写入任务完成
-         * 确保在发送 chunked 编码终止符之前，所有的事件块都已经写入
+         * 空操作 — writeEventChunk 已改为同步写入，无需 flush
          */
         private void flushWriteHandler() {
-            try {
-                final CountDownLatch latch = new CountDownLatch(1);
-                writeHandler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        latch.countDown();
-                    }
-                });
-                // 等待同步任务完成，但设置超时以防止死锁（最多等待5秒）
-                boolean done = latch.await(5, TimeUnit.SECONDS);
-                log("[SSE-FLUSH] flushWriteHandler: " + (done ? "完成" : "超时(5s)"));
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                log("flushWriteHandler 被中断: " + e.getMessage());
-            }
+            // no-op: SSE 事件已同步写入，无需等待异步队列
         }
 
         private void endChunked(final OutputStream out) {

@@ -17,7 +17,7 @@ import java.util.Set;
  */
 public class ToolManager {
     
-    private Map<String, Tool> tools = new HashMap<>();
+    private Map<String, Tool> tools = new java.util.concurrent.ConcurrentHashMap<>();
     private static ToolManager instance;
     private Context context;
     
