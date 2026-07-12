@@ -36,8 +36,10 @@ public class AppLogger {
     private boolean logcatEnabled = true;
     private int defaultMaxLen = 0; // 0 = 不限制
     private File logFile;
+    private long fileWriteCount = 0;
     private static final long MAX_LOG_FILE_SIZE = 1 * 1024 * 1024; // 1MB
     private static final int MAX_MSG_LENGTH = 8 * 1024; // 单条日志最大 8KB
+    private static final int FILE_SIZE_CHECK_INTERVAL = 50; // 每 50 次写检查一次文件大小
 
     /** 后台文件写入线程池（单线程，防堆积） */
     private final ExecutorService fileWriter =
@@ -186,16 +188,20 @@ public class AppLogger {
     /**
      * 写入日志到本地文件，超过 1MB 自动清空重写。
      * 仅在 fileWriter 后台线程中调用。
+     * 每 50 次写检查一次文件大小，避免频繁 stat 系统调用。
      */
     private void writeToFile(String message) {
         if (logFile == null) return;
         try {
-            // 超过 1MB：清空重写
-            if (logFile.exists() && logFile.length() > MAX_LOG_FILE_SIZE) {
-                logFile.delete();
-                logFile.createNewFile();
+            fileWriteCount++;
+            // 每 FILE_SIZE_CHECK_INTERVAL 次检查一次文件大小，减少 stat 系统调用
+            if (fileWriteCount % FILE_SIZE_CHECK_INTERVAL == 0) {
+                if (logFile.exists() && logFile.length() > MAX_LOG_FILE_SIZE) {
+                    logFile.delete();
+                    logFile.createNewFile();
+                }
             }
-            FileOutputStream fos = new FileOutputStream(logFile, true); // append
+            FileOutputStream fos = new FileOutputStream(logFile, true);
             try {
                 OutputStreamWriter writer = new OutputStreamWriter(fos, StandardCharsets.UTF_8);
                 writer.write(message);
