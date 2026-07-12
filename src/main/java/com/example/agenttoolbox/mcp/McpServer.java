@@ -1894,13 +1894,36 @@ public class McpServer {
                             JSONObject args = params.optJSONObject("arguments");
                             if (args != null && args.has("path")) {
                                 @SuppressWarnings("unchecked")
-                                Map<String, String> fileCache = (Map<String, String>) session.intermediateState.get("fileCache");
+                                java.util.LinkedHashMap<String, String> fileCache =
+                                    (java.util.LinkedHashMap<String, String>) session.intermediateState.get("fileCache");
                                 if (fileCache == null) {
-                                    fileCache = new HashMap<>();
+                                    // access-ordered LRU cache: max 20 entries, ~5MB total
+                                    fileCache = new java.util.LinkedHashMap<String, String>(16, 0.75f, true) {
+                                        private int totalSize = 0;
+                                        private static final long MAX_CACHE_BYTES = 5 * 1024 * 1024;
+                                        private static final int MAX_ENTRIES = 20;
+                                        @Override
+                                        public String put(String key, String value) {
+                                            String old = super.put(key, value);
+                                            if (old != null) totalSize -= old.length();
+                                            totalSize += value.length();
+                                            // 按总大小淘汰（从最久未访问的开始）
+                                            while (totalSize > MAX_CACHE_BYTES && size() > 1) {
+                                                java.util.Map.Entry<String, String> eldest = entrySet().iterator().next();
+                                                totalSize -= eldest.getValue().length();
+                                                remove(eldest.getKey());
+                                            }
+                                            return old;
+                                        }
+                                        @Override
+                                        protected boolean removeEldestEntry(java.util.Map.Entry<String, String> eldest) {
+                                            return size() > MAX_ENTRIES;
+                                        }
+                                    };
                                     session.intermediateState.put("fileCache", fileCache);
                                 }
                                 fileCache.put(args.optString("path"), result);
-                                log("[STATE] fileCache: " + args.optString("path"));
+                                log("[STATE] fileCache: " + args.optString("path") + " (size=" + fileCache.size() + ")");
                             }
                         }
                         break;

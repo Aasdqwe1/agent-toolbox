@@ -34,17 +34,22 @@ public class DeepSeekChatBridge {
 
     private static DeepSeekChatBridge instance;
 
-    // 动态线程池（按需创建，空闲 60s 回收），避免固定 3 线程堵塞所有后续请求
+    // 有界线程池（4-16 线程，队列 64），避免 newCachedThreadPool 线程无限膨胀
     private final java.util.concurrent.ExecutorService executorService =
-        java.util.concurrent.Executors.newCachedThreadPool(new java.util.concurrent.ThreadFactory() {
-            private final java.util.concurrent.atomic.AtomicInteger count = new java.util.concurrent.atomic.AtomicInteger(0);
-            @Override
-            public Thread newThread(Runnable r) {
-                Thread t = new Thread(r, "DSBridge-Worker-" + count.incrementAndGet());
-                t.setDaemon(true);
-                return t;
-            }
-        });
+        new java.util.concurrent.ThreadPoolExecutor(
+            4, 16, 60L, java.util.concurrent.TimeUnit.SECONDS,
+            new java.util.concurrent.LinkedBlockingQueue<Runnable>(64),
+            new java.util.concurrent.ThreadFactory() {
+                private final java.util.concurrent.atomic.AtomicInteger count =
+                    new java.util.concurrent.atomic.AtomicInteger(0);
+                @Override
+                public Thread newThread(Runnable r) {
+                    Thread t = new Thread(r, "DSBridge-Worker-" + count.incrementAndGet());
+                    t.setDaemon(true);
+                    return t;
+                }
+            },
+            new java.util.concurrent.ThreadPoolExecutor.DiscardPolicy());
 
     public void shutdown() {
         executorService.shutdownNow();

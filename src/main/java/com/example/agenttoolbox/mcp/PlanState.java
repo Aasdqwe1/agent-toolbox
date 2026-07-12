@@ -33,6 +33,7 @@ public class PlanState {
 
     /** 历史版本（JSON 快照），支持回滚 */
     public final List<String> historyPlans = new ArrayList<>();
+    private static final int MAX_HISTORY_PLANS = 10;
 
     /** 计划是否已确认 */
     public boolean confirmed = false;
@@ -85,9 +86,12 @@ public class PlanState {
         roundsSinceUpdate = 0;
     }
 
-    /** 保存当前计划快照到历史 */
+    /** 保存当前计划快照到历史（最多保留 10 份） */
     public void saveSnapshot() {
         historyPlans.add(toJson().toString());
+        while (historyPlans.size() > MAX_HISTORY_PLANS) {
+            historyPlans.remove(0);
+        }
     }
 
     /** 获取待办摘要文本 */
