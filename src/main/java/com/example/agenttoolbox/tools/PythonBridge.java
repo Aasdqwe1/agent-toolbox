@@ -129,29 +129,59 @@ public class PythonBridge {
 
     /**
      * 引导安装 pip。
-     * stdlib 自带 ensurepip 模块 + bundled pip wheel，但 pip 未预装到
-     * site-packages，导致 `import pip` / `python -m pip` 失败。
-     * 在初始化成功后自动 bootstrap 一次（幂等，已装则跳过）。
-     * 失败不阻断主流程，pip 相关命令的错误由 Python 自身暴露。
+     *
+     * stdlib 自带 ensurepip + bundled pip wheel，但 ensurepip.bootstrap()
+     * 内部用 subprocess + sys.executable 启动子进程跑 pip，而嵌入式环境
+     * sys.executable 为空，子进程必然失败，pip 装不上。
+     *
+     * 改为直接用 Python 的 zipfile 把 bundled pip wheel 解压到 site-packages
+     * 目录（pip 是纯 Python，wheel 解压即用），并把 site-packages 加入 sys.path。
+     * 幂等：已装则跳过；失败不阻断主流程。
      */
     private static void ensurePip() {
         if (pipBootstrapped) return;
         pipBootstrapped = true;
         try {
-            // 先检测 pip 是否已可用，避免重复 bootstrap
+            // 先检测 pip 是否已可用
             String check = nativeExec("import importlib.util; "
                 + "print('PIP_OK' if importlib.util.find_spec('pip') else 'PIP_MISSING')");
             if (check != null && check.contains("PIP_OK")) {
-                AppLogger.i("PythonBridge", "pip 已就绪，跳过 ensurepip");
+                AppLogger.i("PythonBridge", "pip 已就绪，跳过安装");
                 return;
             }
-            AppLogger.i("PythonBridge", "pip 缺失，执行 ensurepip.bootstrap()...");
-            // bootstrap() 安装 bundled pip wheel 到 site-packages
-            String out = nativeExec(
-                "import ensurepip; ensurepip.bootstrap(upgrade=False, user=False); print('ENSUREPIP_DONE')");
-            AppLogger.i("PythonBridge", "ensurepip 输出: " + (out == null ? "(null)" : out));
+            AppLogger.i("PythonBridge", "pip 缺失，解压 bundled wheel 到 site-packages...");
+            // pip wheel 路径：<pythonHome>/lib/python3.14/ensurepip/_bundled/pip-X.Y.Z-py3-none-any.whl
+            // site-packages: <pythonHome>/lib/python3.14/site-packages
+            String wheelDir = new File(pythonHome,
+                "lib/python3.14/ensurepip/_bundled").getAbsolutePath();
+            String sitePackages = new File(pythonHome,
+                "lib/python3.14/site-packages").getAbsolutePath();
+            // 用 Python 解压 wheel：找 wheel → 解压到 site-packages → 加 sys.path
+            // 路径用 Python 字符串字面量（单引号包裹），避免转义问题
+            String code =
+                "import os, sys, zipfile, glob\n" +
+                "wheel_dir = '" + wheelDir.replace("'", "\\'") + "'\n" +
+                "site_pkg = '" + sitePackages.replace("'", "\\'") + "'\n" +
+                "os.makedirs(site_pkg, exist_ok=True)\n" +
+                "wheels = glob.glob(os.path.join(wheel_dir, 'pip-*.whl'))\n" +
+                "if not wheels:\n" +
+                "    print('PIP_INSTALL_FAIL: no pip wheel in ' + wheel_dir)\n" +
+                "else:\n" +
+                "    whl = wheels[0]\n" +
+                "    with zipfile.ZipFile(whl) as z:\n" +
+                "        z.extractall(site_pkg)\n" +
+                "    if site_pkg not in sys.path:\n" +
+                "        sys.path.insert(0, site_pkg)\n" +
+                "    # 验证 pip 可导入\n" +
+                "    try:\n" +
+                "        import pip\n" +
+                "        print('PIP_INSTALL_OK:' + pip.__version__)\n" +
+                "    except Exception as e:\n" +
+                "        print('PIP_INSTALL_FAIL: ' + str(e))\n";
+            String out = nativeExec(code);
+            AppLogger.i("PythonBridge", "pip 安装输出: " + (out == null ? "(null)" : out));
         } catch (Throwable e) {
-            AppLogger.w("PythonBridge", "ensurepip 引导失败（pip 功能可能不可用）: " + e.getMessage());
+            AppLogger.w("PythonBridge", "pip 安装失败（pip 功能可能不可用）: " + e.getMessage());
         }
     }
 
