@@ -2939,7 +2939,7 @@
             chatMessages.appendChild(msgEl);
             chatMessages.scrollTop = chatMessages.scrollHeight;
 
-            const setState = (t) => {
+            let setState = (t) => {
                 const s = document.getElementById('dsStreamState');
                 if (s) s.textContent = t;
             };
@@ -2989,6 +2989,9 @@
                 let streamContent = '';
                 let renderTimer = null;
                 let pendingRender = false;
+                // 当前轮次的活跃 bubble（轮次切换时会创建新 bubble，保留旧 bubble 内容）
+                let activeBubbleEl = bubbleEl;
+                let activeContentEl = contentEl;
 
                 function scheduleRender() {
                     if (renderTimer) {
@@ -3006,7 +3009,7 @@
                             let displayText = extracted.text;
                             // 如果是tool_call，显示工具调用状态
                             if (extracted.isJson && extracted.action === 'tool_call') {
-                                bubbleEl.textContent = formatToolCallStatus(extracted.toolName);
+                                activeBubbleEl.textContent = formatToolCallStatus(extracted.toolName);
                                 hasToolCallDetected = true;
                                 finalToolCall = extracted.raw || streamContent;
                                 setState('工具调用中');
@@ -3014,9 +3017,9 @@
                                 return;
                             }
                             try {
-                                bubbleEl.innerHTML = '<div class="md-body">' + renderMarkdown(displayText) + '</div>';
+                                activeBubbleEl.innerHTML = '<div class="md-body">' + renderMarkdown(displayText) + '</div>';
                             } catch (e) {
-                                bubbleEl.textContent = displayText;
+                                activeBubbleEl.textContent = displayText;
                             }
                             chatMessages.scrollTop = chatMessages.scrollHeight;
                         }
@@ -3040,12 +3043,38 @@
                             const content = obj.content;
                             const round = obj.round || 1;
 
-                            // 轮次切换时重置状态
+                            // 轮次切换时：保留旧 bubble 内容，创建新 bubble 用于本轮
                             if (round !== currentRound) {
                                 currentRound = round;
                                 lastLen = 0;
                                 streamContent = '';
                                 hasToolCallDetected = false;
+                                // 创建新轮次的 AI 消息条（与 sendToDeepSeek 初始创建的结构一致）
+                                const newBubble = document.createElement('div');
+                                newBubble.className = 'message-bubble';
+                                newBubble.style.whiteSpace = 'pre-wrap';
+                                newBubble.textContent = '…';
+                                const newLabel = document.createElement('div');
+                                newLabel.className = 'message-label';
+                                newLabel.innerHTML = '<span class="method-badge method-response">DeepSeek</span> <span class="text-muted" style="font-size:12px; font-weight:400;" id="dsStreamState">流式</span>';
+                                const newContent = document.createElement('div');
+                                newContent.className = 'message-content';
+                                newContent.appendChild(newLabel);
+                                newContent.appendChild(newBubble);
+                                const newMsg = document.createElement('div');
+                                newMsg.className = 'message server';
+                                newMsg.innerHTML = '<div class="message-avatar">AI</div>';
+                                newMsg.appendChild(newContent);
+                                chatMessages.appendChild(newMsg);
+                                // 切换活跃引用到新 bubble（旧 bubble 内容保留不动）
+                                activeBubbleEl = newBubble;
+                                activeContentEl = newContent;
+                                // 更新 setState 指向新 label
+                                setState = (t) => {
+                                    const s = newLabel.querySelector('#dsStreamState');
+                                    if (s) s.textContent = t;
+                                };
+                                chatMessages.scrollTop = chatMessages.scrollHeight;
                             }
 
                             // 使用 tryExtractJsonContent 检测内容和类型
@@ -3055,7 +3084,7 @@
                                 if (!hasToolCallDetected) {
                                     hasToolCallDetected = true;
                                     finalToolCall = content;
-                                    bubbleEl.textContent = formatToolCallStatus(extracted.toolName);
+                                    activeBubbleEl.textContent = formatToolCallStatus(extracted.toolName);
                                     setState('工具调用中');
                                 }
                             } else {
@@ -3074,14 +3103,22 @@
                         const sp = (obj && obj.params) ? obj.params : obj;
                         if (sp && sp.result && sp.tool) {
                             const cardEl = addToolResultCard(sp.tool, sp.result, sp.isError);
-                            if (cardEl && msgEl && msgEl.parentNode) {
-                                // 确保工具卡片是 AI 消息的兄弟元素（而非子元素）
-                                if (msgEl.parentNode === chatMessages) {
-                                    chatMessages.insertBefore(cardEl, msgEl);
+                            if (cardEl) {
+                                // 找到当前活跃 bubble 所属的 msgEl，工具卡片插在它后面
+                                let hostMsg = null;
+                                let node = activeBubbleEl;
+                                while (node && node !== chatMessages) {
+                                    if (node.classList && node.classList.contains('message') && node.classList.contains('server')) {
+                                        hostMsg = node;
+                                        break;
+                                    }
+                                    node = node.parentNode;
+                                }
+                                if (hostMsg && hostMsg.parentNode === chatMessages) {
+                                    hostMsg.parentNode.insertBefore(cardEl, hostMsg.nextSibling);
                                 } else {
                                     chatMessages.appendChild(cardEl);
                                 }
-                                // 额外间距
                                 cardEl.style.marginBottom = '16px';
                             }
                         }
@@ -3102,7 +3139,7 @@
                                 finalToolCall = obj.content;
                                 if (!hasToolCallDetected) {
                                     hasToolCallDetected = true;
-                                    bubbleEl.textContent = formatToolCallStatus(extracted.toolName);
+                                    activeBubbleEl.textContent = formatToolCallStatus(extracted.toolName);
                                     setState('工具调用中');
                                 }
                             } else if (obj.content.length > 0) {
@@ -3110,7 +3147,7 @@
                                 gotContent = true;
                                 // 服务端计划全部完成时推送的 done 事件：标记为最终完成总结
                                 if (obj.planComplete === true) {
-                                    bubbleEl.classList.add('complete');
+                                    activeBubbleEl.classList.add('complete');
                                     setState('计划已完成');
                                 } else {
                                     setState('完成');
@@ -3198,27 +3235,27 @@
                     if (extracted.isJson && extracted.action === 'tool_call') {
                         // 工具调用已在 scheduleRender / done 中处理，确保状态正确
                         if (!hasToolCallDetected) {
-                            bubbleEl.textContent = formatToolCallStatus(extracted.toolName);
+                            activeBubbleEl.textContent = formatToolCallStatus(extracted.toolName);
                         }
                     } else if (extracted.isJson && extracted.action === 'reply') {
                         displayText = extracted.text;
-                        bubbleEl.innerHTML = '<div class="md-body">' + renderMarkdown(displayText) + '</div>';
+                        activeBubbleEl.innerHTML = '<div class="md-body">' + renderMarkdown(displayText) + '</div>';
                         if (finalCanContinue) {
-                            addContinueButton(contentEl, displayText);
+                            addContinueButton(activeContentEl, displayText);
                         }
                     } else {
                         // 非JSON或解析失败，直接显示原文
                         if (displayText && displayText.trim()) {
-                            bubbleEl.innerHTML = '<div class="md-body">' + renderMarkdown(displayText) + '</div>';
+                            activeBubbleEl.innerHTML = '<div class="md-body">' + renderMarkdown(displayText) + '</div>';
                             if (finalCanContinue) {
-                                addContinueButton(contentEl, displayText);
+                                addContinueButton(activeContentEl, displayText);
                             }
                         }
                     }
                 }
                 chatMessages.scrollTop = chatMessages.scrollHeight;
             } catch (e) {
-                if (bubbleEl.textContent === '…') bubbleEl.textContent = '';
+                if (activeBubbleEl.textContent === '…') activeBubbleEl.textContent = '';
                 addSystemMessage('发送失败: ' + e.message);
                 setState('失败');
             } finally {
