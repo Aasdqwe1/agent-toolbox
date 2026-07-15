@@ -71,6 +71,10 @@ public class DeepSeekChatBridge {
     private Handler mainHandler;
     private boolean webViewLoaded;
 
+    // MCP 工具箱 WebView（跨 Activity 保持，避免退出主页再打开时重新 loadUrl 刷新）
+    private WebView mcpWebView;
+    private boolean mcpWebViewLoaded;
+
     // ---- 并发请求管理：每个 requestId 保存一份回调 ----
     private final AtomicLong requestIdCounter = new AtomicLong(0);
     private final ConcurrentHashMap<String, StreamCallback> callbacksById = new ConcurrentHashMap<>();
@@ -106,6 +110,8 @@ public class DeepSeekChatBridge {
         this.boundWebView = null;
         this.mainHandler = null;
         this.webViewLoaded = false;
+        this.mcpWebView = null;
+        this.mcpWebViewLoaded = false;
         callbacksById.clear();
         latchById.clear();
         replyById.clear();
@@ -117,6 +123,18 @@ public class DeepSeekChatBridge {
     public synchronized boolean isRegistered() { return boundWebView != null; }
     public synchronized boolean isWebViewLoaded() { return webViewLoaded && boundWebView != null; }
     public synchronized void markAsLoaded() { this.webViewLoaded = true; }
+
+    // ---- MCP 工具箱 WebView 管理（跨 Activity 保持） ----
+    public synchronized void registerMcpWebView(WebView wv) {
+        this.mcpWebView = wv;
+        AppLogger.d("DeepSeekChatBridge", "已注册 MCP WebView: " + (wv != null ? "有效" : "null"));
+    }
+    public synchronized WebView getMcpWebView() { return mcpWebView; }
+    public synchronized boolean isMcpWebViewLoaded() { return mcpWebViewLoaded && mcpWebView != null; }
+    public synchronized void markMcpWebViewLoaded() { this.mcpWebViewLoaded = true; }
+    public synchronized void detachMcp() {
+        AppLogger.d("DeepSeekChatBridge", "detachMcp: MCP WebView 保持存活");
+    }
 
     /**
      * 流式回调接口

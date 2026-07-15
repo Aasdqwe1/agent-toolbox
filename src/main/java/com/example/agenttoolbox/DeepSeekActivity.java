@@ -43,10 +43,16 @@ public class DeepSeekActivity extends Activity {
 
     // 毛玻璃浮动按钮 + MCP 工具箱覆盖层
     private android.widget.FrameLayout mcpOverlay;
-    private boolean mcpWebViewLoaded = false;
     private android.app.Dialog mcpDialog;
     private android.webkit.WebView mcpWebView;
     private android.widget.TextView btnCloseMcp;
+    private android.widget.LinearLayout mcpTopBar;       // 顶部按钮栏（设置 + 关闭）
+    private android.widget.TextView btnSettingsMcp;      // 设置按钮（透明度调节）
+    private android.widget.LinearLayout mcpAlphaPanel;   // 透明度调节面板
+    private android.widget.SeekBar mcpAlphaSeekbar;
+    private android.widget.TextView mcpAlphaLabel;
+    // MCP 工具箱透明度（跨 Activity 保持）：1.0=不透明，<1.0 可穿透显示底层 DeepSeek
+    private static float sMcpAlpha = 1.0f;
     private TextView mcpFloatBtn;
     private float floatBtnX, floatBtnY;
 
@@ -125,14 +131,18 @@ public class DeepSeekActivity extends Activity {
 
         // MCP 工具箱浮动层初始化
         mcpOverlay = (android.widget.FrameLayout) findViewById(R.id.mcpOverlay);
-        mcpWebView = (android.webkit.WebView) findViewById(R.id.mcpWebView);
-        // 配置 MCP 工具箱 WebView（开 JS、DOM 存储）
-        android.webkit.WebSettings ms = mcpWebView.getSettings();
-        ms.setJavaScriptEnabled(true);
-        ms.setDomStorageEnabled(true);
-        ms.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        // 初始化或复用 MCP 工具箱 WebView（跨 Activity 保持，避免退出主页再打开刷新）
+        initOrReuseMcpWebView();
+        // 创建顶部按钮栏（容纳设置 + 关闭按钮）
+        createMcpTopBar();
         // 创建程序化的关闭按钮（可拖动，同 MCP 样式）
         createCloseButton();
+        // 创建设置按钮（调节透明度，可穿透显示 DeepSeek 内容）
+        createSettingsButton();
+        // 创建透明度调节面板（默认隐藏，点击设置按钮切换）
+        createAlphaPanel();
+        // 恢复上次透明度（跨 Activity 保持）
+        applyMcpAlpha(sMcpAlpha);
 
         // 创建毛玻璃浮动按钮
         createFloatButton();
@@ -261,13 +271,11 @@ public class DeepSeekActivity extends Activity {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
             btnCloseMcp.setElevation(8f);
         }
-        android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
-                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
-                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT);
-        lp.gravity = android.view.Gravity.TOP | android.view.Gravity.RIGHT;
-        lp.topMargin = 8;
-        lp.rightMargin = 8;
-        mcpOverlay.addView(btnCloseMcp, lp);
+        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.leftMargin = 6;
+        mcpTopBar.addView(btnCloseMcp, lp);
 
         btnCloseMcp.setOnTouchListener(new View.OnTouchListener() {
             private float dx, dy;
@@ -296,6 +304,137 @@ public class DeepSeekActivity extends Activity {
         });
     }
 
+    /** 创建顶部按钮栏容器（横向排列设置 + 关闭按钮，固定右上角） */
+    private void createMcpTopBar() {
+        mcpTopBar = new android.widget.LinearLayout(this);
+        mcpTopBar.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        mcpTopBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT);
+        lp.gravity = android.view.Gravity.TOP | android.view.Gravity.RIGHT;
+        lp.topMargin = 8;
+        lp.rightMargin = 8;
+        mcpOverlay.addView(mcpTopBar, lp);
+    }
+
+    /** 创建设置按钮（样式同关闭按钮，点击切换透明度面板） */
+    private void createSettingsButton() {
+        btnSettingsMcp = new TextView(this);
+        btnSettingsMcp.setText("设置");
+        btnSettingsMcp.setTextSize(13f);
+        btnSettingsMcp.setTypeface(null, android.graphics.Typeface.BOLD);
+        btnSettingsMcp.setGravity(android.view.Gravity.CENTER);
+        btnSettingsMcp.setTextColor(0xFFFFFFFF);
+        btnSettingsMcp.setBackgroundColor(0xBB1E293B);
+        int pad = dp(6);
+        btnSettingsMcp.setPadding(pad, pad / 2, pad, pad / 2);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+            btnSettingsMcp.setElevation(8f);
+        }
+        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+        // 插入到 index 0，使设置按钮位于关闭按钮左侧
+        mcpTopBar.addView(btnSettingsMcp, 0, lp);
+
+        btnSettingsMcp.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (mcpAlphaPanel == null) return;
+                if (mcpAlphaPanel.getVisibility() == View.VISIBLE) {
+                    mcpAlphaPanel.setVisibility(View.GONE);
+                } else {
+                    mcpAlphaPanel.setVisibility(View.VISIBLE);
+                }
+            }
+        });
+    }
+
+    /** 创建透明度调节面板（SeekBar，默认隐藏） */
+    private void createAlphaPanel() {
+        mcpAlphaPanel = new android.widget.LinearLayout(this);
+        mcpAlphaPanel.setOrientation(android.widget.LinearLayout.VERTICAL);
+        mcpAlphaPanel.setBackgroundColor(0xDD1E293B);
+        int pad = dp(10);
+        mcpAlphaPanel.setPadding(pad, pad / 2, pad, pad / 2);
+        mcpAlphaPanel.setVisibility(View.GONE);
+        android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT);
+        lp.gravity = android.view.Gravity.TOP | android.view.Gravity.RIGHT;
+        lp.topMargin = dp(52);   // 位于顶部按钮栏下方
+        lp.rightMargin = 8;
+        mcpOverlay.addView(mcpAlphaPanel, lp);
+
+        mcpAlphaLabel = new TextView(this);
+        mcpAlphaLabel.setText("透明度: " + (int) (sMcpAlpha * 100) + "%");
+        mcpAlphaLabel.setTextSize(12f);
+        mcpAlphaLabel.setTextColor(0xFFFFFFFF);
+        mcpAlphaPanel.addView(mcpAlphaLabel);
+
+        mcpAlphaSeekbar = new android.widget.SeekBar(this);
+        mcpAlphaSeekbar.setMax(100);
+        mcpAlphaSeekbar.setProgress((int) (sMcpAlpha * 100));
+        android.widget.LinearLayout.LayoutParams slp = new android.widget.LinearLayout.LayoutParams(
+                dp(180),
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+        mcpAlphaPanel.addView(mcpAlphaSeekbar, slp);
+
+        mcpAlphaSeekbar.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(android.widget.SeekBar seekBar, int progress, boolean fromUser) {
+                float a = progress / 100f;
+                // 限制最低 10%，避免完全看不见
+                if (a < 0.1f) a = 0.1f;
+                applyMcpAlpha(a);
+                // label 用 clamp 后的值，保证与实际生效透明度一致
+                mcpAlphaLabel.setText("透明度: " + (int) (a * 100) + "%");
+            }
+            @Override
+            public void onStartTrackingTouch(android.widget.SeekBar seekBar) {}
+            @Override
+            public void onStopTrackingTouch(android.widget.SeekBar seekBar) {
+                // 松手时若低于下限，把滑块拉回 10%，与实际生效值一致
+                if (seekBar.getProgress() < 10) {
+                    seekBar.setProgress(10);
+                }
+            }
+        });
+    }
+
+    /**
+     * 应用 MCP 工具箱透明度。
+     * a = 1.0：完全不透明（默认，mcpWebView 遮住底层 DeepSeek）
+     * a < 1.0：mcpWebView 半透明 + Dialog 窗口透明，可穿透看到底层 DeepSeek 网页
+     *
+     * 同步调整三处：mcpWebView 自身 alpha、mcpOverlay 遮罩背景、Dialog 窗口背景。
+     */
+    private void applyMcpAlpha(float a) {
+        sMcpAlpha = a;
+        if (mcpWebView != null) {
+            mcpWebView.setAlpha(a);
+        }
+        // mcpOverlay 遮罩背景：默认 #E6000000（0.9 黑），按 a 比例衰减
+        int bgAlpha = (int) (0.9f * a * 255);
+        mcpOverlay.setBackgroundColor((bgAlpha << 24) & 0xFF000000);
+        // Dialog 窗口背景：a<1 时必须透明，否则窗口自身黑底会挡住底层 Activity
+        if (mcpDialog != null && mcpDialog.getWindow() != null) {
+            if (a >= 0.999f) {
+                mcpDialog.getWindow().setBackgroundDrawable(
+                        new android.graphics.drawable.ColorDrawable(0xFF000000));
+            } else {
+                mcpDialog.getWindow().setBackgroundDrawable(
+                        new android.graphics.drawable.ColorDrawable(0x00000000));
+            }
+        }
+    }
+
+    /** dp 转 px */
+    private int dp(float v) {
+        return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
+    }
+
     /** 打开 MCP 工具箱（用 Dialog 代替 overlay，避免覆盖 DeepSeek WebView 导致冻结） */
     private void openMcpToolbox() {
         if (mcpDialog == null) {
@@ -303,6 +442,10 @@ public class DeepSeekActivity extends Activity {
             mcpDialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
             mcpDialog.getWindow().setBackgroundDrawable(
                 new android.graphics.drawable.ColorDrawable(0xFF000000));
+            // 关闭窗口默认 dim，遮罩完全由 mcpOverlay 背景控制，
+            // 这样调节透明度时才能真正穿透显示底层 DeepSeek 网页
+            mcpDialog.getWindow().clearFlags(
+                android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             // 将 mcpOverlay 从 Activity 布局移到 Dialog
             android.view.ViewParent parent = mcpOverlay.getParent();
             if (parent instanceof android.view.ViewGroup) {
@@ -321,12 +464,16 @@ public class DeepSeekActivity extends Activity {
             });
         }
         // 只首次加载 URL，后续打开不再刷新（保持页面状态）
-        if (!mcpWebViewLoaded) {
+        // 状态存于 Bridge 单例，跨 Activity 保持，避免退出主页再打开时刷新
+        DeepSeekChatBridge bridge = DeepSeekChatBridge.getInstance();
+        if (!bridge.isMcpWebViewLoaded()) {
             String mcpUrl = buildMcpUrl();
             mcpWebView.loadUrl(mcpUrl);
-            mcpWebViewLoaded = true;
+            bridge.markMcpWebViewLoaded();
         }
         mcpDialog.show();
+        // 恢复透明度：Dialog 重建后窗口背景被重置为不透明，需重新应用上次设置
+        applyMcpAlpha(sMcpAlpha);
     }
 
     /**
@@ -378,6 +525,63 @@ public class DeepSeekActivity extends Activity {
 
             // 注册到 Bridge
             bridge.register(webView);
+        }
+    }
+
+    /**
+     * 初始化或复用 MCP 工具箱 WebView
+     * - 第一次进入：使用 layout 中的 mcpWebView → 配置 → 注册到 Bridge
+     * - 再次进入：Bridge 已有 mcpWebView → 从旧父容器 detach → attach 到新 mcpOverlay → 跳过配置
+     *
+     * 与 {@link #initOrReuseWebView()} 同样的思路：把 WebView 交由 {@link DeepSeekChatBridge}
+     * 单例持有，Activity 销毁时仅 detach 不 destroy，下次进入复用。
+     * 是否需要 loadUrl 由 {@link #openMcpToolbox()} 根据 Bridge 中的 loaded 标志决定，
+     * 这样即使用户上次没点开过工具箱就退出，本次进入也能正确加载，且不会重复刷新。
+     */
+    private void initOrReuseMcpWebView() {
+        DeepSeekChatBridge bridge = DeepSeekChatBridge.getInstance();
+        WebView existing = bridge.getMcpWebView();
+
+        if (existing != null) {
+            // 复用：MCP WebView 已在 Bridge 中保持，只需 attach 到新容器
+            AppLogger.d("DeepSeekActivity", "复用已存在的 MCP WebView（loaded=" + bridge.isMcpWebViewLoaded() + "）");
+            mcpWebView = existing;
+
+            // 从旧父容器 detach
+            android.view.ViewParent oldParent = mcpWebView.getParent();
+            if (oldParent instanceof android.view.ViewGroup) {
+                ((android.view.ViewGroup) oldParent).removeView(mcpWebView);
+            }
+
+            // 移除 layout 默认创建的 mcpWebView（避免内存泄漏）
+            android.view.View defaultMcp = findViewById(R.id.mcpWebView);
+            if (defaultMcp != null && defaultMcp != mcpWebView) {
+                android.view.ViewParent dp = defaultMcp.getParent();
+                if (dp instanceof android.view.ViewGroup) {
+                    ((android.view.ViewGroup) dp).removeView(defaultMcp);
+                }
+                ((android.webkit.WebView) defaultMcp).destroy();
+            }
+        } else {
+            // 第一次进入：使用 layout 中的 mcpWebView 并完整配置
+            AppLogger.d("DeepSeekActivity", "创建新 MCP WebView");
+            mcpWebView = (android.webkit.WebView) findViewById(R.id.mcpWebView);
+            // 配置 MCP 工具箱 WebView（开 JS、DOM 存储）
+            android.webkit.WebSettings ms = mcpWebView.getSettings();
+            ms.setJavaScriptEnabled(true);
+            ms.setDomStorageEnabled(true);
+            ms.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+            // 注册到 Bridge，跨 Activity 保持
+            bridge.registerMcpWebView(mcpWebView);
+        }
+
+        // attach 到当前 mcpOverlay（复用场景需要；首次场景 layout 已挂载，跳过）
+        if (mcpWebView.getParent() != mcpOverlay) {
+            android.widget.FrameLayout.LayoutParams mlp = new android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT);
+            // 插入到 index 0，确保关闭按钮（后 add）位于 mcpWebView 之上
+            mcpOverlay.addView(mcpWebView, 0, mlp);
         }
     }
 
@@ -1202,6 +1406,7 @@ public class DeepSeekActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (webView != null) webView.onResume();
+        if (mcpWebView != null) mcpWebView.onResume();
         updateMcpStatus();
     }
 
@@ -1233,6 +1438,14 @@ public class DeepSeekActivity extends Activity {
                 ((android.view.ViewGroup) parent).removeView(webView);
             }
             DeepSeekChatBridge.getInstance().detach();  // 仅记录，不释放
+        }
+        // 同样保持 MCP 工具箱 WebView 存活：跨 Activity 复用，避免退出主页再打开时重新 loadUrl 刷新
+        if (mcpWebView != null) {
+            android.view.ViewParent mcpParent = mcpWebView.getParent();
+            if (mcpParent instanceof android.view.ViewGroup) {
+                ((android.view.ViewGroup) mcpParent).removeView(mcpWebView);
+            }
+            DeepSeekChatBridge.getInstance().detachMcp();  // 仅记录，不释放
         }
         super.onDestroy();
     }
