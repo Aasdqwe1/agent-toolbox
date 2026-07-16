@@ -218,40 +218,170 @@ public class ShellTool implements Tool {
         return sb.toString();
     }
 
-    // ===== Git 桥接（dulwich — 纯 Python Git 实现）=====
+    // ===== Git 集成（三层回退：系统 git → 内嵌 git 二进制 → dulwich）=====
+
+    /** 系统可能存在 git 的路径 */
+    private static final String[] SYSTEM_GIT_PATHS = {
+        "/system/bin/git", "/system/xbin/git",
+        "/vendor/bin/git", "/data/local/tmp/git",
+        "/data/data/com.termux/files/usr/bin/git",
+        "/usr/bin/git", "/usr/local/bin/git",
+    };
+
+    /** 缓存找到的 git 路径，避免每次都搜索 */
+    private static String cachedGitPath = null;
+    private static boolean gitPathSearched = false;
 
     /**
-     * 拦截 git 命令，通过内嵌 Python + dulwich 执行。
-     * 首次使用时自动 pip install dulwich。
+     * 拦截 git 命令，三层回退策略：
+     * 1. 系统 git 二进制（rooted 设备或 Termux 环境）
+     * 2. 内嵌 git 二进制（assets/git/git 打包进 APK，需手动放置）
+     * 3. dulwich 纯 Python Git（自动 pip install）
      */
     private String executeGit(String cmd, int timeout) throws Exception {
         StringBuilder sb = new StringBuilder();
         sb.append("$ ").append(cmd).append("\n");
 
-        if (context == null) {
-            return sb.toString() + "[错误] ShellTool 未注入 Context，无法初始化 Python";
-        }
-        // 确保 Python 环境就绪
-        PythonBridge.init(context);
-
-        // 将 git_bridge.py 从 assets 提取到 filesDir
-        java.io.File bridgeScript = extractGitBridge();
-        if (bridgeScript == null) {
-            return sb.toString() + "[错误] 无法提取 git_bridge.py";
-        }
-
-        // 解析 git 子命令和参数，构造 Python 执行代码
-        // cmd 形如 "git clone https://..." → 去掉 "git " 前缀
         String gitArgs = cmd.replaceFirst("^git\\s+", "").trim();
         if (gitArgs.isEmpty()) {
             return sb.toString() + "用法: git <子命令> [参数...]\n"
                 + "支持: init, clone, add, commit, status, log, push, pull, fetch, "
                 + "branch, checkout, remote, config, tag, diff, rm, version\n"
-                + "（基于 dulwich 纯 Python Git 实现，首次使用自动安装）";
+                + "策略: 优先用系统 git 二进制，回退到内嵌 dulwich";
         }
 
-        // 用 Python exec 执行脚本，通过 sys.argv 传递参数
-        // 用 exec() 方式调用脚本文件，设置 sys.argv
+        // 第 1 层：系统 git 二进制
+        String gitBin = findGitBinary();
+        if (gitBin != null) {
+            return executeGitBinary(sb, gitBin, gitArgs, timeout);
+        }
+
+        // 第 2 层：内嵌 git 二进制（assets/git/git）
+        if (context != null) {
+            java.io.File embeddedGit = extractEmbeddedGitBinary();
+            if (embeddedGit != null && embeddedGit.canExecute()) {
+                return executeGitBinary(sb, embeddedGit.getAbsolutePath(), gitArgs, timeout);
+            }
+        }
+
+        // 第 3 层：dulwich 回退
+        return executeGitDulwich(sb, gitArgs);
+    }
+
+    /**
+     * 查找系统 git 二进制
+     * @return git 路径，或 null 如果未找到
+     */
+    private String findGitBinary() {
+        if (gitPathSearched) return cachedGitPath;
+        gitPathSearched = true;
+
+        // 检查预定义路径
+        for (String path : SYSTEM_GIT_PATHS) {
+            java.io.File f = new java.io.File(path);
+            if (f.exists() && f.canExecute()) {
+                cachedGitPath = path;
+                return path;
+            }
+        }
+
+        // 用 which/command -v 搜索 PATH
+        try {
+            ProcessRunner.Result r = ProcessRunner.execShell("command -v git 2>/dev/null || which git 2>/dev/null", 5);
+            if (r.exitCode == 0) {
+                String found = r.stdout.trim();
+                if (!found.isEmpty()) {
+                    java.io.File f = new java.io.File(found);
+                    if (f.exists() && f.canExecute()) {
+                        cachedGitPath = found;
+                        return found;
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+
+        cachedGitPath = null;
+        return null;
+    }
+
+    /**
+     * 用真正的 git 二进制执行命令
+     */
+    private String executeGitBinary(StringBuilder sb, String gitPath, String gitArgs, int timeout) {
+        try {
+            ProcessRunner.Result result = ProcessRunner.execShell(gitPath + " " + gitArgs, timeout);
+            sb.append("退出码: ").append(result.exitCode).append("\n");
+            if (result.timedOut) {
+                sb.append("⚠️ 命令超时（").append(timeout).append("秒），已被强制终止\n");
+            }
+            if (result.truncated) {
+                sb.append("⚠️ 输出过长，已截断\n");
+            }
+            if (!result.stdout.isEmpty()) sb.append("\n").append(result.stdout);
+            if (!result.stderr.isEmpty()) sb.append("\n[stderr]\n").append(result.stderr);
+            return sb.toString();
+        } catch (Exception e) {
+            // git 二进制执行失败，回退到 dulwich
+            sb.append("[git 二进制执行失败，回退到 dulwich]\n");
+            return executeGitDulwich(sb, gitArgs);
+        }
+    }
+
+    /**
+     * 从 assets/git/git 提取内嵌 git 二进制（如果存在）
+     * @return git 可执行文件，或 null 如果不存在
+     */
+    private java.io.File extractEmbeddedGitBinary() {
+        try {
+            java.io.File outFile = new java.io.File(context.getFilesDir(), "git_bin");
+            // 检查 assets 中是否有 git 二进制
+            android.content.res.AssetManager am = context.getAssets();
+            try {
+                am.open("git/git");
+            } catch (java.io.IOException e) {
+                return null; // assets 中没有 git 二进制
+            }
+            // 已提取且可执行则直接用
+            if (outFile.exists() && outFile.canExecute()) {
+                return outFile;
+            }
+            // 提取
+            java.io.InputStream is = am.open("git/git");
+            try {
+                java.io.FileOutputStream fos = new java.io.FileOutputStream(outFile);
+                try {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = is.read(buf)) != -1) fos.write(buf, 0, n);
+                    fos.flush();
+                } finally { fos.close(); }
+            } finally { is.close(); }
+            outFile.setExecutable(true, false);
+            return outFile;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 用 dulwich（纯 Python Git）执行 git 命令
+     */
+    private String executeGitDulwich(StringBuilder sb, String gitArgs) {
+        if (context == null) {
+            return sb.toString() + "[错误] ShellTool 未注入 Context，无法初始化 Python";
+        }
+        try {
+            PythonBridge.init(context);
+        } catch (Exception e) {
+            return sb.toString() + "[错误] Python 初始化失败: " + e.getMessage();
+        }
+
+        java.io.File bridgeScript = extractGitBridge();
+        if (bridgeScript == null) {
+            return sb.toString() + "[错误] 无法提取 git_bridge.py";
+        }
+
+        sb.append("[dulwich 模式]\n");
         String pythonCode = buildGitExecCode(bridgeScript.getAbsolutePath(), gitArgs);
         String result = PythonBridge.exec(pythonCode);
         sb.append(result);
@@ -311,19 +441,27 @@ public class ShellTool implements Tool {
     }
 
     /**
-     * 对 which git 等查询返回内嵌 Git 环境说明
+     * 对 which git 等查询返回 Git 集成状态说明
      */
     private String reportEmbeddedGit(String originalCmd) {
         StringBuilder sb = new StringBuilder();
         sb.append("$ ").append(originalCmd).append("\n");
         sb.append("退出码: 0\n\n");
-        sb.append("说明: 本应用通过内嵌 Python + dulwich 提供 Git 支持，")
-          .append("没有独立的 git 可执行文件，不在系统 PATH 中。\n\n");
+        // 检查系统 git 是否可用
+        String gitBin = findGitBinary();
+        if (gitBin != null) {
+            sb.append("已找到系统 git: ").append(gitBin).append("\n");
+            sb.append("git 命令将直接使用此二进制执行。\n");
+            return sb.toString();
+        }
+        sb.append("说明: 系统未安装 git 二进制，使用三层回退策略:\n");
+        sb.append("  1. 系统 git 二进制（当前未找到）\n");
+        sb.append("  2. 内嵌 git 二进制（assets/git/git，当前未放置）\n");
+        sb.append("  3. dulwich 纯 Python Git（当前生效，首次自动安装）\n\n");
         sb.append("用法: 在 shell 中直接使用 git 命令即可，如:\n")
           .append("  git clone <url>\n")
           .append("  git add -A && git commit -m \"msg\" && git push\n")
-          .append("  git status / git log / git branch\n\n");
-        sb.append("首次使用会自动 pip install dulwich。");
+          .append("  git status / git log / git branch\n");
         return sb.toString();
     }
 }
