@@ -2398,13 +2398,160 @@
         }
 
         /**
+         * 将 ask 工具结果渲染到指定 bubble 元素中（交互式问答卡片）
+         * 供独立消息路径和插入 host 消息路径复用
+         */
+        function renderAskIntoBubble(bubbleEl, result) {
+            bubbleEl.style.padding = '16px';
+            bubbleEl.style.borderRadius = '12px';
+            bubbleEl.style.background = '#fffbeb';
+            bubbleEl.style.border = '1px solid #fde68a';
+            const askText = result || '';
+            const isMulti = askText.indexOf('__ASK_MULTI__') === 0;
+            const raw = askText.replace(/^__ASK_MULTI__\n?/, '').trim();
+            const lines = raw.split('\n').filter(l => l.trim());
+            // 解析问题列表
+            const qList = [];
+            let curQ = '', curOpts = [];
+            for (var li = 0; li < lines.length; li++) {
+                var l = lines[li];
+                if (/^Q\d*:\s/.test(l)) {
+                    if (curQ) qList.push({ q: curQ, opts: curOpts });
+                    curQ = l.replace(/^Q\d*:\s*/, '');
+                    curOpts = [];
+                } else if (/^\s+\d+\.\d+\s/.test(l)) {
+                    var m = l.match(/^\s+\d+\.\d+\s+(.+)/);
+                    if (m) curOpts.push(m[1]);
+                } else if (/^\s+\d+\.\s/.test(l)) {
+                    var m = l.match(/^\s+\d+\.\s+(.+)/);
+                    if (m) curOpts.push(m[1]);
+                }
+            }
+            if (curQ) qList.push({ q: curQ, opts: curOpts });
+
+            if (qList.length === 0) {
+                bubbleEl.innerHTML = '<div style="font-size:13px; color:#475569; white-space:pre-wrap;">请回答：' + escapeHtml(raw) + '</div>';
+                return;
+            }
+            var stateKey = '__ask_state_' + Date.now();
+            var cardId = 'ask_' + Math.random().toString(36).substr(2, 6);
+            bubbleEl.id = cardId;
+            window[stateKey] = { idx: 0, answers: [] };
+            bubbleEl.__askKey = stateKey;
+            bubbleEl.__qList = qList;
+
+            function renderAskCard(cardEl) {
+                var sk = cardEl.__askKey;
+                var st = window[sk];
+                var qs = cardEl.__qList;
+                if (!st || st.idx >= qs.length) {
+                    var all = [];
+                    for (var ai = 0; ai < st.answers.length; ai++) {
+                        all.push((ai + 1) + '. ' + st.answers[ai]);
+                    }
+                    var answerText = all.join('\n');
+                    var convHolder = cardEl.closest ? cardEl.closest('[data-ask-conv]') : null;
+                    var convId = convHolder ? convHolder.getAttribute('data-ask-conv') : null;
+                    if (convId) {
+                        cardEl.innerHTML = '<div class="message-label" style="margin-bottom:6px;"><span class="method-badge method-response">❓ ask</span> <span class="text-muted" style="font-size:12px;">提交中</span></div><div style="font-size:13px; color:#475569;">⏳ 正在提交回答…</div>';
+                        fetch(getServerUrl() + '/api/chat/answer', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ conversationId: Number(convId), answer: answerText })
+                        }).then(function(r) { return r.json(); }).then(function(d) {
+                            if (d && d.success) {
+                                cardEl.innerHTML = '<div class="message-label" style="margin-bottom:6px;"><span class="method-badge method-response">❓ ask</span> <span class="text-muted" style="font-size:12px;">回答已提交</span></div><div style="font-size:13px; color:#475569; white-space:pre-wrap;">✅ 已提交全部回答</div>';
+                            } else {
+                                cardEl.innerHTML = '<div class="message-label" style="margin-bottom:6px;"><span class="method-badge method-response" style="background:#fef2f2; color:#b91c1c;">❓ ask</span> <span class="text-muted" style="font-size:12px;">提交失败</span></div><div style="font-size:13px; color:#b91c1c; white-space:pre-wrap;">❌ ' + escapeHtml((d && d.error) ? d.error : '提交失败') + '</div>';
+                            }
+                        }).catch(function(e) {
+                            cardEl.innerHTML = '<div class="message-label" style="margin-bottom:6px;"><span class="method-badge method-response" style="background:#fef2f2; color:#b91c1c;">❓ ask</span> <span class="text-muted" style="font-size:12px;">提交失败</span></div><div style="font-size:13px; color:#b91c1c; white-space:pre-wrap;">❌ 提交失败: ' + escapeHtml(String(e)) + '</div>';
+                        });
+                    } else {
+                        chatInput.value = answerText;
+                        sendMessage();
+                        cardEl.innerHTML = '<div class="message-label" style="margin-bottom:6px;"><span class="method-badge method-response">❓ ask</span> <span class="text-muted" style="font-size:12px;">回答已提交</span></div><div style="font-size:13px; color:#475569; white-space:pre-wrap;">✅ 已提交全部回答</div>';
+                    }
+                    return;
+                }
+                var cur = qs[st.idx];
+                var idx = st.idx + 1;
+                var total = qs.length;
+                var html = '<div style="margin-bottom:10px; font-size:12px; color:#b45309; font-weight:500;">问题 ' + idx + '/' + total + '</div>';
+                html += '<div style="font-size:14px; font-weight:600; color:#92400e; margin-bottom:10px;">' + escapeHtml(cur.q) + '</div>';
+                if (cur.opts && cur.opts.length > 0) {
+                    var filteredOpts = [];
+                    for (var oi = 0; oi < cur.opts.length; oi++) {
+                        var rawOpt = String(cur.opts[oi]).trim();
+                        if (rawOpt.toLowerCase() !== '其他' && rawOpt.toLowerCase() !== 'other') {
+                            filteredOpts.push(cur.opts[oi]);
+                        }
+                    }
+                    html += '<div style="display:flex; flex-direction:column; gap:6px; margin-bottom:8px;">';
+                    for (var fi = 0; fi < filteredOpts.length; fi++) {
+                        var ov = escapeHtml(filteredOpts[fi]);
+                        html += '<button type="button" class="ask-opt" data-val="' + ov + '" style="text-align:left; padding:8px 12px; border-radius:8px; border:1px solid #fde68a; background:#fff; color:#92400e; font-size:13px; cursor:pointer;">' + (fi+1) + '. ' + ov + '</button>';
+                    }
+                    html += '</div>';
+                    html += '<div style="display:flex; gap:6px; align-items:center;">';
+                    html += '<button type="button" class="ask-submit" style="flex-shrink:0; padding:8px 12px; border-radius:8px; border:1px solid #fde68a; background:#fffbeb; color:#92400e; font-size:13px; cursor:pointer;">提交</button>';
+                    html += '<input class="ask-input" type="text" placeholder="输入自定义回答…" style="flex:1; padding:8px 10px; border-radius:8px; border:1px solid #fde68a; font-size:13px; outline:none; background:#fff;">';
+                    html += '</div>';
+                } else {
+                    html += '<div style="display:flex; gap:6px; align-items:center;">';
+                    html += '<input class="ask-input" type="text" placeholder="输入回答后按回车或点提交…" style="flex:1; padding:8px 10px; border-radius:8px; border:1px solid #fde68a; font-size:13px; outline:none; background:#fff;">';
+                    html += '<button type="button" class="ask-submit" style="flex-shrink:0; padding:8px 12px; border-radius:8px; border:1px solid #fde68a; background:#fffbeb; color:#92400e; font-size:13px; cursor:pointer;">提交</button>';
+                    html += '</div>';
+                }
+                cardEl.innerHTML = html;
+                cardEl.querySelectorAll('.ask-opt').forEach(function(b) {
+                    b.onclick = function() {
+                        var ans = this.getAttribute('data-val');
+                        window[sk].answers.push(ans);
+                        window[sk].idx++;
+                        renderAskCard(cardEl);
+                    };
+                });
+                cardEl.querySelectorAll('.ask-submit').forEach(function(b) {
+                    b.onclick = function() {
+                        var inp = cardEl.querySelector('.ask-input');
+                        if (inp && inp.value.trim()) {
+                            window[sk].answers.push(inp.value.trim());
+                            window[sk].idx++;
+                            renderAskCard(cardEl);
+                        } else if (inp) {
+                            inp.focus();
+                            inp.style.borderColor = '#f87171';
+                            inp.placeholder = '请先输入回答，再点提交';
+                            setTimeout(function() {
+                                inp.style.borderColor = '#fde68a';
+                                inp.placeholder = '输入自定义回答…';
+                            }, 2000);
+                        }
+                    };
+                });
+                cardEl.querySelectorAll('.ask-input').forEach(function(inp) {
+                    inp.onkeydown = function(e) {
+                        if (e.key === 'Enter' && this.value.trim()) {
+                            window[sk].answers.push(this.value.trim());
+                            window[sk].idx++;
+                            renderAskCard(cardEl);
+                        }
+                    };
+                    setTimeout(function() { inp.focus(); }, 50);
+                });
+            }
+
+            renderAskCard(bubbleEl);
+        }
+
+        /**
          * 添加工具结果卡片到聊天区域
          * 支持 file_write 的 diff 格式展示
          */
         function addToolResultCard(toolName, result, isError, appendToMsgEl) {
             if (appendToMsgEl && toolName !== 'ask') {
                 // 插到已有 AI 消息的标签和气泡之间（工具结果在上，文字回复在下）
-                // ask 走独立路径渲染交互卡片，渲染后再移动到 hostMsg 内部
                 const contentEl = appendToMsgEl.querySelector('.message-content');
                 if (!contentEl) return null;
                 const resultDiv = document.createElement('div');
@@ -2419,6 +2566,29 @@
                 else contentEl.appendChild(resultDiv);
                 chatMessages.scrollTop = chatMessages.scrollHeight;
                 return null;
+            }
+            // ask + appendToMsgEl：插入 host 消息内部（文字 bubble 之前），与其他工具结果一致
+            if (appendToMsgEl && toolName === 'ask') {
+                const hostContentEl = appendToMsgEl.querySelector('.message-content');
+                if (!hostContentEl) return null;
+                // 创建 ask 交互卡片的容器（wrapper），插入 host 消息的 text bubble 之前
+                const wrapper = document.createElement('div');
+                wrapper.className = 'ask-card-wrapper';
+                wrapper.style.cssText = 'margin-top: 8px; margin-bottom: 10px;';
+                const askLabel = document.createElement('div');
+                askLabel.className = 'message-label';
+                askLabel.innerHTML = '<span class="method-badge method-response">❓ ask</span> <span class="text-muted" style="font-size:12px;">工具结果</span>';
+                const askBubble = document.createElement('div');
+                askBubble.className = 'message-bubble';
+                wrapper.appendChild(askLabel);
+                wrapper.appendChild(askBubble);
+                // 复用 ask 渲染逻辑
+                renderAskIntoBubble(askBubble, result);
+                const textBubble = hostContentEl.querySelector('.message-bubble');
+                if (textBubble) hostContentEl.insertBefore(wrapper, textBubble);
+                else hostContentEl.appendChild(wrapper);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+                return wrapper;
             }
             const msgEl = document.createElement('div');
             msgEl.className = 'message server';
@@ -2494,161 +2664,8 @@
                 bubbleEl.appendChild(summary);
                 bubbleEl.appendChild(detail);
             } else if (toolName === 'ask') {
-                // Ask 工具：堆叠卡片，回答一个切下一个，全部答完统一发
-                bubbleEl.style.padding = '16px';
-                bubbleEl.style.borderRadius = '12px';
-                bubbleEl.style.background = '#fffbeb';
-                bubbleEl.style.border = '1px solid #fde68a';
-                const askText = result || '';
-                const isMulti = askText.indexOf('__ASK_MULTI__') === 0;
-                const raw = askText.replace(/^__ASK_MULTI__\n?/, '').trim();
-                const lines = raw.split('\n').filter(l => l.trim());
-                // 解析问题列表
-                const qList = [];
-                let curQ = '', curOpts = [];
-                for (var li = 0; li < lines.length; li++) {
-                    var l = lines[li];
-                    if (/^Q\d*:\s/.test(l)) {
-                        if (curQ) qList.push({ q: curQ, opts: curOpts });
-                        curQ = l.replace(/^Q\d*:\s*/, '');
-                        curOpts = [];
-                    } else if (/^\s+\d+\.\d+\s/.test(l)) {
-                        var m = l.match(/^\s+\d+\.\d+\s+(.+)/);
-                        if (m) curOpts.push(m[1]);
-                    } else if (/^\s+\d+\.\s/.test(l)) {
-                        var m = l.match(/^\s+\d+\.\s+(.+)/);
-                        if (m) curOpts.push(m[1]);
-                    }
-                }
-                if (curQ) qList.push({ q: curQ, opts: curOpts });
-
-                if (qList.length === 0) {
-                    bubbleEl.innerHTML = '<div style="font-size:13px; color:#475569; white-space:pre-wrap;">请回答：' + escapeHtml(raw) + '</div>';
-                } else {
-                    var stateKey = '__ask_state_' + Date.now();
-                    var cardId = 'ask_' + Math.random().toString(36).substr(2, 6);
-                    bubbleEl.id = cardId;
-                    // 状态：当前索引、答案列表
-                    window[stateKey] = { idx: 0, answers: [] };
-                    var card = bubbleEl;
-                    card.__askKey = stateKey;
-                    card.__qList = qList;
-
-                    function renderAskCard(cardEl) {
-                        var sk = cardEl.__askKey;
-                        var st = window[sk];
-                        var qs = cardEl.__qList;
-                        if (!st || st.idx >= qs.length) {
-                            // 全部答完，提交答案到 /api/chat/answer（唤醒服务端阻塞的 ask 线程）
-                            // 不再新开 /api/chat/send，否则会打断当前正在阻塞等待的 ask 流程
-                            var all = [];
-                            for (var ai = 0; ai < st.answers.length; ai++) {
-                                all.push((ai + 1) + '. ' + st.answers[ai]);
-                            }
-                            var answerText = all.join('\n');
-                            // cardEl 是内部 bubbleEl，data-ask-conv 设在外层 msgEl 上，向上查找
-                            var convHolder = cardEl.closest ? cardEl.closest('[data-ask-conv]') : null;
-                            var convId = convHolder ? convHolder.getAttribute('data-ask-conv') : null;
-                            if (convId) {
-                                cardEl.innerHTML = '<div class="message-label" style="margin-bottom:6px;"><span class="method-badge method-response">❓ ask</span> <span class="text-muted" style="font-size:12px;">提交中</span></div><div style="font-size:13px; color:#475569;">⏳ 正在提交回答…</div>';
-                                fetch(getServerUrl() + '/api/chat/answer', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ conversationId: Number(convId), answer: answerText })
-                                }).then(function(r) { return r.json(); }).then(function(d) {
-                                    if (d && d.success) {
-                                        cardEl.innerHTML = '<div class="message-label" style="margin-bottom:6px;"><span class="method-badge method-response">❓ ask</span> <span class="text-muted" style="font-size:12px;">回答已提交</span></div><div style="font-size:13px; color:#475569; white-space:pre-wrap;">✅ 已提交全部回答</div>';
-                                    } else {
-                                        cardEl.innerHTML = '<div class="message-label" style="margin-bottom:6px;"><span class="method-badge method-response" style="background:#fef2f2; color:#b91c1c;">❓ ask</span> <span class="text-muted" style="font-size:12px;">提交失败</span></div><div style="font-size:13px; color:#b91c1c; white-space:pre-wrap;">❌ ' + escapeHtml((d && d.error) ? d.error : '提交失败') + '</div>';
-                                    }
-                                }).catch(function(e) {
-                                    cardEl.innerHTML = '<div class="message-label" style="margin-bottom:6px;"><span class="method-badge method-response" style="background:#fef2f2; color:#b91c1c;">❓ ask</span> <span class="text-muted" style="font-size:12px;">提交失败</span></div><div style="font-size:13px; color:#b91c1c; white-space:pre-wrap;">❌ 提交失败: ' + escapeHtml(String(e)) + '</div>';
-                                });
-                            } else {
-                                // 兜底：没有 conversationId（异常情况），退回旧行为
-                                chatInput.value = answerText;
-                                sendMessage();
-                                cardEl.innerHTML = '<div class="message-label" style="margin-bottom:6px;"><span class="method-badge method-response">❓ ask</span> <span class="text-muted" style="font-size:12px;">回答已提交</span></div><div style="font-size:13px; color:#475569; white-space:pre-wrap;">✅ 已提交全部回答</div>';
-                            }
-                            return;
-                        }
-                        var cur = qs[st.idx];
-                        var idx = st.idx + 1;
-                        var total = qs.length;
-                        var html = '<div style="margin-bottom:10px; font-size:12px; color:#b45309; font-weight:500;">问题 ' + idx + '/' + total + '</div>';
-                        html += '<div style="font-size:14px; font-weight:600; color:#92400e; margin-bottom:10px;">' + escapeHtml(cur.q) + '</div>';
-                        if (cur.opts && cur.opts.length > 0) {
-                            // 有选项时显示选项按钮 + 输入框 + 提交按钮
-                            // （选项覆盖常见情况，输入框供自定义回答，提交按钮提交输入框内容）
-                            // 过滤掉 LLM 返回的"其他"选项——下方已有输入框+提交按钮处理自定义回答，
-                            // 保留"其他"会与提交按钮语义重复
-                            var filteredOpts = [];
-                            for (var oi = 0; oi < cur.opts.length; oi++) {
-                                var rawOpt = String(cur.opts[oi]).trim();
-                                if (rawOpt.toLowerCase() !== '其他' && rawOpt.toLowerCase() !== 'other') {
-                                    filteredOpts.push(cur.opts[oi]);
-                                }
-                            }
-                            html += '<div style="display:flex; flex-direction:column; gap:6px; margin-bottom:8px;">';
-                            for (var fi = 0; fi < filteredOpts.length; fi++) {
-                                var ov = escapeHtml(filteredOpts[fi]);
-                                html += '<button type="button" class="ask-opt" data-val="' + ov + '" style="text-align:left; padding:8px 12px; border-radius:8px; border:1px solid #fde68a; background:#fff; color:#92400e; font-size:13px; cursor:pointer;">' + (fi+1) + '. ' + ov + '</button>';
-                            }
-                            html += '</div>';
-                            html += '<div style="display:flex; gap:6px; align-items:center;">';
-                            html += '<button type="button" class="ask-submit" style="flex-shrink:0; padding:8px 12px; border-radius:8px; border:1px solid #fde68a; background:#fffbeb; color:#92400e; font-size:13px; cursor:pointer;">提交</button>';
-                            html += '<input class="ask-input" type="text" placeholder="输入自定义回答…" style="flex:1; padding:8px 10px; border-radius:8px; border:1px solid #fde68a; font-size:13px; outline:none; background:#fff;">';
-                            html += '</div>';
-                        } else {
-                            // 无选项时显示输入框 + 提交按钮
-                            html += '<div style="display:flex; gap:6px; align-items:center;">';
-                            html += '<input class="ask-input" type="text" placeholder="输入回答后按回车或点提交…" style="flex:1; padding:8px 10px; border-radius:8px; border:1px solid #fde68a; font-size:13px; outline:none; background:#fff;">';
-                            html += '<button type="button" class="ask-submit" style="flex-shrink:0; padding:8px 12px; border-radius:8px; border:1px solid #fde68a; background:#fffbeb; color:#92400e; font-size:13px; cursor:pointer;">提交</button>';
-                            html += '</div>';
-                        }
-                        cardEl.innerHTML = html;
-                        // 绑定事件
-                        cardEl.querySelectorAll('.ask-opt').forEach(function(b) {
-                            b.onclick = function() {
-                                var ans = this.getAttribute('data-val');
-                                window[sk].answers.push(ans);
-                                window[sk].idx++;
-                                renderAskCard(cardEl);
-                            };
-                        });
-                        // 提交按钮：提交输入框内容（输入框为空时红框提示）
-                        cardEl.querySelectorAll('.ask-submit').forEach(function(b) {
-                            b.onclick = function() {
-                                var inp = cardEl.querySelector('.ask-input');
-                                if (inp && inp.value.trim()) {
-                                    window[sk].answers.push(inp.value.trim());
-                                    window[sk].idx++;
-                                    renderAskCard(cardEl);
-                                } else if (inp) {
-                                    inp.focus();
-                                    inp.style.borderColor = '#f87171';
-                                    inp.placeholder = '请先输入回答，再点提交';
-                                    setTimeout(function() {
-                                        inp.style.borderColor = '#fde68a';
-                                        inp.placeholder = '输入自定义回答…';
-                                    }, 2000);
-                                }
-                            };
-                        });
-                        cardEl.querySelectorAll('.ask-input').forEach(function(inp) {
-                            inp.onkeydown = function(e) {
-                                if (e.key === 'Enter' && this.value.trim()) {
-                                    window[sk].answers.push(this.value.trim());
-                                    window[sk].idx++;
-                                    renderAskCard(cardEl);
-                                }
-                            };
-                            setTimeout(function() { inp.focus(); }, 50);
-                        });
-                    }
-
-                    renderAskCard(card);
-                }
+                // Ask 工具：复用渲染逻辑
+                renderAskIntoBubble(bubbleEl, result);
             } else {
                 // 普通工具结果
                 bubbleEl.style.whiteSpace = 'pre-wrap';
@@ -3227,28 +3244,20 @@
                         // 渲染 ask 卡片，用户答完后调 /api/chat/answer（不再新开 /api/chat/send）
                         if (obj && obj.questions) {
                             const askConvId = obj.conversationId;
-                            // ask 卡片插入到当前活跃 AI 消息之后，确保提问卡片在回复气泡之前。
-                            // 若直接 append 到末尾，当 round 切换新气泡已创建时，ask 卡片会排到回复之后，
-                            // 造成对话流混乱（用户先看到回复，再看到提问卡片）。
-                            const cardEl = addToolResultCard('ask', obj.questions, false);
+                            // 找到当前活跃 bubble 所属的 server 消息
+                            let hostMsg = null;
+                            let node = activeBubbleEl;
+                            while (node && node !== chatMessages) {
+                                if (node.classList && node.classList.contains('message') && node.classList.contains('server')) {
+                                    hostMsg = node;
+                                    break;
+                                }
+                                node = node.parentNode;
+                            }
+                            // ask 卡片插入 host 消息内部（文字 bubble 之前），与其他工具结果一致
+                            const cardEl = addToolResultCard('ask', obj.questions, false, hostMsg || undefined);
                             if (cardEl) {
                                 cardEl.setAttribute('data-ask-conv', askConvId);
-                                // 找到当前活跃 bubble 所属的 server 消息，将 ask 卡片插到它后面
-                                let hostMsg = null;
-                                let node = activeBubbleEl;
-                                while (node && node !== chatMessages) {
-                                    if (node.classList && node.classList.contains('message') && node.classList.contains('server')) {
-                                        hostMsg = node;
-                                        break;
-                                    }
-                                    node = node.parentNode;
-                                }
-                                if (hostMsg && hostMsg.parentNode) {
-                                    // 只有当 ask 卡片不在 hostMsg 之后时才移动
-                                    if (cardEl !== hostMsg.nextSibling) {
-                                        hostMsg.parentNode.insertBefore(cardEl, hostMsg.nextSibling);
-                                    }
-                                }
                             }
                             setState('等待用户回答');
                         }
