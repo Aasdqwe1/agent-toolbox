@@ -2402,8 +2402,9 @@
          * 支持 file_write 的 diff 格式展示
          */
         function addToolResultCard(toolName, result, isError, appendToMsgEl) {
-            if (appendToMsgEl) {
+            if (appendToMsgEl && toolName !== 'ask') {
                 // 插到已有 AI 消息的标签和气泡之间（工具结果在上，文字回复在下）
+                // ask 走独立路径渲染交互卡片，渲染后再移动到 hostMsg 内部
                 const contentEl = appendToMsgEl.querySelector('.message-content');
                 if (!contentEl) return null;
                 const resultDiv = document.createElement('div');
@@ -2522,7 +2523,7 @@
                 if (curQ) qList.push({ q: curQ, opts: curOpts });
 
                 if (qList.length === 0) {
-                    bubbleEl.innerHTML = '<div style="font-size:14px; color:#92400e;">请回答：' + escapeHtml(raw) + '</div>';
+                    bubbleEl.innerHTML = '<div style="font-size:13px; color:#475569; white-space:pre-wrap;">请回答：' + escapeHtml(raw) + '</div>';
                 } else {
                     var stateKey = '__ask_state_' + Date.now();
                     var cardId = 'ask_' + Math.random().toString(36).substr(2, 6);
@@ -2549,25 +2550,25 @@
                             var convHolder = cardEl.closest ? cardEl.closest('[data-ask-conv]') : null;
                             var convId = convHolder ? convHolder.getAttribute('data-ask-conv') : null;
                             if (convId) {
-                                cardEl.innerHTML = '<div style="font-size:14px; color:#92400e; padding:8px;">⏳ 正在提交回答…</div>';
+                                cardEl.innerHTML = '<div class="message-label" style="margin-bottom:6px;"><span class="method-badge method-response">❓ ask</span> <span class="text-muted" style="font-size:12px;">提交中</span></div><div style="font-size:13px; color:#475569;">⏳ 正在提交回答…</div>';
                                 fetch(getServerUrl() + '/api/chat/answer', {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({ conversationId: Number(convId), answer: answerText })
                                 }).then(function(r) { return r.json(); }).then(function(d) {
                                     if (d && d.success) {
-                                        cardEl.innerHTML = '<div style="font-size:14px; color:#92400e; padding:8px;">✅ 已提交全部回答</div>';
+                                        cardEl.innerHTML = '<div class="message-label" style="margin-bottom:6px;"><span class="method-badge method-response">❓ ask</span> <span class="text-muted" style="font-size:12px;">回答已提交</span></div><div style="font-size:13px; color:#475569; white-space:pre-wrap;">✅ 已提交全部回答</div>';
                                     } else {
-                                        cardEl.innerHTML = '<div style="font-size:14px; color:#b91c1c; padding:8px;">❌ ' + escapeHtml((d && d.error) ? d.error : '提交失败') + '</div>';
+                                        cardEl.innerHTML = '<div class="message-label" style="margin-bottom:6px;"><span class="method-badge method-response" style="background:#fef2f2; color:#b91c1c;">❓ ask</span> <span class="text-muted" style="font-size:12px;">提交失败</span></div><div style="font-size:13px; color:#b91c1c; white-space:pre-wrap;">❌ ' + escapeHtml((d && d.error) ? d.error : '提交失败') + '</div>';
                                     }
                                 }).catch(function(e) {
-                                    cardEl.innerHTML = '<div style="font-size:14px; color:#b91c1c; padding:8px;">❌ 提交失败: ' + escapeHtml(String(e)) + '</div>';
+                                    cardEl.innerHTML = '<div class="message-label" style="margin-bottom:6px;"><span class="method-badge method-response" style="background:#fef2f2; color:#b91c1c;">❓ ask</span> <span class="text-muted" style="font-size:12px;">提交失败</span></div><div style="font-size:13px; color:#b91c1c; white-space:pre-wrap;">❌ 提交失败: ' + escapeHtml(String(e)) + '</div>';
                                 });
                             } else {
                                 // 兜底：没有 conversationId（异常情况），退回旧行为
                                 chatInput.value = answerText;
                                 sendMessage();
-                                cardEl.innerHTML = '<div style="font-size:14px; color:#92400e; padding:8px;">✅ 已提交全部回答</div>';
+                                cardEl.innerHTML = '<div class="message-label" style="margin-bottom:6px;"><span class="method-badge method-response">❓ ask</span> <span class="text-muted" style="font-size:12px;">回答已提交</span></div><div style="font-size:13px; color:#475569; white-space:pre-wrap;">✅ 已提交全部回答</div>';
                             }
                             return;
                         }
@@ -3195,9 +3196,11 @@
                         // 渲染 ask 卡片，用户答完后调 /api/chat/answer（不再新开 /api/chat/send）
                         if (obj && obj.questions) {
                             const askConvId = obj.conversationId;
+                            // ask 走独立路径渲染完整交互卡片（含问题选项），
+                            // 渲染后把卡片从 chatMessages 末尾移到 hostMsg 内部文字 bubble 之前，
+                            // 与普通工具卡片位置一致（在 AI 文字回复上方，不在消息下方）
                             const cardEl = addToolResultCard('ask', obj.questions, false);
                             if (cardEl) {
-                                // 标记卡片所属的 conversationId
                                 cardEl.setAttribute('data-ask-conv', askConvId);
                                 let hostMsg = null;
                                 let node = activeBubbleEl;
@@ -3208,12 +3211,12 @@
                                     }
                                     node = node.parentNode;
                                 }
-                                if (hostMsg && hostMsg.parentNode === chatMessages) {
-                                    hostMsg.parentNode.insertBefore(cardEl, hostMsg.nextSibling);
-                                } else {
-                                    chatMessages.appendChild(cardEl);
+                                if (hostMsg) {
+                                    // 把 ask 卡片移到 AI 消息前面（作为独立消息），
+                                    // 这样后续 AI 文字回复和对话会把 ask 卡片顶到上方，
+                                    // 而不是让它滞留在对话流最底部
+                                    hostMsg.parentNode.insertBefore(cardEl, hostMsg);
                                 }
-                                cardEl.style.marginBottom = '16px';
                             }
                             setState('等待用户回答');
                         }
