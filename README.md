@@ -653,7 +653,7 @@ adb logcat -s PythonBridge PythonBridge-C
 
 ## 版本信息
 
-- **版本**: 2.4.1（commit 数 /100→大版本，余数/10→小版本，个位→补丁）
+- **版本**: 2.4.2（commit 数 /100→大版本，余数/10→小版本，个位→补丁）
 - **Python**: 3.14.6 (官方 Android aarch64 构建)
 - **Git**: 2.46.0 (静态编译，内嵌 aarch64 二进制，4.2MB)
 - **协议**: MCP (JSON-RPC 2.0 over HTTP)
@@ -664,6 +664,10 @@ adb logcat -s PythonBridge PythonBridge-C
 - **UI 主题**: 冷色调色板 + 统一间距/圆角体系
 
 ### 更新日志
+
+**v2.4.2 — ShellTool 编译错误修复**
+- 修复 `ShellTool.executeGitDulwich()` 调用 `PythonBridge.exec()` 未捕获 `throws Exception` 导致 `:compileDebugJavaWithJavac` 失败
+- 用 try-catch 包裹调用，dulwich 执行失败时返回错误信息而非中断编译
 
 **v2.4.1 — 项目文档与编译方式更新**
 - README.md 新增「Git 集成架构」章节（三层回退流程图、能力对比、编译说明、Bionic 兼容修复表）
