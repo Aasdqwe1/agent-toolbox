@@ -26,8 +26,8 @@ public class PythonBridge {
     private static final String STDLIB_ASSET_DIR = "python/stdlib";
     private static final String PYTHON_DIR_NAME = "python";
     private static final String VERSION_FILE = ".python_version";
-    // v3: 改用 try-open 判断文件/目录，修复无扩展名文件（config-3.14-...）被误判为目录丢失
-    private static final String EXPECTED_VERSION = "3.14.6-official-v3";
+    // v4: pip 直接打包进 stdlib（assets/python/stdlib/pip/），无需运行时引导安装
+    private static final String EXPECTED_VERSION = "3.14.6-official-v4";
 
     private static boolean jniLoaded = false;
     private static boolean jniInitOk = false;
@@ -79,12 +79,9 @@ public class PythonBridge {
                 jniInitOk = true;
                 jniInitError = "";
                 AppLogger.i("PythonBridge", "JNI 初始化成功!");
-                // 把 site-packages 加入 sys.path（持久，同一解释器会话）
-                addSitePackagesToPath();
-                // 引导安装 pip：stdlib 自带 ensurepip + bundled pip wheel，
-                // bootstrap 后 pip 才会装到 site-packages，否则 `import pip` 失败。
-                // 失败不阻断初始化（pip 非核心功能），仅记日志。
-                ensurePip();
+                // pip 已直接打包进 stdlib（assets/python/stdlib/pip/），
+                // 随 stdlib 一起提取到 pythonHome/lib/python3.14/，
+                // 处于默认 sys.path 中，无需运行时引导安装。
                 return true;
             }
 
@@ -126,96 +123,6 @@ public class PythonBridge {
     public static void shutdown() {
         if (jniLoaded) {
             try { nativeShutdown(); } catch (Exception ignored) {}
-        }
-    }
-
-    /**
-     * 把 site-packages 目录加入 sys.path（持久，同一解释器会话）。
-     * nativeInit 默认 sys.path 不含 site-packages，pip 装到这里也 import 不到。
-     */
-    private static void addSitePackagesToPath() {
-        try {
-            String sitePackages = new File(pythonHome,
-                "lib/python3.14/site-packages").getAbsolutePath();
-            String code =
-                "import sys\n" +
-                "site_pkg = '" + sitePackages.replace("'", "\\'") + "'\n" +
-                "if site_pkg not in sys.path:\n" +
-                "    sys.path.insert(0, site_pkg)\n" +
-                "print('SYS_PATH:', sys.path)";
-            String out = nativeExec(code);
-            AppLogger.i("PythonBridge", "addSitePackagesToPath: " + (out == null ? "(null)" : out));
-        } catch (Throwable e) {
-            AppLogger.w("PythonBridge", "addSitePackagesToPath 失败: " + e.getMessage());
-        }
-    }
-
-    /**
-     * 引导安装 pip。
-     *
-     * stdlib 自带 ensurepip + bundled pip wheel，但 ensurepip.bootstrap()
-     * 内部用 subprocess + sys.executable 启动子进程跑 pip，而嵌入式环境
-     * sys.executable 为空，子进程必然失败，pip 装不上。
-     *
-     * 改为直接用 Python 的 zipfile 把 bundled pip wheel 解压到 site-packages
-     * 目录（pip 是纯 Python，wheel 解压即用）。site-packages 已由
-     * addSitePackagesToPath 加入 sys.path。
-     * 幂等：已装则跳过；失败不阻断主流程。
-     */
-    private static void ensurePip() {
-        try {
-            // 先检测 pip 是否已可用
-            String check = nativeExec("import importlib.util; "
-                + "print('PIP_OK' if importlib.util.find_spec('pip') else 'PIP_MISSING')");
-            AppLogger.i("PythonBridge", "ensurePip 检测: " + (check == null ? "(null)" : check));
-            if (check != null && check.contains("PIP_OK")) {
-                AppLogger.i("PythonBridge", "pip 已就绪，跳过安装");
-                return;
-            }
-            AppLogger.i("PythonBridge", "pip 缺失，解压 bundled wheel 到 site-packages...");
-            String wheelDir = new File(pythonHome,
-                "lib/python3.14/ensurepip/_bundled").getAbsolutePath();
-            String sitePackages = new File(pythonHome,
-                "lib/python3.14/site-packages").getAbsolutePath();
-            // 诊断：wheel 目录是否存在、内含什么
-            File wheelDirFile = new File(wheelDir);
-            AppLogger.i("PythonBridge", "wheelDir exists=" + wheelDirFile.exists()
-                + " path=" + wheelDir);
-            if (wheelDirFile.exists()) {
-                String[] files = wheelDirFile.list();
-                if (files != null) {
-                    StringBuilder sb = new StringBuilder("wheelDir 内容: ");
-                    for (String f : files) sb.append(f).append(", ");
-                    AppLogger.i("PythonBridge", sb.toString());
-                }
-            }
-            // 用 Python 解压 wheel：找 wheel → 解压到 site-packages → 验证
-            String code =
-                "import os, sys, zipfile, glob, traceback\n" +
-                "wheel_dir = '" + wheelDir.replace("'", "\\'") + "'\n" +
-                "site_pkg = '" + sitePackages.replace("'", "\\'") + "'\n" +
-                "os.makedirs(site_pkg, exist_ok=True)\n" +
-                "wheels = glob.glob(os.path.join(wheel_dir, 'pip-*.whl'))\n" +
-                "print('WHEELS_FOUND:', wheels)\n" +
-                "if not wheels:\n" +
-                "    print('PIP_INSTALL_FAIL: no pip wheel in ' + wheel_dir)\n" +
-                "else:\n" +
-                "    whl = wheels[0]\n" +
-                "    print('EXTRACTING:', whl)\n" +
-                "    with zipfile.ZipFile(whl) as z:\n" +
-                "        z.extractall(site_pkg)\n" +
-                "    print('EXTRACT_DONE')\n" +
-                "    # 验证 pip 可导入\n" +
-                "    try:\n" +
-                "        import pip\n" +
-                "        print('PIP_INSTALL_OK:' + pip.__version__)\n" +
-                "    except Exception as e:\n" +
-                "        print('PIP_IMPORT_FAIL: ' + str(e))\n" +
-                "        traceback.print_exc()\n";
-            String out = nativeExec(code);
-            AppLogger.i("PythonBridge", "pip 安装输出: " + (out == null ? "(null)" : out));
-        } catch (Throwable e) {
-            AppLogger.w("PythonBridge", "pip 安装失败（pip 功能可能不可用）: " + e.getMessage());
         }
     }
 
