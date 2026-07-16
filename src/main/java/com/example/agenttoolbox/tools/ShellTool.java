@@ -152,6 +152,7 @@ public class ShellTool implements Tool {
                 prefix.append("export HOME=").append(filesDir).append("; ");
                 prefix.append("export GIT_TEMPLATE_DIR=''; ");
                 prefix.append("export GIT_DNS_SERVERS='8.8.8.8,8.8.4.4,1.1.1.1'; ");
+                prefix.append("export SSL_CERT_DIR='/system/etc/security/cacerts:/apex/com.android.conscrypt/cacerts'; ");
                 // 注入 git 函数
                 prefix.append("git() { ").append(libGit.getAbsolutePath()).append(" \"$@\"; }; ");
                 return prefix + command;
@@ -463,6 +464,8 @@ public class ShellTool implements Tool {
      * - GIT_EXEC_PATH: 指向 filesDir/git-exec/，内含符号链接 git-remote-https → nativeLibraryDir/libgitremotehttps.so
      * - HOME: 指向 filesDir（git 需要写 ~/.gitconfig 等）
      * - GIT_TEMPLATE_DIR: 设为空避免 "templates not found" 警告
+     * - SSL_CERT_DIR: Android 系统 CA 证书目录（静态 OpenSSL 无内置 CA 路径）
+     * - GIT_DNS_SERVERS: c-ares DNS 服务器（静态 libc getaddrinfo 不工作）
      * execve 符号链接时 SELinux 检查目标文件（app_lib_data_file 允许执行），不是链接本身。
      */
     private java.util.Map<String, String> buildGitEnv() {
@@ -479,6 +482,13 @@ public class ShellTool implements Tool {
             // c-ares DNS 服务器（Android 静态二进制的 getaddrinfo 不工作，
             // curl 编译时启用 c-ares，通过此环境变量设置 DNS 服务器）
             env.put("GIT_DNS_SERVERS", "8.8.8.8,8.8.4.4,1.1.1.1");
+            // SSL CA 证书路径：静态 OpenSSL 编译时 --prefix=/tmp/static_prefix，
+            // 默认 CApath 指向设备上不存在的 /tmp/static_prefix/ssl/certs，
+            // 导致 "unable to get local issuer certificate"。
+            // Android 系统 CA 证书存放在 /system/etc/security/cacerts/，
+            // 以 OpenSSL 哈希格式（<hash>.0）存储，正是 --capath 期望的格式。
+            // Android 14+ 部分 CA 在 /apex/com.android.conscrypt/cacerts/。
+            env.put("SSL_CERT_DIR", "/system/etc/security/cacerts:/apex/com.android.conscrypt/cacerts");
         } catch (Exception ignored) {}
         return env;
     }

@@ -190,6 +190,8 @@ public class PythonBridge {
         sb.append("os.environ['GIT_TEMPLATE_DIR'] = ''\n");
         // c-ares DNS 服务器（Android 静态二进制的 getaddrinfo 不工作）
         sb.append("os.environ['GIT_DNS_SERVERS'] = '8.8.8.8,8.8.4.4,1.1.1.1'\n");
+        // SSL CA 证书路径（静态 OpenSSL 无内置 CA 路径，用 Android 系统 CA 证书）
+        sb.append("os.environ['SSL_CERT_DIR'] = '/system/etc/security/cacerts:/apex/com.android.conscrypt/cacerts'\n");
         // 如果 'git' 名不存在但 libgit.so 存在，patch subprocess
         sb.append("if not os.path.exists(os.path.join(_d, 'git')):\n");
         sb.append("    import subprocess as _sp\n");
