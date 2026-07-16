@@ -3187,7 +3187,9 @@
                         setState('生成中');
                         // JSON-RPC 2.0 notification 风格：字段在 params 里
                         const sp = (obj && obj.params) ? obj.params : obj;
-                        if (sp && sp.result && sp.tool) {
+                        // ask 工具的结果不在这里渲染——ask 有专门的交互卡片（ask 事件创建），
+                        // 这里再渲染会与交互卡片重复，造成对话流混乱
+                        if (sp && sp.result && sp.tool && sp.tool !== 'ask') {
                             // 找到当前活跃 bubble 所属的 msgEl
                             let hostMsg = null;
                             let node = activeBubbleEl;
@@ -3217,25 +3219,14 @@
                         // 渲染 ask 卡片，用户答完后调 /api/chat/answer（不再新开 /api/chat/send）
                         if (obj && obj.questions) {
                             const askConvId = obj.conversationId;
+                            // ask 卡片作为独立消息 append 到 chatMessages 末尾。
+                            // 时序由 SSE 事件到达顺序自然决定：LLM 先输出提问文字（chunk），
+                            // 再触发 ask 事件，所以 ask 卡片自然在提问消息之后；
+                            // 用户答完后 round 切换，新 AI 消息 append 到末尾，在 ask 卡片之后。
+                            // 不手动移动位置，避免 activeBubbleEl 指向错误消息导致时序混乱。
                             const cardEl = addToolResultCard('ask', obj.questions, false);
                             if (cardEl) {
                                 cardEl.setAttribute('data-ask-conv', askConvId);
-                                // 把 ask 卡片移到触发提问的 AI 消息（hostMsg）之后，
-                                // 保持对话流先后顺序：AI 提问消息 → ask 卡片 → 后续回复。
-                                // 不能留在 chatMessages 末尾，否则中间的工具结果/状态
-                                // 会隔断 ask 卡片与其提问消息，显得"夺舍"。
-                                let hostMsg = null;
-                                let node = activeBubbleEl;
-                                while (node && node !== chatMessages) {
-                                    if (node.classList && node.classList.contains('message') && node.classList.contains('server')) {
-                                        hostMsg = node;
-                                        break;
-                                    }
-                                    node = node.parentNode;
-                                }
-                                if (hostMsg && hostMsg.parentNode) {
-                                    hostMsg.parentNode.insertBefore(cardEl, hostMsg.nextSibling);
-                                }
                             }
                             setState('等待用户回答');
                         }
