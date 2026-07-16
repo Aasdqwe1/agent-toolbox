@@ -8,6 +8,8 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 /**
  * Python 桥接层 - JNI 内嵌模式
@@ -26,8 +28,8 @@ public class PythonBridge {
     private static final String STDLIB_ASSET_DIR = "python/stdlib";
     private static final String PYTHON_DIR_NAME = "python";
     private static final String VERSION_FILE = ".python_version";
-    // v5: 修复 ShellTool python -m 的 sys.argv 构造 bug
-    private static final String EXPECTED_VERSION = "3.14.6-official-v5";
+    // v6: pip 改为 zip 打包（绕过 AAPT2 深层嵌套目录丢失 bug），运行时解压
+    private static final String EXPECTED_VERSION = "3.14.6-official-v6";
 
     private static boolean jniLoaded = false;
     private static boolean jniInitOk = false;
@@ -149,6 +151,12 @@ public class PythonBridge {
         AppLogger.i("PythonBridge", "提取 " + STDLIB_ASSET_DIR + " → " + libDir.getAbsolutePath());
         extractAssetDir(context, STDLIB_ASSET_DIR, libDir);
 
+        // pip 因目录嵌套过深（pip/_internal/ 148 文件 + pip/_vendor/ 数百文件），
+        // AAPT2 打包时会丢失这些深层子目录，导致运行时 import pip._internal 报
+        // ModuleNotFoundError。改为把 pip 整体打包成 pip.zip 作为单个 asset，
+        // AAPT2 不会跳过单文件，运行时在这里解压。
+        extractPipZip(context, libDir);
+
         // 设置 lib-dynload 中 .so 文件的可执行权限
         File dynloadDir = new File(libDir, "lib-dynload");
         if (dynloadDir.exists()) {
@@ -164,6 +172,61 @@ public class PythonBridge {
         // 诊断日志
         AppLogger.i("PythonBridge", "=== 提取后文件树 ===");
         logFileTree(pythonHome, 0);
+    }
+
+    /**
+     * 从 assets/python/stdlib/pip.zip 解压 pip 到 libDir/pip/
+     * zip 内部结构为 pip/__init__.py, pip/_internal/...，
+     * 直接解压到 libDir，自然展开成 libDir/pip/...
+     * 绕过 AAPT2 深层嵌套目录丢失问题。
+     */
+    private static void extractPipZip(Context context, File libDir) throws Exception {
+        String pipZipAsset = STDLIB_ASSET_DIR + "/pip.zip";
+        File pipDir = new File(libDir, "pip");
+        // 先清理可能由 extractAssetDir 留下的不完整 pip 目录
+        if (pipDir.exists()) deleteRecursive(pipDir);
+
+        InputStream is = null;
+        ZipInputStream zis = null;
+        int count = 0;
+        try {
+            is = context.getAssets().open(pipZipAsset);
+            zis = new ZipInputStream(is);
+            ZipEntry entry;
+            byte[] buf = new byte[8192];
+            while ((entry = zis.getNextEntry()) != null) {
+                // zip 内路径形如 "pip/xxx"，解压到 libDir → libDir/pip/xxx
+                File outFile = new File(libDir, entry.getName());
+                // 防御 zip slip（路径穿越）
+                String canonical = outFile.getCanonicalPath();
+                if (!canonical.startsWith(libDir.getCanonicalPath() + File.separator)
+                    && !canonical.equals(libDir.getCanonicalPath())) {
+                    throw new IOException("非法 zip 条目路径: " + entry.getName());
+                }
+                if (entry.isDirectory()) {
+                    outFile.mkdirs();
+                    continue;
+                }
+                outFile.getParentFile().mkdirs();
+                FileOutputStream fos = new FileOutputStream(outFile);
+                try {
+                    int n;
+                    while ((n = zis.read(buf)) != -1) fos.write(buf, 0, n);
+                    fos.flush();
+                } finally {
+                    fos.close();
+                }
+                zis.closeEntry();
+                count++;
+            }
+        } finally {
+            if (zis != null) try { zis.close(); } catch (IOException ignored) {}
+            if (is != null) try { is.close(); } catch (IOException ignored) {}
+        }
+        AppLogger.i("PythonBridge", "pip.zip 解压完成: " + count + " 个文件 → " + pipDir.getAbsolutePath());
+        // 校验关键子包
+        File internalInit = new File(pipDir, "_internal/__init__.py");
+        AppLogger.i("PythonBridge", "pip/_internal/__init__.py 存在: " + internalInit.exists());
     }
 
     private static boolean isStdlibReady(File dir) {
