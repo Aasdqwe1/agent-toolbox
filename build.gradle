@@ -21,6 +21,14 @@ android {
     namespace 'com.example.agenttoolbox'
     compileSdk 33
 
+    // AGP 默认 ignoreAssetsPattern 含 <dir>_*，会忽略所有下划线开头的目录，
+    // 导致 Python stdlib 里的 _path / _internal / _vendor / _pycache 等子包
+    // 全部丢失（pip._internal / zipfile._path 运行时 import 失败）。
+    // 这里覆盖默认 pattern，去掉 <dir>_* 规则，保留下划线目录。
+    aaptOptions {
+        ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*.bak'
+    }
+
     defaultConfig {
         applicationId "com.example.agenttoolbox"
         minSdk 24
