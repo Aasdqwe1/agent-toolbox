@@ -139,8 +139,9 @@ public class PythonBridge {
     private static void ensureGitBinaryOnPath(Context context) {
         // 优先：nativeLibraryDir/libgit.so（APK 安装时自动解压，SELinux 允许执行）
         File libGit = null;
+        String nativeLibDir = null;
         try {
-            String nativeLibDir = context.getApplicationInfo().nativeLibraryDir;
+            nativeLibDir = context.getApplicationInfo().nativeLibraryDir;
             libGit = new File(nativeLibDir, "libgit.so");
             if (!libGit.exists() || !libGit.canExecute()) {
                 libGit = null;
@@ -156,43 +157,86 @@ public class PythonBridge {
             return;
         }
 
-        // 注入 PATH: 把 git 二进制所在目录加到 PATH 前面，让 subprocess 找到 git
-        // 同时创建一个名为 "git" 的符号链接/副本指向 libgit.so（subprocess 按 "git" 名查找）
+        // 创建 GIT_EXEC_PATH 目录（含 git-remote-https 符号链接）
+        String gitExecPath = ensureGitExecDir(context, nativeLibDir);
+
+        // 注入 PATH + GIT_EXEC_PATH + HOME 到 Python 环境
         File gitDir = libGit.getParentFile();
         File gitLink = new File(gitDir, "git");
         if (!gitLink.exists()) {
             try {
-                // 尝试创建硬链接/复制
                 java.nio.file.Files.copy(libGit.toPath(), gitLink.toPath());
                 gitLink.setExecutable(true, false);
             } catch (Exception e) {
-                // 复制失败（可能 nativeLibraryDir 不可写），改用 PATH + 自定义查找逻辑
                 AppLogger.w("PythonBridge", "无法创建 git 副本: " + e.getMessage());
             }
         }
         String pathDir = gitDir.getAbsolutePath();
-        String pathBootstrap =
-            "import os\n" +
-            "_d = " + repr(pathDir) + "\n" +
-            "_p = os.environ.get('PATH', '')\n" +
-            "if _d not in _p.split(os.pathsep):\n" +
-            "    os.environ['PATH'] = _d + os.pathsep + _p\n" +
-            "# 如果 'git' 名不存在但 libgit.so 存在，patch subprocess 让它查找 libgit.so\n" +
-            "if not os.path.exists(os.path.join(_d, 'git')):\n" +
-            "    import subprocess as _sp\n" +
-            "    _orig_popen = _sp.Popen\n" +
-            "    class _GitPopen(_orig_popen):\n" +
-            "        def __init__(self, args, *a, **kw):\n" +
-            "            if isinstance(args, list) and args and args[0] == 'git':\n" +
-            "                args = ['libgit.so'] + args[1:]\n" +
-            "            _orig_popen.__init__(self, args, *a, **kw)\n" +
-            "    _sp.Popen = _GitPopen\n";
+        String filesDir = context.getFilesDir().getAbsolutePath();
+        StringBuilder sb = new StringBuilder();
+        sb.append("import os\n");
+        // PATH 注入
+        sb.append("_d = ").append(repr(pathDir)).append("\n");
+        sb.append("_p = os.environ.get('PATH', '')\n");
+        sb.append("if _d not in _p.split(os.pathsep):\n");
+        sb.append("    os.environ['PATH'] = _d + os.pathsep + _p\n");
+        // GIT_EXEC_PATH 注入（让 git 找到 git-remote-https helper）
+        if (gitExecPath != null) {
+            sb.append("os.environ['GIT_EXEC_PATH'] = ").append(repr(gitExecPath)).append("\n");
+        }
+        // HOME 注入（git 需要）
+        sb.append("os.environ['HOME'] = ").append(repr(filesDir)).append("\n");
+        // GIT_TEMPLATE_DIR 避免 templates not found 警告
+        sb.append("os.environ['GIT_TEMPLATE_DIR'] = ''\n");
+        // 如果 'git' 名不存在但 libgit.so 存在，patch subprocess
+        sb.append("if not os.path.exists(os.path.join(_d, 'git')):\n");
+        sb.append("    import subprocess as _sp\n");
+        sb.append("    _orig_popen = _sp.Popen\n");
+        sb.append("    class _GitPopen(_orig_popen):\n");
+        sb.append("        def __init__(self, args, *a, **kw):\n");
+        sb.append("            if isinstance(args, list) and args and args[0] == 'git':\n");
+        sb.append("                args = ['libgit.so'] + args[1:]\n");
+        sb.append("            _orig_popen.__init__(self, args, *a, **kw)\n");
+        sb.append("    _sp.Popen = _GitPopen\n");
         try {
-            nativeExec(pathBootstrap);
-            AppLogger.i("PythonBridge", "已注入 git 路径到 PATH: " + pathDir);
+            nativeExec(sb.toString());
+            AppLogger.i("PythonBridge", "已注入 git 路径 + GIT_EXEC_PATH 到 Python 环境");
         } catch (Exception e) {
             AppLogger.w("PythonBridge", "PATH 注入失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * 在 filesDir/git-exec/ 创建符号链接：
+     * - git-remote-https → nativeLibraryDir/libgitremotehttps.so
+     * - git → nativeLibraryDir/libgit.so
+     * execve 符号链接时 SELinux 检查目标文件（app_lib_data_file 允许执行）。
+     * @return GIT_EXEC_PATH 路径，或 null
+     */
+    private static String ensureGitExecDir(Context context, String nativeLibDir) {
+        if (context == null || nativeLibDir == null) return null;
+        try {
+            File execDir = new File(context.getFilesDir(), "git-exec");
+            if (!execDir.exists()) execDir.mkdirs();
+            createGitSymlink(new File(nativeLibDir, "libgitremotehttps.so"),
+                            new File(execDir, "git-remote-https"));
+            createGitSymlink(new File(nativeLibDir, "libgit.so"),
+                            new File(execDir, "git"));
+            return execDir.getAbsolutePath();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static void createGitSymlink(File target, File link) {
+        try {
+            if (link.exists()) {
+                String lt = android.system.Os.readlink(link.getAbsolutePath());
+                if (lt.equals(target.getAbsolutePath())) return;
+                link.delete();
+            }
+            android.system.Os.symlink(target.getAbsolutePath(), link.getAbsolutePath());
+        } catch (Exception ignored) {}
     }
 
     /** 从 assets/git/git 提取到 filesDir/git_bin，返回可执行文件或 null */

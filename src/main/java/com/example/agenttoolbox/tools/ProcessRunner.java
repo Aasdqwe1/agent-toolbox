@@ -32,9 +32,17 @@ public class ProcessRunner {
     }
 
     public static Result exec(String[] cmd, int timeoutSeconds) throws Exception {
+        return exec(cmd, null, timeoutSeconds);
+    }
+
+    public static Result exec(String[] cmd, java.util.Map<String, String> env, int timeoutSeconds) throws Exception {
         Process process = null;
         try {
-            process = Runtime.getRuntime().exec(cmd);
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            if (env != null) {
+                pb.environment().putAll(env);
+            }
+            process = pb.start();
             return waitForAndRead(process, timeoutSeconds);
         } finally {
             destroyProcess(process);

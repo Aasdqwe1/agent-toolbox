@@ -180,7 +180,7 @@ make -j$(nproc) \
     NO_ICONV=1 \
     NO_INSTALL_HARDLINKS=1 \
     prefix=/tmp/git-install \
-    git || true
+    git remote-curl.o http.o http-walker.o || true
 
 # 手动链接（绕过 Makefile 的 -lpthread -lrt，Bionic 内置这些）
 # 注意:
@@ -198,17 +198,33 @@ $CC -static -O2 \
     reftable/libreftable.a \
     -lcurl -lssl -lcrypto -lz -lm -ldl
 
+# 手动链接 git-remote-https（HTTPS transport helper）
+# git clone/push/pull/fetch https:// 需要这个 helper
+# 源码: remote-curl.c + http.c + http-walker.c
+echo "=== 手动链接 git-remote-https ==="
+$CC -static -O2 \
+    -o git-remote-https \
+    -L$PREFIX/lib \
+    remote-curl.o http.o http-walker.o common-main.o \
+    libgit.a \
+    xdiff/lib.a \
+    reftable/libreftable.a \
+    -lcurl -lssl -lcrypto -lz -lm -ldl
+
 # strip 减小体积
 $STRIP git
+$STRIP git-remote-https
 
 # 修复 TLS 段对齐：Android 14+ Bionic 要求 PT_TLS p_align >= 64
 # OpenSSL 的 __thread 变量默认对齐 8，导致运行时报:
 #   executable's TLS segment is underaligned: alignment is 8, needs to be at least 64
 # 直接修改 ELF 程序头的 p_align 字段从 8 改为 64
-echo "=== 修复 TLS 段对齐 (8 → 64) ==="
-python3 -c "
+fix_tls_align() {
+    local bin=$1
+    echo "=== 修复 TLS 段对齐: $bin (8 → 64) ==="
+    python3 -c "
 import struct
-with open('git', 'rb') as f:
+with open('$bin', 'rb') as f:
     data = bytearray(f.read())
 e_phoff = struct.unpack_from('<Q', data, 32)[0]
 e_phentsize = struct.unpack_from('<H', data, 54)[0]
@@ -220,24 +236,34 @@ for i in range(e_phnum):
         p_align_off = off + 48
         old = struct.unpack_from('<Q', data, p_align_off)[0]
         struct.pack_into('<Q', data, p_align_off, 64)
-        print(f'  PT_TLS p_align: {old} -> 64')
+        print(f'  $bin PT_TLS p_align: {old} -> 64')
         break
-with open('git', 'wb') as f:
+with open('$bin', 'wb') as f:
     f.write(data)
 "
+}
+fix_tls_align git
+fix_tls_align git-remote-https
 
 # 检查是否真的是静态的
 echo "=== 检查二进制 ==="
-file git
-echo "动态依赖:"
+file git git-remote-https
+echo "动态依赖 (git):"
 $TOOLCHAIN/bin/llvm-readobj --needed-libs git || echo "(完全静态，0 动态依赖)"
-echo "TLS 对齐:"
+echo "动态依赖 (git-remote-https):"
+$TOOLCHAIN/bin/llvm-readobj --needed-libs git-remote-https || echo "(完全静态，0 动态依赖)"
+echo "TLS 对齐 (git):"
 readelf -l git | grep -A1 TLS
+echo "TLS 对齐 (git-remote-https):"
+readelf -l git-remote-https | grep -A1 TLS
 
 # 复制到输出目录
 mkdir -p /output
 cp git /output/git
-chmod +x /output/git
+cp git-remote-https /output/git-remote-https
+chmod +x /output/git /output/git-remote-https
+echo "=== 输出文件 ==="
+ls -lh /output/
 
 echo ""
 echo "============================================================"

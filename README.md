@@ -653,9 +653,9 @@ adb logcat -s PythonBridge PythonBridge-C
 
 ## 版本信息
 
-- **版本**: 2.4.7（commit 数 /100→大版本，余数/10→小版本，个位→补丁）
+- **版本**: 2.4.8（commit 数 /100→大版本，余数/10→小版本，个位→补丁）
 - **Python**: 3.14.6 (官方 Android aarch64 构建)
-- **Git**: 2.46.0 (静态编译，内嵌 aarch64 二进制，4.2MB，以 libgit.so 打包，TLS 对齐 64)
+- **Git**: 2.46.0 (静态编译，内嵌 aarch64 二进制，含 git-remote-https HTTPS helper)
 - **协议**: MCP (JSON-RPC 2.0 over HTTP)
 - **最低 Android**: API 24 (Android 7.0)
 - **目标 SDK**: API 32 (Android 12)
@@ -664,6 +664,14 @@ adb logcat -s PythonBridge PythonBridge-C
 - **UI 主题**: 冷色调色板 + 统一间距/圆角体系
 
 ### 更新日志
+
+**v2.4.8 — 修复 git clone HTTPS 失败（缺少 git-remote-https helper）**
+- 根因：git 静态二进制缺少 `git-remote-https` helper，`git clone https://` 报 `fatal: unable to find remote helper for 'https'`（退出码 128）
+- 修复：编译脚本新增 `git-remote-https` 静态二进制（`remote-curl.c + http.c + http-walker.c`），以 `libgitremotehttps.so` 打包到 jniLibs
+- CI workflow 新增 "Compile static git" 步骤，用 Docker 编译 git + git-remote-https（含 cache 加速）
+- 运行时在 `filesDir/git-exec/` 创建符号链接 `git-remote-https` → `nativeLibraryDir/libgitremotehttps.so`
+- 设置 `GIT_EXEC_PATH` 环境变量让 git 找到 helper（execve 符号链接时 SELinux 检查目标文件，允许执行）
+- 同时设置 `HOME` 和 `GIT_TEMPLATE_DIR` 避免 warnings
 
 **v2.4.7 — 修复 Android 14+ TLS 段对齐报错**
 - 根因：git 静态二进制的 PT_TLS 程序头 `p_align=8`，Android 14+ Bionic 要求至少 64，报 `executable's TLS segment is underaligned: alignment is 8, needs to be at least 64`（退出码 134 SIGABRT）

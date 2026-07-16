@@ -129,9 +129,10 @@ public class ShellTool implements Tool {
     }
 
     /**
-     * 在 shell 命令前注入 git 函数定义，让复合命令中的 git 调用
-     * （如 "cd /dir && git status"）也能使用内嵌静态 git 二进制。
-     * 函数定义: git() { /path/to/libgit.so "$@"; }
+     * 在 shell 命令前注入 git 函数定义和环境变量，让复合命令中的 git 调用
+     * （如 "cd /dir && git status"）也能使用内嵌静态 git 二进制，且能找到
+     * git-remote-https helper（HTTPS clone/push 需要）。
+     * 函数定义: git() { export GIT_EXEC_PATH=...; /path/to/libgit.so "$@"; }
      * 如果内嵌 git 不可用，返回原命令。
      */
     private String wrapCommandWithGitFunction(String command) {
@@ -140,8 +141,19 @@ public class ShellTool implements Tool {
             String nativeLibDir = context.getApplicationInfo().nativeLibraryDir;
             java.io.File libGit = new java.io.File(nativeLibDir, "libgit.so");
             if (libGit.exists() && libGit.canExecute()) {
-                // 注入 git 函数 + pip/python 别名（复合命令中也可能用到）
-                return "git() { " + libGit.getAbsolutePath() + " \"$@\"; }; " + command;
+                // 确保 GIT_EXEC_PATH 就绪（含 git-remote-https 符号链接）
+                String execPath = ensureGitExecPath();
+                String filesDir = context.getFilesDir().getAbsolutePath();
+                StringBuilder prefix = new StringBuilder();
+                // 注入环境变量
+                if (execPath != null) {
+                    prefix.append("export GIT_EXEC_PATH=").append(execPath).append("; ");
+                }
+                prefix.append("export HOME=").append(filesDir).append("; ");
+                prefix.append("export GIT_TEMPLATE_DIR=''; ");
+                // 注入 git 函数
+                prefix.append("git() { ").append(libGit.getAbsolutePath()).append(" \"$@\"; }; ");
+                return prefix + command;
             }
         } catch (Exception ignored) {}
         return command;
@@ -331,15 +343,19 @@ public class ShellTool implements Tool {
      * 注意：不能用 sh -c，因为 filesDir 下的文件 SELinux 标记为 app_data_file，
      * sh 拒绝执行（退出码 126 Permission denied）。必须用 Runtime.exec 直接 execve
      * nativeLibraryDir/libgit.so（标记为 app_lib_data_file，允许执行）。
+     * 同时设置 GIT_EXEC_PATH 让 git 找到 git-remote-https 等 helper。
      */
     private String executeGitBinary(StringBuilder sb, String gitPath, String gitArgs, int timeout) {
         try {
+            // 确保 GIT_EXEC_PATH 目录就绪（含 git-remote-https 符号链接）
+            java.util.Map<String, String> env = buildGitEnv();
+
             // 用 shlex 风格分割参数（支持引号），避免 sh -c 的 SELinux 问题
             String[] args = splitShellArgs(gitArgs);
             String[] cmd = new String[args.length + 1];
             cmd[0] = gitPath;
             System.arraycopy(args, 0, cmd, 1, args.length);
-            ProcessRunner.Result result = ProcessRunner.exec(cmd, timeout);
+            ProcessRunner.Result result = ProcessRunner.exec(cmd, env, timeout);
             sb.append("退出码: ").append(result.exitCode).append("\n");
             if (result.timedOut) {
                 sb.append("⚠️ 命令超时（").append(timeout).append("秒），已被强制终止\n");
@@ -386,6 +402,79 @@ public class ShellTool implements Tool {
         }
         if (cur.length() > 0) result.add(cur.toString());
         return result.toArray(new String[0]);
+    }
+
+    /**
+     * 构建 git 运行环境变量：
+     * - GIT_EXEC_PATH: 指向 filesDir/git-exec/，内含符号链接 git-remote-https → nativeLibraryDir/libgitremotehttps.so
+     * - HOME: 指向 filesDir（git 需要写 ~/.gitconfig 等）
+     * - GIT_TEMPLATE_DIR: 设为空避免 "templates not found" 警告
+     * execve 符号链接时 SELinux 检查目标文件（app_lib_data_file 允许执行），不是链接本身。
+     */
+    private java.util.Map<String, String> buildGitEnv() {
+        java.util.Map<String, String> env = new java.util.HashMap<>();
+        try {
+            String execPath = ensureGitExecPath();
+            if (execPath != null) {
+                env.put("GIT_EXEC_PATH", execPath);
+            }
+            // git 需要 HOME 来写 .gitconfig
+            env.put("HOME", context.getFilesDir().getAbsolutePath());
+            // 避免 "templates not found in /tmp/git-install/share/git-core/templates" 警告
+            env.put("GIT_TEMPLATE_DIR", "");
+        } catch (Exception ignored) {}
+        return env;
+    }
+
+    /**
+     * 确保 GIT_EXEC_PATH 目录就绪：
+     * 在 filesDir/git-exec/ 创建符号链接，指向 nativeLibraryDir 中的 .so 文件。
+     * - git → libgit.so
+     * - git-remote-https → libgitremotehttps.so
+     * 符号链接本身在 filesDir（app_data_file），但 execve 时 SELinux 检查目标
+     * （nativeLibraryDir 中的 app_lib_data_file，允许执行）。
+     * @return GIT_EXEC_PATH 路径，或 null 如果失败
+     */
+    private String ensureGitExecPath() {
+        if (context == null) return null;
+        try {
+            java.io.File execDir = new java.io.File(context.getFilesDir(), "git-exec");
+            if (!execDir.exists()) execDir.mkdirs();
+
+            String nativeLibDir = context.getApplicationInfo().nativeLibraryDir;
+            // 创建 git-remote-https → libgitremotehttps.so 符号链接
+            createSymlink(new java.io.File(nativeLibDir, "libgitremotehttps.so"),
+                         new java.io.File(execDir, "git-remote-https"));
+            // 创建 git → libgit.so 符号链接（git 子命令查找时需要）
+            createSymlink(new java.io.File(nativeLibDir, "libgit.so"),
+                         new java.io.File(execDir, "git"));
+
+            return execDir.getAbsolutePath();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 创建符号链接，如果已存在且指向正确则跳过
+     */
+    private void createSymlink(java.io.File target, java.io.File link) {
+        try {
+            // 如果链接已存在且目标可执行，跳过
+            if (link.exists()) {
+                String linkTarget = android.system.Os.readlink(link.getAbsolutePath());
+                if (linkTarget.equals(target.getAbsolutePath())) {
+                    return; // 已正确链接
+                }
+                // 删除旧链接
+                link.delete();
+            }
+            android.system.Os.symlink(target.getAbsolutePath(), link.getAbsolutePath());
+        } catch (Exception e) {
+            // 符号链接创建失败（可能不支持），尝试复制文件
+            // 但 filesDir 中的文件 SELinux 不可执行，复制也没用
+            // 静默失败，git 会报 "unable to find remote helper"
+        }
     }
 
     /**
