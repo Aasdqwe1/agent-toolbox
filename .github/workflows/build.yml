@@ -28,7 +28,7 @@ jobs:
             jniLibs/arm64-v8a/libgit.so
             jniLibs/arm64-v8a/libgitremotehttps.so
             assets/git/git
-          key: static-git-v2-${{ hashFiles('tools/build_static_git.sh', 'tools/Dockerfile') }}
+          key: static-git-v3-${{ hashFiles('tools/build_static_git.sh', 'tools/Dockerfile') }}
 
       - name: Compile static git (with HTTPS helper)
         # 用 Docker 编译 git + git-remote-https 静态二进制

@@ -188,6 +188,8 @@ public class PythonBridge {
         sb.append("os.environ['HOME'] = ").append(repr(filesDir)).append("\n");
         // GIT_TEMPLATE_DIR 避免 templates not found 警告
         sb.append("os.environ['GIT_TEMPLATE_DIR'] = ''\n");
+        // c-ares DNS 服务器（Android 静态二进制的 getaddrinfo 不工作）
+        sb.append("os.environ['GIT_DNS_SERVERS'] = '8.8.8.8,8.8.4.4,1.1.1.1'\n");
         // 如果 'git' 名不存在但 libgit.so 存在，patch subprocess
         sb.append("if not os.path.exists(os.path.join(_d, 'git')):\n");
         sb.append("    import subprocess as _sp\n");

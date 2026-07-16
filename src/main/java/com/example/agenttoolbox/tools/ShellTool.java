@@ -151,6 +151,7 @@ public class ShellTool implements Tool {
                 }
                 prefix.append("export HOME=").append(filesDir).append("; ");
                 prefix.append("export GIT_TEMPLATE_DIR=''; ");
+                prefix.append("export GIT_DNS_SERVERS='8.8.8.8,8.8.4.4,1.1.1.1'; ");
                 // 注入 git 函数
                 prefix.append("git() { ").append(libGit.getAbsolutePath()).append(" \"$@\"; }; ");
                 return prefix + command;
@@ -422,6 +423,9 @@ public class ShellTool implements Tool {
             env.put("HOME", context.getFilesDir().getAbsolutePath());
             // 避免 "templates not found in /tmp/git-install/share/git-core/templates" 警告
             env.put("GIT_TEMPLATE_DIR", "");
+            // c-ares DNS 服务器（Android 静态二进制的 getaddrinfo 不工作，
+            // curl 编译时启用 c-ares，通过此环境变量设置 DNS 服务器）
+            env.put("GIT_DNS_SERVERS", "8.8.8.8,8.8.4.4,1.1.1.1");
         } catch (Exception ignored) {}
         return env;
     }

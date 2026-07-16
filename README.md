@@ -653,9 +653,9 @@ adb logcat -s PythonBridge PythonBridge-C
 
 ## 版本信息
 
-- **版本**: 2.4.8（commit 数 /100→大版本，余数/10→小版本，个位→补丁）
+- **版本**: 2.4.9（commit 数 /100→大版本，余数/10→小版本，个位→补丁）
 - **Python**: 3.14.6 (官方 Android aarch64 构建)
-- **Git**: 2.46.0 (静态编译，内嵌 aarch64 二进制，含 git-remote-https HTTPS helper)
+- **Git**: 2.46.0 (静态编译，含 c-ares DNS + git-remote-https HTTPS helper)
 - **协议**: MCP (JSON-RPC 2.0 over HTTP)
 - **最低 Android**: API 24 (Android 7.0)
 - **目标 SDK**: API 32 (Android 12)
@@ -664,6 +664,13 @@ adb logcat -s PythonBridge PythonBridge-C
 - **UI 主题**: 冷色调色板 + 统一间距/圆角体系
 
 ### 更新日志
+
+**v2.4.9 — 修复 git clone DNS 解析失败**
+- 根因：NDK 静态 libc 的 `getaddrinfo` 无法与 Android netd 通信，`git clone https://` 报 `Could not resolve host: github.com`（退出码 128）
+- 修复：编译 curl 时启用 c-ares（自带 DNS 解析器，不依赖系统 getaddrinfo）
+- 修补 git 的 `http.c`，通过 `GIT_DNS_SERVERS` 环境变量设置 DNS 服务器（`CURLOPT_DNS_SERVERS`）
+- 运行时设置 `GIT_DNS_SERVERS=8.8.8.8,8.8.4.4,1.1.1.1`（Google + Cloudflare DNS）
+- 编译脚本新增 c-ares 1.33.1 编译步骤
 
 **v2.4.8 — 修复 git clone HTTPS 失败（缺少 git-remote-https helper）**
 - 根因：git 静态二进制缺少 `git-remote-https` helper，`git clone https://` 报 `fatal: unable to find remote helper for 'https'`（退出码 128）
