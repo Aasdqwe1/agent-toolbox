@@ -118,26 +118,17 @@ jobs:
         run: gradle assembleDebug --no-daemon --stacktrace
 
       - name: Verify APK contents
-        # 验证 APK 内 assets 是否完整打包了 pip/_internal
-        # （曾出现设备上 import pip._internal 报 ModuleNotFoundError，
-        #  需确认是 APK 打包缺失还是运行时提取 bug）
+        # 校验 APK 内 pip.zip 存在（绕过 AAPT2 深层目录丢失的关键），
+        # 以及 os.py 等 stdlib 关键文件齐全
         run: |
           APK_PATH=$(find build/outputs/apk -name "*.apk" | head -1)
-          echo "=== APK: $APK_PATH ==="
-          echo "=== APK 大小 ==="
-          ls -lh "$APK_PATH"
-          echo "=== assets/ 下所有顶层条目 ==="
-          unzip -l "$APK_PATH" | grep "assets/" | awk '{print $4}' | awk -F/ '{print $1"/"$2}' | sort -u
-          echo "=== assets/python/ 下条目数 ==="
-          unzip -l "$APK_PATH" | grep -c "assets/python/"
-          echo "=== assets/python/ 顶层结构 ==="
-          unzip -l "$APK_PATH" | grep "assets/python/" | awk '{print $4}' | awk -F/ '{print $1"/"$2"/"$3}' | sort -u | head -20
-          echo "=== pip 相关全部条目 ==="
-          unzip -l "$APK_PATH" | grep "pip" | head -30
-          echo "=== os.py 相关 ==="
-          unzip -l "$APK_PATH" | grep "os.py" | head -10
-          echo "=== 总文件数 ==="
-          unzip -l "$APK_PATH" | tail -1
+          echo "APK: $APK_PATH ($(ls -lh "$APK_PATH" | awk '{print $5}'))"
+          check() { unzip -l "$APK_PATH" | grep -q "$1" && echo "✓ $1" || { echo "❌ 缺失: $1"; exit 1; }; }
+          check "assets/python/stdlib/pip.zip"
+          check "assets/python/stdlib/os.py"
+          check "assets/python/stdlib/encodings/__init__.py"
+          check "assets/python/stdlib/zipfile/_path/__init__.py"
+          echo "关键文件校验通过"
 
       - name: Locate & rename APK
         id: apk
