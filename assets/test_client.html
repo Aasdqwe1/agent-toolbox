@@ -2581,11 +2581,11 @@
                             html += '<div style="display:flex; flex-direction:column; gap:6px; margin-bottom:8px;">';
                             for (var oi = 0; oi < cur.opts.length; oi++) {
                                 var ov = escapeHtml(cur.opts[oi]);
-                                html += '<button class="ask-opt" data-val="' + ov + '" style="text-align:left; padding:8px 12px; border-radius:8px; border:1px solid #fde68a; background:#fff; color:#92400e; font-size:13px; cursor:pointer;">' + (oi+1) + '. ' + ov + '</button>';
+                                html += '<button type="button" class="ask-opt" data-val="' + ov + '" style="text-align:left; padding:8px 12px; border-radius:8px; border:1px solid #fde68a; background:#fff; color:#92400e; font-size:13px; cursor:pointer;">' + (oi+1) + '. ' + ov + '</button>';
                             }
                             html += '</div>';
                             html += '<div style="display:flex; gap:6px; align-items:center;">';
-                            html += '<button class="ask-other" style="flex-shrink:0; padding:8px 12px; border-radius:8px; border:1px solid #fde68a; background:#fffbeb; color:#92400e; font-size:13px; cursor:pointer;">其他</button>';
+                            html += '<button type="button" class="ask-other" style="flex-shrink:0; padding:8px 12px; border-radius:8px; border:1px solid #fde68a; background:#fffbeb; color:#92400e; font-size:13px; cursor:pointer;">提交</button>';
                             html += '<input class="ask-input" type="text" placeholder="输入回答…" style="flex:1; padding:8px 10px; border-radius:8px; border:1px solid #fde68a; font-size:13px; outline:none; background:#fff;">';
                             html += '</div>';
                         } else {
@@ -2604,11 +2604,21 @@
                         cardEl.querySelectorAll('.ask-other').forEach(function(b) {
                             b.onclick = function() {
                                 var inp = cardEl.querySelector('.ask-input');
+                                // 输入框有内容则提交内容；为空则聚焦提示用户输入
+                                // （不提交空答案，避免 LLM 收到无意义回答）
                                 if (inp && inp.value.trim()) {
                                     window[sk].answers.push(inp.value.trim());
                                     window[sk].idx++;
                                     renderAskCard(cardEl);
-                                } else if (inp) { inp.focus(); }
+                                } else if (inp) {
+                                    inp.focus();
+                                    inp.style.borderColor = '#f87171';
+                                    inp.placeholder = '请先输入回答，再点提交';
+                                    setTimeout(function() {
+                                        inp.style.borderColor = '#fde68a';
+                                        inp.placeholder = '输入回答…';
+                                    }, 2000);
+                                }
                             };
                         });
                         cardEl.querySelectorAll('.ask-input').forEach(function(inp) {
