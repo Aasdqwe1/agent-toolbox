@@ -124,16 +124,20 @@ jobs:
         run: |
           APK_PATH=$(find build/outputs/apk -name "*.apk" | head -1)
           echo "=== APK: $APK_PATH ==="
-          echo "--- pip 相关条目数 ---"
-          unzip -l "$APK_PATH" | grep -c "assets/python/stdlib/pip" || true
-          echo "--- pip/_internal 相关条目数 ---"
-          unzip -l "$APK_PATH" | grep -c "pip/_internal" || true
-          echo "--- pip/_internal/__init__.py 是否存在 ---"
-          unzip -l "$APK_PATH" | grep "pip/_internal/__init__.py" || echo "❌ 缺失!"
-          echo "--- pip/_internal/cli/main.py 是否存在 ---"
-          unzip -l "$APK_PATH" | grep "pip/_internal/cli/main.py" || echo "❌ 缺失!"
-          echo "--- os.py 是否存在 ---"
-          unzip -l "$APK_PATH" | grep "lib/python3.14/os.py" || echo "❌ 缺失!"
+          echo "=== APK 大小 ==="
+          ls -lh "$APK_PATH"
+          echo "=== assets/ 下所有顶层条目 ==="
+          unzip -l "$APK_PATH" | grep "assets/" | awk '{print $4}' | awk -F/ '{print $1"/"$2}' | sort -u
+          echo "=== assets/python/ 下条目数 ==="
+          unzip -l "$APK_PATH" | grep -c "assets/python/"
+          echo "=== assets/python/ 顶层结构 ==="
+          unzip -l "$APK_PATH" | grep "assets/python/" | awk '{print $4}' | awk -F/ '{print $1"/"$2"/"$3}' | sort -u | head -20
+          echo "=== pip 相关全部条目 ==="
+          unzip -l "$APK_PATH" | grep "pip" | head -30
+          echo "=== os.py 相关 ==="
+          unzip -l "$APK_PATH" | grep "os.py" | head -10
+          echo "=== 总文件数 ==="
+          unzip -l "$APK_PATH" | tail -1
 
       - name: Locate & rename APK
         id: apk
