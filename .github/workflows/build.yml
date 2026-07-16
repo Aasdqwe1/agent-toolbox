@@ -97,6 +97,21 @@ jobs:
         # 打印 Gradle 实际解析的 buildDir，确认不再指向安卓设备路径
         run: gradle properties --no-daemon --console=plain | grep -i "^buildDir" || true
 
+      - name: Restore debug keystore
+        # AGP 默认用 ~/.android/debug.keystore 给 debug 包签名，
+        # 文件不存在时会随机生成一份新的 → 每次 CI 构建签名都不同，
+        # 用户升级会报 INSTALL_FAILED_UPDATE_INCOMPATIBLE。
+        # 这里从仓库 Secret 还原一份固定的 debug.keystore，保证签名稳定。
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          mkdir -p ~/.android
+          echo "$DEBUG_KEYSTORE_BASE64" | base64 -d > ~/.android/debug.keystore
+          chmod 600 ~/.android/debug.keystore
+          ls -la ~/.android/debug.keystore
+          # 校验 keystore 可读（storepass=android 是 AGP debug 默认）
+          keytool -list -keystore ~/.android/debug.keystore -storepass android | head -10
+
       - name: Build debug APK
         # 不用 -PbuildDir，它会被 Gradle 当作覆盖 Project.buildDir 属性的值，
         # 反而干扰默认解析并触发任务图 StackOverflowError
