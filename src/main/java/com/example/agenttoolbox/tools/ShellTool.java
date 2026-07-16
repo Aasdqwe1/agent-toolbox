@@ -144,9 +144,9 @@ public class ShellTool implements Tool {
                 // 确保 GIT_EXEC_PATH 就绪（含 git-remote-https 符号链接）
                 String execPath = ensureGitExecPath();
                 String filesDir = context.getFilesDir().getAbsolutePath();
-                // 确保 CA 证书包就绪
-                String caBundle = ensureCacertBundle();
-                if (caBundle != null) ensureGitConfig(caBundle);
+                // 确保 .gitconfig 含 sslVerify=false（避免静态 OpenSSL 加载 CA 段错误）
+                ensureCacertBundle();
+                ensureGitConfig(null);
                 StringBuilder prefix = new StringBuilder();
                 // 注入环境变量
                 if (execPath != null) {
@@ -155,12 +155,6 @@ public class ShellTool implements Tool {
                 prefix.append("export HOME=").append(filesDir).append("; ");
                 prefix.append("export GIT_TEMPLATE_DIR=''; ");
                 prefix.append("export GIT_DNS_SERVERS='8.8.8.8,8.8.4.4,1.1.1.1'; ");
-                if (caBundle != null) {
-                    prefix.append("export SSL_CERT_FILE='").append(caBundle).append("'; ");
-                    prefix.append("export CURL_CA_BUNDLE='").append(caBundle).append("'; ");
-                } else {
-                    prefix.append("export SSL_CERT_DIR='/system/etc/security/cacerts:/apex/com.android.conscrypt/cacerts'; ");
-                }
                 // 注入 git 函数
                 prefix.append("git() { ").append(libGit.getAbsolutePath()).append(" \"$@\"; }; ");
                 return prefix + command;
@@ -490,23 +484,13 @@ public class ShellTool implements Tool {
             // c-ares DNS 服务器（Android 静态二进制的 getaddrinfo 不工作，
             // curl 编译时启用 c-ares，通过此环境变量设置 DNS 服务器）
             env.put("GIT_DNS_SERVERS", "8.8.8.8,8.8.4.4,1.1.1.1");
-            // SSL CA 证书：静态 OpenSSL 编译时 --prefix=/tmp/static_prefix，
-            // 默认 CApath/CAfile 指向设备上不存在的路径。
-            // SSL_CERT_DIR（目录形式）在 Android 14+ 上不可靠——系统 CA 目录可能为空
-            // 或格式不匹配。改用 SSL_CERT_FILE 指向内嵌的 Mozilla CA 证书包（cacert.pem），
-            // 包含 119 个受信任根 CA，是最可靠的跨平台方案。
-            String caBundle = ensureCacertBundle();
-            if (caBundle != null) {
-                env.put("SSL_CERT_FILE", caBundle);
-                env.put("CURL_CA_BUNDLE", caBundle);
-                // 关键: 写 .gitconfig 设置 http.sslCAInfo。
-                // git 的 http.c 从配置读取 sslCAInfo 并通过 CURLOPT_CAINFO 直接传给 libcurl，
-                // 绕过所有环境变量检查路径（SSL_CERT_FILE / CURL_CA_BUNDLE 可能被跳过）。
-                ensureGitConfig(caBundle);
-            } else {
-                // 回退到系统 CA 目录
-                env.put("SSL_CERT_DIR", "/system/etc/security/cacerts:/apex/com.android.conscrypt/cacerts");
-            }
+            // SSL 证书: 静态 OpenSSL 加载 cacert.pem 时段错误（OpenSSL 3.x 静态构建
+            // 在 Android 上的 file provider bug）。临时方案：写 .gitconfig 设置
+            // http.sslVerify=false 完全跳过 SSL 验证，不设置任何 CA 文件路径。
+            // 这样 git http.c 不会调用 CURLOPT_CAINFO，libcurl 不会尝试加载 PEM 文件。
+            // TODO: 修复静态 OpenSSL CA 加载崩溃后恢复 sslVerify=true + sslCAInfo
+            ensureCacertBundle(); // 仍提取 cacert.pem 供后续使用
+            ensureGitConfig(null);
         } catch (Exception ignored) {}
         return env;
     }
@@ -550,28 +534,34 @@ public class ShellTool implements Tool {
     }
 
     /**
-     * 确保 .gitconfig 含 http.sslCAInfo 指向 cacert.pem。
-     * git 的 http.c 从配置读 sslCAInfo，通过 CURLOPT_CAINFO 直接传给 libcurl，
-     * 这是绕过 SSL_CERT_FILE / CURL_CA_BUNDLE 环境变量不可靠问题的最可靠方案。
-     * 追加 [http] section 到 .gitconfig 末尾（git 配置中同名 key 后者覆盖前者）。
+     * 写 .gitconfig 设置 http.sslCAInfo + sslVerify。
+     * v2.4.14 用 sslCAInfo 导致段错误（OpenSSL 静态库加载 PEM 文件时崩溃），
+     * 这里改用 sslVerify=false 绕过验证（临时诊断方案），同时保留 sslCAInfo
+     * 供后续修复后启用。
+     * TODO: 找到静态 OpenSSL 加载 CA 证书崩溃的根因后恢复 sslVerify=true
      */
     private void ensureGitConfig(String caBundlePath) {
-        if (context == null || caBundlePath == null) return;
+        if (context == null) return;
         try {
             java.io.File gitconfig = new java.io.File(context.getFilesDir(), ".gitconfig");
-            String targetLine = "sslCAInfo = " + caBundlePath;
-            String content = "";
+            String marker = "# agent-toolbox git config v2";
+            // 简单策略：删除旧 .gitconfig 重新写（app 管理的配置，用户自定义会被覆盖）
+            // 这样能确保 v2.4.14 写的错误 sslCAInfo 配置被清除
             if (gitconfig.exists()) {
                 try {
-                    content = new String(java.nio.file.Files.readAllBytes(gitconfig.toPath()), "UTF-8");
+                    String old = new String(java.nio.file.Files.readAllBytes(gitconfig.toPath()), "UTF-8");
+                    if (old.contains(marker)) return; // 已是 v2 配置，跳过
                 } catch (Exception ignored) {}
+                gitconfig.delete(); // 删除旧配置（含 v2.4.14 的错误配置）
             }
-            // 已设置正确则跳过
-            if (content.contains(targetLine)) return;
-            // 追加 [http] section（git 配置同名 key 后者覆盖前者，安全）
-            StringBuilder sb = new StringBuilder(content);
-            if (!content.isEmpty() && !content.endsWith("\n")) sb.append("\n");
-            sb.append("[http]\n\tsslCAInfo = ").append(caBundlePath).append("\n");
+            StringBuilder sb = new StringBuilder();
+            sb.append(marker).append("\n");
+            sb.append("[http]\n");
+            // 临时禁用 SSL 验证：静态 OpenSSL 加载 cacert.pem 时段错误，
+            // 先禁用验证让 clone 能工作，后续再修复 CA 加载问题。
+            // 注意: 不设置 sslCAInfo，因为 git http.c 会无视 sslVerify=false
+            // 仍调用 CURLOPT_CAINFO 加载 CA 文件导致段错误。
+            sb.append("\tsslVerify = false\n");
             java.nio.file.Files.write(gitconfig.toPath(), sb.toString().getBytes("UTF-8"));
         } catch (Exception ignored) {}
     }

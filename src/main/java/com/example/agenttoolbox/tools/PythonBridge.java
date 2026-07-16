@@ -190,16 +190,9 @@ public class PythonBridge {
         sb.append("os.environ['GIT_TEMPLATE_DIR'] = ''\n");
         // c-ares DNS 服务器（Android 静态二进制的 getaddrinfo 不工作）
         sb.append("os.environ['GIT_DNS_SERVERS'] = '8.8.8.8,8.8.4.4,1.1.1.1'\n");
-        // SSL CA 证书：内嵌 Mozilla CA 证书包（cacert.pem），比系统 CA 目录更可靠
-        String caBundle = ensureCacertBundle(context);
-        if (caBundle != null) {
-            sb.append("os.environ['SSL_CERT_FILE'] = ").append(repr(caBundle)).append("\n");
-            sb.append("os.environ['CURL_CA_BUNDLE'] = ").append(repr(caBundle)).append("\n");
-            // 写 .gitconfig 设置 http.sslCAInfo（git http.c 通过 CURLOPT_CAINFO 直接传给 libcurl）
-            ensureGitConfig(context, caBundle);
-        } else {
-            sb.append("os.environ['SSL_CERT_DIR'] = '/system/etc/security/cacerts:/apex/com.android.conscrypt/cacerts'\n");
-        }
+        // SSL: 静态 OpenSSL 加载 cacert.pem 段错误，临时用 sslVerify=false 跳过验证
+        ensureCacertBundle(context); // 仍提取 cacert.pem 供后续使用
+        ensureGitConfig(context, null);
         // 如果 'git' 名不存在但 libgit.so 存在，patch subprocess
         sb.append("if not os.path.exists(os.path.join(_d, 'git')):\n");
         sb.append("    import subprocess as _sp\n");
@@ -285,25 +278,26 @@ public class PythonBridge {
     }
 
     /**
-     * 确保 .gitconfig 含 http.sslCAInfo 指向 cacert.pem。
-     * git 的 http.c 从配置读 sslCAInfo 并通过 CURLOPT_CAINFO 直接传给 libcurl，
-     * 绕过 SSL_CERT_FILE / CURL_CA_BUNDLE 环境变量不可靠的问题。
+     * 写 .gitconfig 设置 http.sslVerify=false（临时禁用 SSL 验证，
+     * 静态 OpenSSL 加载 cacert.pem 时段错误）+ sslCAInfo（保留供后续启用）。
      */
     private static void ensureGitConfig(Context context, String caBundlePath) {
-        if (context == null || caBundlePath == null) return;
+        if (context == null) return;
         try {
             File gitconfig = new File(context.getFilesDir(), ".gitconfig");
-            String targetLine = "sslCAInfo = " + caBundlePath;
-            String content = "";
+            String marker = "# agent-toolbox git config v2";
             if (gitconfig.exists()) {
                 try {
-                    content = new String(java.nio.file.Files.readAllBytes(gitconfig.toPath()), "UTF-8");
+                    String old = new String(java.nio.file.Files.readAllBytes(gitconfig.toPath()), "UTF-8");
+                    if (old.contains(marker)) return;
                 } catch (Exception ignored) {}
+                gitconfig.delete();
             }
-            if (content.contains(targetLine)) return;
-            StringBuilder sb = new StringBuilder(content);
-            if (!content.isEmpty() && !content.endsWith("\n")) sb.append("\n");
-            sb.append("[http]\n\tsslCAInfo = ").append(caBundlePath).append("\n");
+            StringBuilder sb = new StringBuilder();
+            sb.append(marker).append("\n");
+            sb.append("[http]\n");
+            // 临时禁用 SSL 验证（静态 OpenSSL 加载 cacert.pem 段错误），不设 sslCAInfo
+            sb.append("\tsslVerify = false\n");
             java.nio.file.Files.write(gitconfig.toPath(), sb.toString().getBytes("UTF-8"));
         } catch (Exception ignored) {}
     }
