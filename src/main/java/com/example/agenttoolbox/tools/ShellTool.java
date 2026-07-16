@@ -155,6 +155,13 @@ public class ShellTool implements Tool {
                 prefix.append("export GIT_TEMPLATE_DIR=''; ");
                 prefix.append("export GIT_DNS_SERVERS='8.8.8.8,8.8.4.4,1.1.1.1'; ");
                 prefix.append("export GIT_SSL_NO_VERIFY=true; ");
+                // SSL_CERT_FILE + CURL_CA_BUNDLE: 指向内嵌 Mozilla CA 证书包，
+                // 防止静态 OpenSSL 走编译时默认路径(/tmp/static_prefix/ssl/certs/)导致段错误
+                String caBundle = ensureCacertBundle();
+                if (caBundle != null) {
+                    prefix.append("export SSL_CERT_FILE='").append(caBundle).append("'; ");
+                    prefix.append("export CURL_CA_BUNDLE='").append(caBundle).append("'; ");
+                }
                 // 注入 git 函数
                 prefix.append("git() { ").append(libGit.getAbsolutePath()).append(" \"$@\"; }; ");
                 return prefix + command;
@@ -484,13 +491,19 @@ public class ShellTool implements Tool {
             // c-ares DNS 服务器（Android 静态二进制的 getaddrinfo 不工作，
             // curl 编译时启用 c-ares，通过此环境变量设置 DNS 服务器）
             env.put("GIT_DNS_SERVERS", "8.8.8.8,8.8.4.4,1.1.1.1");
-            // SSL: 用 GIT_SSL_NO_VERIFY=true 环境变量跳过 SSL 验证。
-            // 不用 .gitconfig http.sslCAInfo（导致段错误）也不用 sslVerify（旧 .gitconfig
-            // 可能残留 sslCAInfo，git http.c 无论 sslVerify 都会加载 sslCAInfo 的 CA 文件）。
-            // GIT_SSL_NO_VERIFY 设置 curl_ssl_verify=0，且不涉及 CA 文件加载。
-            // 删除旧 .gitconfig 防止 v2.4.14 写的 sslCAInfo 残留导致段错误。
+            // SSL: v2.4.13 用 SSL_CERT_FILE + CURL_CA_BUNDLE 正常运行（SSL 错误但不崩溃），
+            // v2.4.14-16 移除这些后段错误。推断: 缺少 SSL_CERT_FILE 时 libcurl 尝试
+            // 编译时默认路径（/tmp/static_prefix/ssl/certs/，不存在），静态 OpenSSL 崩溃。
+            // 修复: 同时设置 SSL_CERT_FILE（指向已提取的 cacert.pem，防止默认路径崩溃）
+            // 和 GIT_SSL_NO_VERIFY=true（跳过验证，避免 CA 文件验证失败）。
+            // 不用 .gitconfig http.sslCAInfo（v2.4.14 证实会导致段错误）。
             cleanupGitConfig();
             env.put("GIT_SSL_NO_VERIFY", "true");
+            String caBundle = ensureCacertBundle();
+            if (caBundle != null) {
+                env.put("SSL_CERT_FILE", caBundle);
+                env.put("CURL_CA_BUNDLE", caBundle);
+            }
         } catch (Exception ignored) {}
         return env;
     }

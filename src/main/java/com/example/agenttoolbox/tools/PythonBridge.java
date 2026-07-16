@@ -194,6 +194,13 @@ public class PythonBridge {
         // 删除旧 .gitconfig 防止 v2.4.14 的 sslCAInfo 残留导致段错误
         cleanupGitConfig(context);
         sb.append("os.environ['GIT_SSL_NO_VERIFY'] = 'true'\n");
+        // SSL_CERT_FILE + CURL_CA_BUNDLE: 指向内嵌 Mozilla CA 证书包，
+        // 防止静态 OpenSSL 走编译时默认路径(/tmp/static_prefix/ssl/certs/)导致段错误
+        String caBundle = ensureCacertBundle(context);
+        if (caBundle != null) {
+            sb.append("os.environ['SSL_CERT_FILE'] = ").append(repr(caBundle)).append("\n");
+            sb.append("os.environ['CURL_CA_BUNDLE'] = ").append(repr(caBundle)).append("\n");
+        }
         // 如果 'git' 名不存在但 libgit.so 存在，patch subprocess
         sb.append("if not os.path.exists(os.path.join(_d, 'git')):\n");
         sb.append("    import subprocess as _sp\n");
