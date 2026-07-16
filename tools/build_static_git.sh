@@ -96,8 +96,8 @@ echo "=== OpenSSL 完成 ==="
 # DNS 解析不工作。c-ares 自带 DNS 解析器，直接发送 DNS 查询，
 # 不依赖系统 getaddrinfo，在静态二进制中可正常工作。
 echo "=== [3/5] 编译 c-ares ==="
-if [ ! -d "c-ares-cares-${CARES_VERSION}" ]; then
-    wget -q "https://github.com/c-ares/c-ares/releases/download/cares-${CARES_VERSION}/c-ares-${CARES_VERSION}.tar.gz" -O cares.tar.gz
+if [ ! -d "c-ares-${CARES_VERSION}" ]; then
+    wget -q "https://github.com/c-ares/c-ares/releases/download/v${CARES_VERSION}/c-ares-${CARES_VERSION}.tar.gz" -O cares.tar.gz
     tar xf cares.tar.gz
 fi
 cd "c-ares-${CARES_VERSION}"
