@@ -1580,6 +1580,19 @@ public class McpServer {
                                 if (answered && waiter.answerRef.get() != null) {
                                     toolResult = "用户回答:\n" + waiter.answerRef.get();
                                     log("[ASK] 收到用户回答，继续对话");
+                                    // 解耦提问与计划推进：ask 成功返回 = 提问任务完成。
+                                    // 若依赖 LLM 发 plan_update(complete_task)，代理模式下 LLM 一旦
+                                    // 忘发，selectNextTask 会返回同一个 in_progress 的提问任务，
+                                    // 造成"继续执行下一个任务"实际是同一个 → 循环卡死。
+                                    // 这里在 ask 返回后主动标记 activeTask 完成（仅当其 toolNeeds
+                                    // 含 ask 时），不依赖 LLM 的 plan_update。
+                                    if (cachedSession != null
+                                            && cachedSession.planState.activeTask != null
+                                            && cachedSession.planState.activeTask.toolNeeds.contains("ask")) {
+                                        Task askTask = cachedSession.planState.activeTask;
+                                        log("[ASK] ask 已回答，自动完成任务: " + askTask.taskId);
+                                        cachedSession.taskManager.markCurrentDone(cachedSession.planState);
+                                    }
                                 } else {
                                     toolResult = "用户未在超时时间内回答，请直接回复用户说明情况";
                                     toolIsError = true;
