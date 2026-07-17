@@ -2077,6 +2077,12 @@ public class McpServer {
                         for (String d : t.deps) depsArr.put(d);
                         tj.put("deps", depsArr);
                     }
+                    if (!t.toolNeeds.isEmpty()) {
+                        JSONArray toolsArr = new JSONArray();
+                        for (String tn : t.toolNeeds) toolsArr.put(tn);
+                        tj.put("tool_needs", toolsArr);
+                    }
+                    if (t.checkpoint != null) tj.put("checkpoint", t.checkpoint);
                     if (t.failReason != null) tj.put("fail_reason", t.failReason);
                     tasks.put(tj);
                 }
