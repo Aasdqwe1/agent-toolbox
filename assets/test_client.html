@@ -3357,6 +3357,9 @@
                     } else if (eventName === 'plan') {
                         // 计划事件：更新侧边栏待办面板
                         if (obj) {
+                            console.log('[SSE] plan事件: action=' + (obj.action||'?')
+                                + ' 进度=' + (obj.completed||0) + '/' + (obj.total||0)
+                                + ' 任务数=' + (obj.tasks ? obj.tasks.length : 0));
                             renderPlan(obj);
                         }
                     } else if (eventName === 'ask') {
