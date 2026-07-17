@@ -152,13 +152,15 @@ public class ShellTool implements Tool {
                 prefix.append("export HOME=").append(filesDir).append("; ");
                 prefix.append("export GIT_TEMPLATE_DIR=''; ");
                 prefix.append("export GIT_DNS_SERVERS='8.8.8.8,8.8.4.4,1.1.1.1'; ");
-                // v2.4.13 证实: SSL_CERT_FILE + CURL_CA_BUNDLE 不崩溃（SSL 错误 exit 128）
-                // v2.4.14-17 加 GIT_SSL_NO_VERIFY 后段错误 exit 139
-                // 回退到 v2.4.13 配置: 只设 SSL_CERT_FILE + CURL_CA_BUNDLE，不设 GIT_SSL_NO_VERIFY
+                // v2.4.18 证实: SSL_CERT_FILE + CURL_CA_BUNDLE 不崩溃但 SSL 验证失败（exit 128）
+                // v2.4.17 证实: GIT_SSL_NO_VERIFY=true 导致段错误（exit 139），不能用
+                // v2.4.19: 加 GIT_SSL_CAINFO 让 git http.c 显式调用 CURLOPT_CAINFO 加载 CA 文件
+                // （比依赖 libcurl 的 CURL_CA_BUNDLE 环境变量检查更可靠）
                 String caBundle = ensureCacertBundle();
                 if (caBundle != null) {
                     prefix.append("export SSL_CERT_FILE='").append(caBundle).append("'; ");
                     prefix.append("export CURL_CA_BUNDLE='").append(caBundle).append("'; ");
+                    prefix.append("export GIT_SSL_CAINFO='").append(caBundle).append("'; ");
                 } else {
                     prefix.append("export SSL_CERT_DIR='/system/etc/security/cacerts:/apex/com.android.conscrypt/cacerts'; ");
                 }
@@ -491,13 +493,15 @@ public class ShellTool implements Tool {
             // c-ares DNS 服务器（Android 静态二进制的 getaddrinfo 不工作，
             // curl 编译时启用 c-ares，通过此环境变量设置 DNS 服务器）
             env.put("GIT_DNS_SERVERS", "8.8.8.8,8.8.4.4,1.1.1.1");
-            // v2.4.13 证实: SSL_CERT_FILE + CURL_CA_BUNDLE 不崩溃（SSL 错误 exit 128）
-            // v2.4.14-17 加 GIT_SSL_NO_VERIFY=true 后段错误 exit 139
-            // 回退到 v2.4.13 配置: 只设 SSL_CERT_FILE + CURL_CA_BUNDLE，不设 GIT_SSL_NO_VERIFY
+            // v2.4.18 证实: SSL_CERT_FILE + CURL_CA_BUNDLE 不崩溃但 SSL 验证失败（exit 128）
+            // v2.4.17 证实: GIT_SSL_NO_VERIFY=true 导致段错误（exit 139），不能用
+            // v2.4.19: 加 GIT_SSL_CAINFO 让 git http.c 显式调用 CURLOPT_CAINFO 加载 CA 文件
+            // （比依赖 libcurl 的 CURL_CA_BUNDLE 环境变量检查更可靠）
             String caBundle = ensureCacertBundle();
             if (caBundle != null) {
                 env.put("SSL_CERT_FILE", caBundle);
                 env.put("CURL_CA_BUNDLE", caBundle);
+                env.put("GIT_SSL_CAINFO", caBundle);
             } else {
                 // 回退到系统 CA 目录
                 env.put("SSL_CERT_DIR", "/system/etc/security/cacerts:/apex/com.android.conscrypt/cacerts");
