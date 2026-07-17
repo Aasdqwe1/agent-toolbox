@@ -115,6 +115,7 @@ public class SkillManager {
         skill.name = parsed.fm.getOrDefault("name", id);
         skill.description = parsed.fm.getOrDefault("description", "");
         skill.whenToUse = parsed.fm.getOrDefault("when_to_use", "");
+        skill.override = parsed.fm.getOrDefault("override", "");
         skill.body = parsed.body;
         skill.fromAssets = true;
         skill.dir = null;
@@ -181,6 +182,7 @@ public class SkillManager {
         skill.name = parsed.fm.getOrDefault("name", id);
         skill.description = parsed.fm.getOrDefault("description", "");
         skill.whenToUse = parsed.fm.getOrDefault("when_to_use", "");
+        skill.override = parsed.fm.getOrDefault("override", "");
         skill.body = parsed.body;
         skill.fromAssets = false;
         skill.dir = f.getParentFile();
@@ -196,6 +198,7 @@ public class SkillManager {
         skill.name = parsed.fm.getOrDefault("name", d.getName());
         skill.description = parsed.fm.getOrDefault("description", "");
         skill.whenToUse = parsed.fm.getOrDefault("when_to_use", "");
+        skill.override = parsed.fm.getOrDefault("override", "");
         skill.body = parsed.body;
         skill.fromAssets = false;
         skill.dir = d;
@@ -257,12 +260,10 @@ public class SkillManager {
         Skill existing = skillById.get(skill.id);
         if (existing != null) {
             if (existing.fromAssets && !skill.fromAssets) {
-                // runtime 覆盖 assets：从 list 移除旧的，并移除其已注册的工具，
-                // 否则 registerSkillTools 会因工具名冲突跳过，导致工具仍是旧 assets 版本
-                // 健康检查：runtime skill 关键字段异常时不覆盖内置版本
-                // （常见于最小解析器不支持 YAML 块标量时 when_to_use 残留为 "|" 等）
-                if (isSkillMalformed(skill)) {
-                    AppLogger.w(TAG, "技能 " + skill.id + " runtime 版本解析异常(name/when_to_use)，保留内置版本");
+                // runtime 覆盖 assets：默认内置优先，runtime 需显式声明 override: true 才覆盖
+                // 防止 runtime 目录下同名的旧/测试文件意外覆盖内置 skill
+                if (!"true".equalsIgnoreCase(skill.override)) {
+                    AppLogger.i(TAG, "技能 " + skill.id + " runtime 版本未声明 override:true，保留内置版本");
                     return;
                 }
                 skills.remove(existing);
@@ -272,7 +273,7 @@ public class SkillManager {
                     ToolManager.getInstance().removeTools(oldToolNames);
                     registeredToolNames.removeAll(oldToolNames);
                 }
-                AppLogger.i(TAG, "技能 " + skill.id + " 被 runtime 版本覆盖");
+                AppLogger.i(TAG, "技能 " + skill.id + " 被 runtime 版本覆盖 (override:true)");
             } else {
                 // 同来源重复或 assets 覆盖 runtime（后者理论不会发生，因 assets 先扫）
                 // 跳过新 skill，保留已注册的，避免重复
@@ -285,20 +286,6 @@ public class SkillManager {
         skills.add(skill);
         skillById.put(skill.id, skill);
         registerSkillTools(skill);
-    }
-
-    /**
-     * 检查 skill 是否解析异常（关键字段缺失或残留为 YAML 标记符）
-     * 用于防止坏掉的 runtime skill 覆盖正常的内置 skill
-     */
-    private boolean isSkillMalformed(Skill skill) {
-        if (skill == null) return true;
-        if (skill.name == null || skill.name.trim().isEmpty()) return true;
-        // when_to_use 残留为 YAML 块标量标记符（解析器不支持时出现的典型症状）
-        if ("|".equals(skill.whenToUse) || ">".equals(skill.whenToUse)) return true;
-        // description 为空也算异常（frontmatter 解析失败的特征）
-        if (skill.description == null || skill.description.trim().isEmpty()) return true;
-        return false;
     }
 
     private void registerSkillTools(Skill skill) {

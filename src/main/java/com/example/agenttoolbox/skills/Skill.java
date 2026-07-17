@@ -30,6 +30,7 @@ public class Skill {
     public String body = "";                 // SKILL.md 正文（frontmatter 之后）
     public File dir;                          // 运行时目录；assets 内置时为 null
     public boolean fromAssets;               // true=assets 内置
+    public String override = "";             // frontmatter override 标记，"true" 时允许 runtime 覆盖内置
     public List<ToolDef> tools = new ArrayList<>();
     public List<String> referenceNames = new ArrayList<>();
     public Map<String, String> references = new HashMap<>(); // 参考文件名 -> 内容
