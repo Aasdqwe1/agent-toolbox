@@ -3284,12 +3284,32 @@
                             } else if (obj.content.length > 0) {
                                 finalContent = obj.content;
                                 gotContent = true;
+                                // 立即渲染到当前 bubble：update_plan 等场景主循环会继续下一轮，
+                                // 若不在 done 事件里渲染，本轮 bubble 只靠 scheduleRender（120ms 防抖）
+                                // 定时器渲染，轮次切换会重置 streamContent=''，导致定时器空转、bubble 留空
+                                let doneRenderText = obj.content;
+                                if (extracted.isJson && extracted.action === 'reply' && extracted.text) {
+                                    doneRenderText = extracted.text;
+                                }
+                                if (doneRenderText && doneRenderText.trim()) {
+                                    try {
+                                        activeBubbleEl.innerHTML = '<div class="md-body">' + renderMarkdown(doneRenderText) + '</div>';
+                                    } catch (e) {
+                                        activeBubbleEl.textContent = doneRenderText;
+                                    }
+                                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                                }
                                 // 服务端计划全部完成时推送的 done 事件：标记为最终完成总结
                                 if (obj.planComplete === true) {
                                     activeBubbleEl.classList.add('complete');
                                     setState('计划已完成');
                                 } else {
                                     setState('完成');
+                                }
+                                // 继续生成按钮立即挂上，否则轮次切换后 activeContentEl 已变
+                                if (obj.canContinue === true) {
+                                    finalCanContinue = true;
+                                    addContinueButton(activeContentEl, doneRenderText);
                                 }
                             }
                         }
