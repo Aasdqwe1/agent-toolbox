@@ -1393,12 +1393,11 @@ public class McpServer {
                                             }
                                         }
                                         
+                                        writePlanEvent(out, cachedSession.planState, "progress");
                                         log("[PLAN] " + cachedSession.planState.getSummary());
                                         
-                                        // 选择下一个任务（先推进状态，再推送 plan 事件，确保前端收到完整最新状态：
-                                        // 旧任务 completed + 新任务 in_progress）
+                                        // 选择下一个任务
                                         Task nextTask = tm.selectNextTask(cachedSession.planState);
-                                        writePlanEvent(out, cachedSession.planState, "progress");
                                         if (nextTask != null) {
                                             String planMsg = buildPlanMessage("execute_task", nextTask, cachedSession.planState, conversationId,
                                                 "请调用对应工具执行此任务。完成后在回复中使用 plan_update 推进计划");
@@ -1446,8 +1445,6 @@ public class McpServer {
                                         && !cachedSession.planState.allCompleted()) {
                                     log("[AUTO] 代理模式：普通回复后计划未完成，自动推进");
                                     Task nextTask = cachedSession.taskManager.selectNextTask(cachedSession.planState);
-                                    // 推送 plan 事件，确保前端看到最新任务状态（旧任务 completed + 新任务 in_progress）
-                                    writePlanEvent(out, cachedSession.planState, "progress");
                                     if (nextTask != null) {
                                         String planMsg = buildPlanMessage("execute_task", nextTask, cachedSession.planState, conversationId,
                                             "[代理模式] 请继续执行下一个任务，调用对应工具。完成后在回复中使用 plan_update 推进计划。不要等待用户确认。");
@@ -1580,19 +1577,6 @@ public class McpServer {
                                 if (answered && waiter.answerRef.get() != null) {
                                     toolResult = "用户回答:\n" + waiter.answerRef.get();
                                     log("[ASK] 收到用户回答，继续对话");
-                                    // 解耦提问与计划推进：ask 成功返回 = 提问任务完成。
-                                    // 若依赖 LLM 发 plan_update(complete_task)，代理模式下 LLM 一旦
-                                    // 忘发，selectNextTask 会返回同一个 in_progress 的提问任务，
-                                    // 造成"继续执行下一个任务"实际是同一个 → 循环卡死。
-                                    // 这里在 ask 返回后主动标记 activeTask 完成（仅当其 toolNeeds
-                                    // 含 ask 时），不依赖 LLM 的 plan_update。
-                                    if (cachedSession != null
-                                            && cachedSession.planState.activeTask != null
-                                            && cachedSession.planState.activeTask.toolNeeds.contains("ask")) {
-                                        Task askTask = cachedSession.planState.activeTask;
-                                        log("[ASK] ask 已回答，自动完成任务: " + askTask.taskId);
-                                        cachedSession.taskManager.markCurrentDone(cachedSession.planState);
-                                    }
                                 } else {
                                     toolResult = "用户未在超时时间内回答，请直接回复用户说明情况";
                                     toolIsError = true;

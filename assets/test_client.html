@@ -3248,6 +3248,46 @@
                     }, 120);
                 }
 
+                // 轮次切换：保留旧 bubble 内容，创建新 bubble 用于本轮
+                // chunk 流式和 done 事件（无流式 chunk 时）都会调用
+                function switchRound(round) {
+                    if (round === currentRound) return;
+                    const isFirstRound = currentRound === 0;
+                    currentRound = round;
+                    lastLen = 0;
+                    streamContent = '';
+                    hasToolCallDetected = false;
+                    if (!isFirstRound) {
+                        // 非首轮：创建新 AI 消息条（首轮复用 sendToDeepSeek 已创建的初始 bubble）
+                        const newBubble = document.createElement('div');
+                        newBubble.className = 'message-bubble';
+                        newBubble.style.whiteSpace = 'pre-wrap';
+                        newBubble.textContent = '…';
+                        const newLabel = document.createElement('div');
+                        newLabel.className = 'message-label';
+                        newLabel.innerHTML = '<span class="method-badge method-response">DeepSeek</span> <span class="text-muted ds-stream-state" style="font-size:12px; font-weight:400;">流式</span>';
+                        const newContent = document.createElement('div');
+                        newContent.className = 'message-content';
+                        newContent.appendChild(newLabel);
+                        newContent.appendChild(newBubble);
+                        const newMsg = document.createElement('div');
+                        newMsg.className = 'message server';
+                        newMsg.innerHTML = '<div class="message-avatar">AI</div>';
+                        newMsg.appendChild(newContent);
+                        chatMessages.appendChild(newMsg);
+                        // 切换活跃引用到新 bubble（旧 bubble 内容保留不动）
+                        activeBubbleEl = newBubble;
+                        activeContentEl = newContent;
+                        // 更新 setState 指向新 label
+                        setState = (t) => {
+                            const s = newLabel.querySelector('.ds-stream-state');
+                            if (s) s.textContent = t;
+                        };
+                        chatMessages.scrollTop = chatMessages.scrollHeight;
+                    }
+                    // 首轮：复用初始 bubble，不创建新消息，避免出现孤立的 "…" 气泡
+                }
+
                 const flushEvent = () => {
                     if (dataLines.length === 0) {
                         eventName = '';
@@ -3258,6 +3298,8 @@
                     let obj = null;
                     try { obj = JSON.parse(payload); } catch (e) { obj = null; }
 
+                    // 防御：单个事件处理异常不应中断整个 SSE reader
+                    try {
                     if (eventName === 'started') {
                         setState('开始');
                     } else if (eventName === 'chunk') {
@@ -3266,42 +3308,7 @@
                             const round = obj.round || 1;
 
                             // 轮次切换时：保留旧 bubble 内容，创建新 bubble 用于本轮
-                            if (round !== currentRound) {
-                                const isFirstRound = currentRound === 0;
-                                currentRound = round;
-                                lastLen = 0;
-                                streamContent = '';
-                                hasToolCallDetected = false;
-                                if (!isFirstRound) {
-                                    // 非首轮：创建新 AI 消息条（首轮复用 sendToDeepSeek 已创建的初始 bubble）
-                                    const newBubble = document.createElement('div');
-                                    newBubble.className = 'message-bubble';
-                                    newBubble.style.whiteSpace = 'pre-wrap';
-                                    newBubble.textContent = '…';
-                                    const newLabel = document.createElement('div');
-                                    newLabel.className = 'message-label';
-                                    newLabel.innerHTML = '<span class="method-badge method-response">DeepSeek</span> <span class="text-muted ds-stream-state" style="font-size:12px; font-weight:400;">流式</span>';
-                                    const newContent = document.createElement('div');
-                                    newContent.className = 'message-content';
-                                    newContent.appendChild(newLabel);
-                                    newContent.appendChild(newBubble);
-                                    const newMsg = document.createElement('div');
-                                    newMsg.className = 'message server';
-                                    newMsg.innerHTML = '<div class="message-avatar">AI</div>';
-                                    newMsg.appendChild(newContent);
-                                    chatMessages.appendChild(newMsg);
-                                    // 切换活跃引用到新 bubble（旧 bubble 内容保留不动）
-                                    activeBubbleEl = newBubble;
-                                    activeContentEl = newContent;
-                                    // 更新 setState 指向新 label
-                                    setState = (t) => {
-                                        const s = newLabel.querySelector('.ds-stream-state');
-                                        if (s) s.textContent = t;
-                                    };
-                                    chatMessages.scrollTop = chatMessages.scrollHeight;
-                                }
-                                // 首轮：复用初始 bubble，不创建新消息，避免出现孤立的 "…" 气泡
-                            }
+                            switchRound(round);
 
                             // 使用 tryExtractJsonContent 检测内容和类型
                             const extracted = tryExtractJsonContent(content);
@@ -3388,6 +3395,13 @@
                         setState('重试中');
                         // 不再修改 bubbleEl
                     } else if (eventName === 'done') {
+                        // 无 chunk 流式时（DeepSeek onDone 一次性返回），done 事件需要自行触发轮次切换，
+                        // 否则 hasToolCallDetected 会一直为 true，后续工具调用的 done 被忽略，
+                        // 文本回复渲染到旧 bubble（被工具状态文本覆盖）
+                        const doneRound = (obj && obj.round) ? obj.round : currentRound;
+                        if (doneRound !== currentRound) {
+                            switchRound(doneRound);
+                        }
                         gotDone = true;
                         if (obj && typeof obj.content === 'string') {
                             const extracted = tryExtractJsonContent(obj.content);
@@ -3444,6 +3458,9 @@
                         const errText = (obj && obj.error) ? obj.error : payload;
                         addSystemMessage('流式回复失败: ' + escapeHtml(errText));
                         setState('错误');
+                    }
+                    } catch (e) {
+                        console.error('[SSE] flushEvent 处理异常:', e, 'event=' + eventName);
                     }
                     // 删除每次事件后的滚动，只在 scheduleRender 中滚动
                     eventName = '';
