@@ -939,7 +939,9 @@ public class McpServer {
 
                         // Conversation loop
                         String currentMessage = message;
-                        int maxRounds = 100;
+                        // 代理模式：前端通过 autoMode 字段开启，提高轮次上限并在普通回复后自动推进
+                        boolean autoMode = body.optBoolean("autoMode", false);
+                        int maxRounds = autoMode ? 200 : 100;
                         int round = 0;
                         boolean finalDone = false;
                         int toolCallCount = 0; // 防止工具调用循环
@@ -952,7 +954,17 @@ public class McpServer {
                             cachedSession.isFirstMessage = true;
                             SessionCache.getInstance().put(conversationId, cachedSession);
                             log("[SESSION] 新会话缓存已创建: id=" + conversationId
-                                + " systemPrompt=" + systemPrompt.length() + "字符");
+                                + " systemPrompt=" + systemPrompt.length() + "字符"
+                                + (autoMode ? " [代理模式]" : ""));
+                        }
+
+                        // 代理模式：在用户消息前注入代理模式系统指令，告知 LLM 自主推进
+                        if (autoMode) {
+                            String autoModePrefix = "[系统指令 - 代理模式] 你正处于代理模式。请自主拆解任务并生成待办计划，"
+                                + "然后逐个执行任务，每完成一个任务在回复中使用 plan_update 推进计划，"
+                                + "直到所有任务完成。不要等待用户确认，直接推进。若遇到必须用户决策的情况，"
+                                + "使用 ask 工具询问用户。\n\n用户目标: ";
+                            currentMessage = autoModePrefix + message;
                         }
 
                         // 待办计划：检测是否需要生成任务计划
@@ -961,8 +973,15 @@ public class McpServer {
                             if (tm.shouldGeneratePlan(message, cachedSession.planState.tasks.isEmpty() ? 0 : 3)) {
                                 log("[PLAN] 触发计划生成，向LLM注入规划提示词");
                                 String planPrompt = tm.generatePlanPrompt(message);
-                                // 将规划提示词拼接到用户消息中
-                                currentMessage = planPrompt;
+                                // 代理模式下规划提示词也带上代理模式前缀
+                                if (autoMode) {
+                                    currentMessage = "[系统指令 - 代理模式] 你正处于代理模式。请自主拆解任务并生成待办计划，"
+                                        + "然后逐个执行任务，每完成一个任务在回复中使用 plan_update 推进计划，"
+                                        + "直到所有任务完成。不要等待用户确认，直接推进。若遇到必须用户决策的情况，"
+                                        + "使用 ask 工具询问用户。\n\n" + planPrompt;
+                                } else {
+                                    currentMessage = planPrompt;
+                                }
                             }
                         }
 
@@ -1419,7 +1438,30 @@ public class McpServer {
                                     }
                                 }
                                 
-                                // 普通文本回复，对话结束
+                                // 普通文本回复
+                                // 代理模式：若计划中仍有未完成任务，不结束，注入"继续推进"指令
+                                if (autoMode && cachedSession != null
+                                        && !cachedSession.planState.tasks.isEmpty()
+                                        && !cachedSession.planState.allCompleted()) {
+                                    log("[AUTO] 代理模式：普通回复后计划未完成，自动推进");
+                                    Task nextTask = cachedSession.taskManager.selectNextTask(cachedSession.planState);
+                                    if (nextTask != null) {
+                                        String planMsg = buildPlanMessage("execute_task", nextTask, cachedSession.planState, conversationId,
+                                            "[代理模式] 请继续执行下一个任务，调用对应工具。完成后在回复中使用 plan_update 推进计划。不要等待用户确认。");
+                                        currentMessage = planMsg != null ? planMsg
+                                            : cachedSession.planState.toPromptText() + "\n\n[代理模式] 下一步任务: [" + nextTask.taskId + "] " + nextTask.content + "。请调用对应工具执行。";
+                                        continue;
+                                    } else {
+                                        // 无可执行任务但未全部完成（可能有失败任务），结束并提示
+                                        String summary = cachedSession.taskManager.generateSummary(cachedSession.planState);
+                                        String planMsg = buildPlanMessage("plan_complete", null, cachedSession.planState, conversationId,
+                                            "计划已无法继续推进（可能存在失败任务）。请总结执行结果并回复用户。\n" + summary);
+                                        currentMessage = planMsg != null ? planMsg : "计划已无法继续推进。\n\n" + summary;
+                                        finalDone = true;
+                                        log("[AUTO] 代理模式：计划无法继续推进，结束");
+                                        break;
+                                    }
+                                }
                                 finalDone = true;
                                 log("[DONE] 文本回复");
                                 break;

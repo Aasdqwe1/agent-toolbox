@@ -769,6 +769,79 @@
             background: #b9c4d4;
             cursor: not-allowed;
         }
+        /* 代理模式切换按钮 */
+        .input-area .agent-toggle {
+            background: #f1f5f9;
+            border: 1px solid #d1d9e6;
+            border-radius: 40px;
+            padding: 8px 14px;
+            font-size: 13px;
+            font-weight: 500;
+            color: #475569;
+            cursor: pointer;
+            transition: 0.18s;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+            user-select: none;
+        }
+        .input-area .agent-toggle:hover {
+            border-color: #3b82f6;
+            color: #1e293b;
+        }
+        .input-area .agent-toggle.active {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            border-color: transparent;
+            color: #fff;
+            box-shadow: 0 2px 8px rgba(99, 102, 241, 0.32);
+        }
+        .input-area .agent-toggle .agent-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #94a3b8;
+            transition: 0.18s;
+        }
+        .input-area .agent-toggle.active .agent-dot {
+            background: #fde047;
+            box-shadow: 0 0 6px #fde047;
+        }
+
+        /* 代理模式状态条 */
+        .agent-status-bar {
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 14px;
+            background: linear-gradient(90deg, rgba(99,102,241,0.10), rgba(139,92,246,0.10));
+            border-bottom: 1px solid rgba(99,102,241,0.18);
+            font-size: 12px;
+            color: #4338ca;
+        }
+        .agent-status-bar.show { display: flex; }
+        .agent-status-bar .agent-status-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 500;
+        }
+        .agent-status-bar .agent-pulse {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #6366f1;
+            animation: agentPulse 1.4s infinite ease-in-out;
+        }
+        @keyframes agentPulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.4); opacity: 0.5; }
+        }
+        .agent-status-bar .agent-status-right {
+            font-size: 11px;
+            color: #64748b;
+        }
 
         /* ---- 日志 ---- */
         .log-panel .panel-body {
@@ -1375,7 +1448,20 @@
                     <span class="quick-cmd" onclick="quickCommand('/help')">/help</span>
                 </div>
 
+                <!-- 代理模式状态条 -->
+                <div class="agent-status-bar" id="agentStatusBar">
+                    <div class="agent-status-left">
+                        <span class="agent-pulse"></span>
+                        <span>代理模式运行中</span>
+                    </div>
+                    <div class="agent-status-right" id="agentStatusHint">AI 将自主推进任务直至完成或阻塞</div>
+                </div>
+
                 <div class="input-area">
+                    <button class="agent-toggle" id="agentToggle" onclick="toggleAgentMode()" title="切换代理模式：开启后 AI 将自主拆解并连续执行任务，无需逐步确认">
+                        <span class="agent-dot"></span>
+                        <span id="agentToggleLabel">代理模式</span>
+                    </button>
                     <textarea id="chatInput" placeholder="输入消息…" rows="1" onkeydown="handleKeyDown(event)"></textarea>
                     <button class="send-btn" id="sendBtn" onclick="sendMessage()">发送</button>
                 </div>
@@ -1419,6 +1505,7 @@
         let deepseekConnected = false;
         let currentSessionId = null;
         let currentSessionTitle = '未命名';
+        let autoMode = false; // 代理模式：开启后 AI 自主推进任务，无需逐步确认
 
         // ============================================================
         //  DOM 引用
@@ -3010,6 +3097,29 @@
             }
         }
 
+        // ============================================================
+        //  代理模式切换
+        // ============================================================
+        function toggleAgentMode() {
+            autoMode = !autoMode;
+            const btn = document.getElementById('agentToggle');
+            const label = document.getElementById('agentToggleLabel');
+            const bar = document.getElementById('agentStatusBar');
+            if (autoMode) {
+                btn.classList.add('active');
+                label.textContent = '代理模式 · 开';
+                bar.classList.add('show');
+                chatInput.placeholder = '代理模式：输入目标，AI 将自主拆解并连续执行所有任务…';
+                addSystemMessage('已开启代理模式。AI 将自主推进任务，无需逐步确认；遇到必须决策的情况会通过 ask 工具询问。');
+            } else {
+                btn.classList.remove('active');
+                label.textContent = '代理模式';
+                bar.classList.remove('show');
+                chatInput.placeholder = '输入消息…';
+                addSystemMessage('已关闭代理模式，恢复手动确认。');
+            }
+        }
+
         async function sendToDeepSeek(text) {
             addUserMessage(text);
             setSessionStatus('连接中…');
@@ -3046,7 +3156,7 @@
                 const res = await fetch(url + '/api/chat/send', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: text })
+                    body: JSON.stringify({ message: text, autoMode: autoMode })
                 });
 
                 const contentType = (res.headers.get('Content-Type') || '').toLowerCase();
