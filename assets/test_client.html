@@ -391,6 +391,19 @@
         .btn-ghost:hover {
             background: #eef2f6;
         }
+        /* 会话返回按钮：边框 + 圆角 */
+        .back-btn {
+            border: 1px solid #d1d9e6 !important;
+            border-radius: 8px !important;
+            background: #fff;
+            color: #475569;
+            line-height: 1;
+        }
+        .back-btn:hover {
+            border-color: #3b82f6 !important;
+            color: #1e293b;
+            background: #f8fafc;
+        }
 
         /* ===== 主区域 ===== */
         .dashboard {
@@ -769,30 +782,24 @@
             background: #b9c4d4;
             cursor: not-allowed;
         }
-        /* 代理模式切换按钮独占一行 */
-        .agent-toggle-row {
-            display: flex;
-            justify-content: center;
-            padding: 8px 14px 0;
-            background: white;
-            border-top: 1px solid #eef2f6;
-            flex-shrink: 0;
-        }
+        /* 代理模式切换按钮（放在头部 status-group 中，尺寸与 .status-badge 一致） */
         .agent-toggle {
-            background: #f1f5f9;
-            border: 1px solid #d1d9e6;
-            border-radius: 40px;
-            padding: 7px 18px;
-            font-size: 13px;
+            background: #eef2f6;
+            border: 1px solid #dce1e8;
+            border-radius: 30px;
+            padding: 4px 14px;
+            font-size: 12px;
             font-weight: 500;
-            color: #475569;
+            line-height: 1.5;
+            color: #3d4e62;
             cursor: pointer;
-            transition: 0.18s;
-            height: 34px;
+            transition: all 0.15s;
             display: inline-flex;
             align-items: center;
             gap: 6px;
             user-select: none;
+            white-space: nowrap;
+            box-sizing: border-box;
         }
         .agent-toggle:hover {
             border-color: #3b82f6;
@@ -805,11 +812,12 @@
             box-shadow: 0 2px 8px rgba(99, 102, 241, 0.32);
         }
         .agent-toggle .agent-dot {
-            width: 8px;
-            height: 8px;
+            width: 7px;
+            height: 7px;
             border-radius: 50%;
             background: #94a3b8;
             transition: 0.18s;
+            flex-shrink: 0;
         }
         .agent-toggle.active .agent-dot {
             background: #fde047;
@@ -1347,6 +1355,10 @@
             <div class="status-group">
                 <span id="mcpStatus" class="status-badge disconnected">未连接</span>
                 <span id="deepseekStatus" class="status-badge disconnected">DeepSeek 未连接</span>
+                <button class="agent-toggle" id="agentToggle" onclick="toggleAgentMode()" title="切换代理模式：开启后 AI 将自主拆解并连续执行任务，无需逐步确认">
+                    <span class="agent-dot"></span>
+                    <span>代理模式</span>
+                </button>
             </div>
         </div>
 
@@ -1424,7 +1436,7 @@
             <div class="panel chat-panel" id="chatPanel">
                 <div class="panel-header">
                     <span style="display:flex; align-items:center; gap:8px;">
-                        <button class="btn btn-ghost btn-sm back-btn" onclick="showSessionList()" style="font-size:16px; padding:0 6px;">返回</button>
+                        <button class="btn btn-ghost btn-sm back-btn" onclick="showSessionList()" style="font-size:14px; padding:2px 12px;">返回</button>
                         <span id="currentSessionTitle">当前会话</span>
                     </span>
                     <span id="sessionStatus" style="font-weight:400; font-size:13px; color:#6b7a8f;">就绪</span>
@@ -1462,14 +1474,6 @@
                         <span>代理模式运行中</span>
                     </div>
                     <div class="agent-status-right" id="agentStatusHint">AI 将自主推进任务直至完成或阻塞</div>
-                </div>
-
-                <!-- 代理模式切换按钮独占一行 -->
-                <div class="agent-toggle-row">
-                    <button class="agent-toggle" id="agentToggle" onclick="toggleAgentMode()" title="切换代理模式：开启后 AI 将自主拆解并连续执行任务，无需逐步确认">
-                        <span class="agent-dot"></span>
-                        <span>代理模式</span>
-                    </button>
                 </div>
 
                 <div class="input-area">
@@ -3118,12 +3122,10 @@
             if (autoMode) {
                 btn.classList.add('active');
                 bar.classList.add('show');
-                chatInput.placeholder = '代理模式：输入目标，AI 将自主拆解并连续执行所有任务…';
                 addSystemMessage('已开启代理模式。AI 将自主推进任务，无需逐步确认；遇到必须决策的情况会通过 ask 工具询问。');
             } else {
                 btn.classList.remove('active');
                 bar.classList.remove('show');
-                chatInput.placeholder = '输入消息…';
                 addSystemMessage('已关闭代理模式，恢复手动确认。');
             }
         }
