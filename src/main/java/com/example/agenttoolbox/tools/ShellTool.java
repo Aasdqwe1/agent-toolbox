@@ -97,6 +97,13 @@ public class ShellTool implements Tool {
             return reportEmbeddedGit(command);
         }
 
+        // 复合命令中包含 HTTPS git 操作 (clone https://, fetch, pull, push) 时，
+        // 拆分执行: git 部分走 dulwich，其他部分走 shell
+        // （shell git 函数调用 libgit.so，HTTPS 会 SSL 崩溃/失败）
+        if (containsHttpsGitCommand(trimmed)) {
+            return executeCompoundCommandWithGit(command, trimmed, timeout);
+        }
+
         // 对非拦截的 shell 命令，注入 git 函数定义，让复合命令中的 git 调用也能工作
         // 例如 "cd /dir && git status" 中的 git 会被解析为函数，调用 nativeLibraryDir/libgit.so
         String wrappedCommand = wrapCommandWithGitFunction(command);
@@ -339,6 +346,193 @@ public class ShellTool implements Tool {
             return true;
         }
         return false;
+    }
+
+    /**
+     * 检测复合命令（含 && 或 ;）中是否包含 HTTPS git 操作
+     * 例如 "rm -rf /x && git clone https://..." → true
+     */
+    private boolean containsHttpsGitCommand(String command) {
+        if (command == null) return false;
+        // 按 && 和 ; 分割检查每段
+        String[] parts = command.split("&&|;");
+        for (String part : parts) {
+            String p = part.trim();
+            if (p.startsWith("git ")) {
+                String gitArgs = p.substring(4).trim();
+                if (isHttpsGitCommand(gitArgs)) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 拆分复合命令执行: git HTTPS 部分走 dulwich，其他部分走 shell
+     * 支持 && (失败即停止) 和 ; (继续执行) 分隔符
+     * 跟踪 cd 命令的工作目录变化
+     */
+    private String executeCompoundCommandWithGit(String originalCommand, String trimmed, int timeout) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("$ ").append(originalCommand).append("\n");
+
+        // 按 && 和 ; 分割，保留分隔符信息
+        java.util.List<String[]> segments = new java.util.ArrayList<>();
+        // segments: [command, separator]  separator = "&&" or ";" or null (last)
+        String remaining = trimmed;
+        java.util.regex.Pattern sepPattern = java.util.regex.Pattern.compile("&&(amp;)?|;");
+        java.util.regex.Matcher m = sepPattern.matcher(remaining);
+        int lastEnd = 0;
+        while (m.find()) {
+            String seg = remaining.substring(lastEnd, m.start()).trim();
+            String sep = m.group().startsWith("&") ? "&&" : ";";
+            if (!seg.isEmpty()) {
+                segments.add(new String[]{seg, sep});
+            }
+            lastEnd = m.end();
+        }
+        String lastSeg = remaining.substring(lastEnd).trim();
+        if (!lastSeg.isEmpty()) {
+            segments.add(new String[]{lastSeg, null});
+        }
+
+        String workDir = null; // 跟踪 cd 命令的工作目录
+        int overallExitCode = 0;
+
+        for (int i = 0; i < segments.size(); i++) {
+            String seg = segments.get(i)[0];
+            String sep = segments.get(i)[1];
+            boolean stopOnFailure = "&&".equals(sep);
+
+            int segExitCode = 0;
+
+            if (seg.startsWith("git ")) {
+                String gitArgs = seg.substring(4).trim();
+                if (isHttpsGitCommand(gitArgs)) {
+                    // HTTPS git 操作 → dulwich
+                    sb.append("[").append(seg).append(" → dulwich]\n");
+                    StringBuilder gitSb = new StringBuilder();
+                    // 如果有工作目录，在 dulwich 执行前 chdir
+                    String dulwichResult = executeGitDulwichWithDir(gitArgs, workDir);
+                    gitSb.append(dulwichResult);
+                    sb.append(gitSb);
+                    // dulwich 失败时返回的字符串包含 "[错误]" 或 "[git_bridge 退出码:"
+                    String dulwichStr = gitSb.toString();
+                    segExitCode = (dulwichStr.contains("[错误]") || dulwichStr.contains("退出码: 1")) ? 1 : 0;
+                } else {
+                    // 本地 git 操作 → shell git 函数 (libgit.so)
+                    String wrapped = wrapCommandWithGitFunction(seg);
+                    if (workDir != null) {
+                        wrapped = "cd " + workDir + " && " + wrapped;
+                    }
+                    try {
+                        ProcessRunner.Result r = ProcessRunner.execShell(wrapped, timeout);
+                        sb.append("$ ").append(seg).append("\n");
+                        sb.append("退出码: ").append(r.exitCode).append("\n");
+                        if (!r.stdout.isEmpty()) sb.append(r.stdout).append("\n");
+                        if (!r.stderr.isEmpty()) sb.append("[stderr]\n").append(r.stderr).append("\n");
+                        segExitCode = r.exitCode;
+                    } catch (Exception e) {
+                        sb.append("[执行失败: ").append(e.getMessage()).append("]\n");
+                        segExitCode = 1;
+                    }
+                }
+            } else if (seg.startsWith("cd ") || seg.equals("cd")) {
+                // 跟踪工作目录变化
+                String dir = seg.substring(2).trim();
+                if (dir.startsWith("/")) {
+                    workDir = dir;
+                } else if (workDir != null) {
+                    workDir = workDir + "/" + dir;
+                }
+                // 也在 shell 中执行 cd 以验证目录存在
+                try {
+                    ProcessRunner.Result r = ProcessRunner.execShell(seg, timeout);
+                    segExitCode = r.exitCode;
+                    if (r.exitCode != 0 && !r.stderr.isEmpty()) {
+                        sb.append("$ ").append(seg).append("\n[stderr]\n").append(r.stderr).append("\n");
+                    }
+                } catch (Exception e) {
+                    segExitCode = 1;
+                }
+            } else {
+                // 普通 shell 命令
+                String cmd = seg;
+                if (workDir != null) {
+                    cmd = "cd " + workDir + " && " + seg;
+                }
+                try {
+                    ProcessRunner.Result r = ProcessRunner.execShell(cmd, timeout);
+                    sb.append("$ ").append(seg).append("\n");
+                    sb.append("退出码: ").append(r.exitCode).append("\n");
+                    if (!r.stdout.isEmpty()) sb.append(r.stdout).append("\n");
+                    if (!r.stderr.isEmpty()) sb.append("[stderr]\n").append(r.stderr).append("\n");
+                    if (r.timedOut) sb.append("⚠️ 命令超时\n");
+                    segExitCode = r.exitCode;
+                } catch (Exception e) {
+                    sb.append("$ ").append(seg).append("\n[执行失败: ").append(e.getMessage()).append("]\n");
+                    segExitCode = 1;
+                }
+            }
+
+            if (segExitCode != 0) {
+                overallExitCode = segExitCode;
+                if (stopOnFailure) {
+                    sb.append("\n[&& 前序命令失败，停止执行后续命令]\n");
+                    break;
+                }
+            }
+        }
+
+        sb.append("\n退出码: ").append(overallExitCode).append("\n");
+        return sb.toString();
+    }
+
+    /**
+     * 用 dulwich 执行 git 命令，可选工作目录
+     */
+    private String executeGitDulwichWithDir(String gitArgs, String workDir) {
+        if (context == null) {
+            return "[错误] ShellTool 未注入 Context，无法初始化 Python";
+        }
+        try {
+            PythonBridge.init(context);
+        } catch (Exception e) {
+            return "[错误] Python 初始化失败: " + e.getMessage();
+        }
+
+        java.io.File bridgeScript = extractGitBridge();
+        if (bridgeScript == null) {
+            return "[错误] 无法提取 git_bridge.py";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("[dulwich 模式]\n");
+        // 如果有工作目录，先 chdir
+        StringBuilder pythonCode = new StringBuilder();
+        if (workDir != null) {
+            pythonCode.append("import os\n");
+            pythonCode.append("os.chdir(").append(pythonRepr(workDir)).append(")\n");
+        }
+        pythonCode.append(buildGitExecCode(bridgeScript.getAbsolutePath(), gitArgs));
+        try {
+            String result = PythonBridge.exec(pythonCode.toString());
+            sb.append(result);
+        } catch (Exception e) {
+            sb.append("[错误] dulwich 执行失败: ").append(e.getMessage());
+        }
+        return sb.toString();
+    }
+
+    /** Java 字符串转 Python 字面量 */
+    private static String pythonRepr(String s) {
+        StringBuilder sb = new StringBuilder("'");
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '\\' || c == '\'') sb.append('\\');
+            sb.append(c);
+        }
+        sb.append("'");
+        return sb.toString();
     }
 
     /**
