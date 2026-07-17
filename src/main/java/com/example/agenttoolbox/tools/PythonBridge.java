@@ -190,14 +190,12 @@ public class PythonBridge {
         sb.append("os.environ['GIT_TEMPLATE_DIR'] = ''\n");
         // c-ares DNS 服务器（Android 静态二进制的 getaddrinfo 不工作）
         sb.append("os.environ['GIT_DNS_SERVERS'] = '8.8.8.8,8.8.4.4,1.1.1.1'\n");
-        // v2.4.18 证实: SSL_CERT_FILE + CURL_CA_BUNDLE 不崩溃但 SSL 验证失败（exit 128）
-        // v2.4.17 证实: GIT_SSL_NO_VERIFY=true 导致段错误（exit 139），不能用
-        // v2.4.19: 加 GIT_SSL_CAINFO 让 git http.c 显式调用 CURLOPT_CAINFO 加载 CA 文件
+        // 静态 git 二进制的 SSL 栈有 bug: CURLOPT_CAINFO / CURLOPT_SSL_VERIFYPEER 都导致段错误
+        // HTTPS 操作已改走 dulwich，这里只保留 SSL_CERT_FILE 防止默认路径崩溃
         String caBundle = ensureCacertBundle(context);
         if (caBundle != null) {
             sb.append("os.environ['SSL_CERT_FILE'] = ").append(repr(caBundle)).append("\n");
             sb.append("os.environ['CURL_CA_BUNDLE'] = ").append(repr(caBundle)).append("\n");
-            sb.append("os.environ['GIT_SSL_CAINFO'] = ").append(repr(caBundle)).append("\n");
         } else {
             sb.append("os.environ['SSL_CERT_DIR'] = '/system/etc/security/cacerts:/apex/com.android.conscrypt/cacerts'\n");
         }

@@ -152,15 +152,12 @@ public class ShellTool implements Tool {
                 prefix.append("export HOME=").append(filesDir).append("; ");
                 prefix.append("export GIT_TEMPLATE_DIR=''; ");
                 prefix.append("export GIT_DNS_SERVERS='8.8.8.8,8.8.4.4,1.1.1.1'; ");
-                // v2.4.18 证实: SSL_CERT_FILE + CURL_CA_BUNDLE 不崩溃但 SSL 验证失败（exit 128）
-                // v2.4.17 证实: GIT_SSL_NO_VERIFY=true 导致段错误（exit 139），不能用
-                // v2.4.19: 加 GIT_SSL_CAINFO 让 git http.c 显式调用 CURLOPT_CAINFO 加载 CA 文件
-                // （比依赖 libcurl 的 CURL_CA_BUNDLE 环境变量检查更可靠）
+                // 静态 git 二进制的 SSL 栈有 bug: CURLOPT_CAINFO / CURLOPT_SSL_VERIFYPEER 都导致段错误
+                // HTTPS 操作已改走 dulwich (见 executeGit)，这里只保留 SSL_CERT_FILE 防止默认路径崩溃
                 String caBundle = ensureCacertBundle();
                 if (caBundle != null) {
                     prefix.append("export SSL_CERT_FILE='").append(caBundle).append("'; ");
                     prefix.append("export CURL_CA_BUNDLE='").append(caBundle).append("'; ");
-                    prefix.append("export GIT_SSL_CAINFO='").append(caBundle).append("'; ");
                 } else {
                     prefix.append("export SSL_CERT_DIR='/system/etc/security/cacerts:/apex/com.android.conscrypt/cacerts'; ");
                 }
@@ -294,7 +291,15 @@ public class ShellTool implements Tool {
             return sb.toString() + "用法: git <子命令> [参数...]\n"
                 + "支持: init, clone, add, commit, status, log, push, pull, fetch, "
                 + "branch, checkout, remote, config, tag, diff, rm, version\n"
-                + "策略: 优先用系统 git 二进制，回退到内嵌 dulwich";
+                + "策略: HTTPS 操作用 dulwich，本地操作用 git 二进制";
+        }
+
+        // HTTPS clone/fetch/pull/push: 静态 git 二进制的 SSL 崩溃无法修复
+        // (CURLOPT_CAINFO / CURLOPT_SSL_VERIFYPEER 都导致段错误)
+        // 直接用 dulwich (Python ssl 模块用系统 SSL 栈，不崩溃)
+        if (isHttpsGitCommand(gitArgs)) {
+            sb.append("[HTTPS 操作 → dulwich (静态 git SSL 崩溃)]\n");
+            return executeGitDulwich(sb, gitArgs);
         }
 
         // 第 1 层：系统 git 二进制
@@ -313,6 +318,27 @@ public class ShellTool implements Tool {
 
         // 第 3 层：dulwich 回退
         return executeGitDulwich(sb, gitArgs);
+    }
+
+    /**
+     * 检测是否为需要 HTTPS 的 git 命令 (clone https://, fetch, pull, push)
+     * 静态 git 二进制的 SSL 栈崩溃，这些命令直接走 dulwich
+     */
+    private boolean isHttpsGitCommand(String gitArgs) {
+        if (gitArgs == null || gitArgs.isEmpty()) return false;
+        String lower = gitArgs.toLowerCase();
+        // clone 明确带 https:// 或 http:// URL
+        if (lower.startsWith("clone ") && (lower.contains("https://") || lower.contains("http://"))) {
+            return true;
+        }
+        // fetch/pull/push 可能使用 HTTPS remote（无法从命令行判断 remote URL）
+        // 为安全起见，这些网络命令都走 dulwich
+        if (lower.startsWith("fetch ") || lower.equals("fetch") ||
+            lower.startsWith("pull ") || lower.equals("pull") ||
+            lower.startsWith("push ") || lower.equals("push")) {
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -378,6 +404,11 @@ public class ShellTool implements Tool {
             }
             if (!result.stdout.isEmpty()) sb.append("\n").append(result.stdout);
             if (!result.stderr.isEmpty()) sb.append("\n[stderr]\n").append(result.stderr);
+            // 段错误 (exit 139): 静态 git 二进制的已知 SSL 崩溃，回退到 dulwich
+            if (result.exitCode == 139) {
+                sb.append("\n[段错误 → 回退到 dulwich]\n");
+                return executeGitDulwich(sb, gitArgs);
+            }
             // git clone/fetch/push https:// 失败且包含 "remote helper" 时，附加诊断信息
             if (result.exitCode != 0 && (result.stderr.contains("remote helper") || result.stdout.contains("remote helper"))) {
                 sb.append("\n--- git helper 诊断 ---\n");
@@ -493,15 +524,12 @@ public class ShellTool implements Tool {
             // c-ares DNS 服务器（Android 静态二进制的 getaddrinfo 不工作，
             // curl 编译时启用 c-ares，通过此环境变量设置 DNS 服务器）
             env.put("GIT_DNS_SERVERS", "8.8.8.8,8.8.4.4,1.1.1.1");
-            // v2.4.18 证实: SSL_CERT_FILE + CURL_CA_BUNDLE 不崩溃但 SSL 验证失败（exit 128）
-            // v2.4.17 证实: GIT_SSL_NO_VERIFY=true 导致段错误（exit 139），不能用
-            // v2.4.19: 加 GIT_SSL_CAINFO 让 git http.c 显式调用 CURLOPT_CAINFO 加载 CA 文件
-            // （比依赖 libcurl 的 CURL_CA_BUNDLE 环境变量检查更可靠）
+            // 静态 git 二进制的 SSL 栈有 bug: CURLOPT_CAINFO / CURLOPT_SSL_VERIFYPEER 都导致段错误
+            // HTTPS 操作已改走 dulwich (见 executeGit)，这里只保留 SSL_CERT_FILE 防止默认路径崩溃
             String caBundle = ensureCacertBundle();
             if (caBundle != null) {
                 env.put("SSL_CERT_FILE", caBundle);
                 env.put("CURL_CA_BUNDLE", caBundle);
-                env.put("GIT_SSL_CAINFO", caBundle);
             } else {
                 // 回退到系统 CA 目录
                 env.put("SSL_CERT_DIR", "/system/etc/security/cacerts:/apex/com.android.conscrypt/cacerts");
