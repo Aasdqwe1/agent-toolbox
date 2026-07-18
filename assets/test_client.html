@@ -786,6 +786,7 @@
         .think-btn {
             width: 44px;
             height: 44px;
+            box-sizing: border-box;
             border-radius: 50%;
             border: 2px solid #222;
             position: relative;
@@ -795,6 +796,7 @@
             background: #fff;
             opacity: 0.3;
             transition: opacity 0.2s, box-shadow 0.2s, transform 0.1s;
+            align-self: center;
         }
         .think-btn:hover {
             opacity: 0.6;
@@ -818,12 +820,13 @@
             transform: translate(-50%, -50%);
             border: 2px solid #222;
             border-radius: 50%;
+            box-sizing: border-box;
         }
         .think-btn .think-ellipse-h {
-            width: 30px; height: 13px;
+            width: 28px; height: 12px;
         }
         .think-btn .think-ellipse-v {
-            width: 13px; height: 30px;
+            width: 12px; height: 28px;
         }
         .think-btn .think-dot {
             position: absolute;
@@ -3253,6 +3256,18 @@
                 btn.classList.add('active');
             } else {
                 btn.classList.remove('active');
+            }
+            // 实时切换：立即点击 DeepSeek 网页的深度思考开关（不等下次发送）
+            try {
+                fetch('/api/chat/deepthink', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: deepThink })
+                }).catch(function(e) {
+                    console.warn('[DeepThink] 实时切换请求失败:', e);
+                });
+            } catch (e) {
+                console.warn('[DeepThink] 实时切换异常:', e);
             }
         }
 

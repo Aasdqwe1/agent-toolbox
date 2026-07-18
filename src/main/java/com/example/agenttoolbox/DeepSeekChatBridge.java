@@ -103,6 +103,63 @@ public class DeepSeekChatBridge {
         this.deepseekInitialized = initialized;
     }
 
+    /**
+     * 实时切换 DeepSeek 网页的"深度思考"开关（不等下一次发送）。
+     * 由前端按钮点击 → /api/chat/deepthink 接口触发。
+     * 在 UI 线程查找 .ds-toggle-button（含"深度思考"文字），根据目标状态决定是否点击。
+     *
+     * @param enabled 目标状态：true=开启，false=关闭
+     * @return true=已成功切换或已是目标状态；false=未找到按钮或 WebView 未就绪
+     */
+    public boolean toggleDeepThink(final boolean enabled) {
+        final WebView wb;
+        final Handler handler;
+        synchronized (this) {
+            wb = boundWebView;
+            handler = mainHandler;
+        }
+        if (wb == null || handler == null) {
+            AppLogger.w("DeepSeekChatBridge", "toggleDeepThink: WebView 未注册");
+            return false;
+        }
+        // 同步更新 window 变量，保证下次 sendScript 读取的值与实际状态一致
+        deepThinkGlobalFlag = enabled;
+        handler.post(new Runnable() {
+            @Override
+            public void run() {
+                String js = "(function(){\n" +
+                    "  try {\n" +
+                    "    window.__deepSeekDeepThink = " + enabled + ";\n" +
+                    "    var btns = document.querySelectorAll('.ds-toggle-button');\n" +
+                    "    var target = null;\n" +
+                    "    for (var i = 0; i < btns.length; i++) {\n" +
+                    "      var t = (btns[i].textContent || '').indexOf('深度思考') !== -1;\n" +
+                    "      if (t) { target = btns[i]; break; }\n" +
+                    "    }\n" +
+                    "    if (!target) { Android.log('[JS] toggleDeepThink: 未找到深度思考按钮'); return; }\n" +
+                    "    var pressed = target.getAttribute('aria-pressed') === 'true';\n" +
+                    "    if (pressed === " + enabled + ") { Android.log('[JS] toggleDeepThink: 已是目标状态 ' + " + enabled + "); return; }\n" +
+                    "    target.click();\n" +
+                    "    Android.log('[JS] toggleDeepThink: 已点击切换至 ' + " + enabled + ");\n" +
+                    "  } catch(e) { Android.log('[JS] toggleDeepThink 异常: ' + e); }\n" +
+                    "})()";
+                try {
+                    wb.evaluateJavascript(js, null);
+                } catch (Exception e) {
+                    AppLogger.e("DeepSeekChatBridge", "toggleDeepThink evaluateJavascript 异常: " + e.getMessage());
+                }
+            }
+        });
+        return true;
+    }
+
+    // 全局深度思考状态（由 toggleDeepThink 实时维护，sendScript 读取此值）
+    private volatile boolean deepThinkGlobalFlag = false;
+
+    public boolean isDeepThinkEnabled() {
+        return deepThinkGlobalFlag;
+    }
+
     // Activity 返回/销毁时调用：保持 WebView 存活
     public synchronized void detach() {
         AppLogger.d("DeepSeekChatBridge", "detach: WebView 保持存活");

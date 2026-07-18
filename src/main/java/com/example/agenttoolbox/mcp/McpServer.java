@@ -1797,6 +1797,15 @@ public class McpServer {
                             .put("error", "缺少 conversationId 或 answer")
                             .toString();
                     }
+                } else if ("/api/chat/deepthink".equals(action)) {
+                    // 深度思考实时切换：前端按钮点击 → 立即点击 DeepSeek 网页的深度思考开关
+                    boolean enabled = body.optBoolean("enabled", false);
+                    boolean ok = bridge.toggleDeepThink(enabled);
+                    responseBody = new JSONObject()
+                        .put("success", ok)
+                        .put("enabled", enabled)
+                        .toString();
+                    log("[DEEPTHINK] 实时切换: enabled=" + enabled + " ok=" + ok);
                 } else {
                     responseBody = new JSONObject()
                         .put("success", false)
