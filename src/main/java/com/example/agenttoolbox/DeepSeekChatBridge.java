@@ -488,54 +488,20 @@ public class DeepSeekChatBridge {
             "  // 定位 p.ds-markdown-paragraph（段落）与 pre（代码块），逐子节点拼接 span/code/文本，\n" +
             "  // 保留原始内容（code 内不做 markdown 改写，__name__ 等原样保留）\n" +
             "  //\n" +
-            "  // 深度思考适配：DeepSeek 开启深度思考后，回复结构为:\n" +
-            "  //   <span>已思考（用时 N 秒）</span>          ← 思考时间标记（在回复 div 外）\n" +
-            "  //   <div class=\"ds-markdown ds-assistant-message-main-content\">\n" +
-            "  //     <p>...思考过程...</p>                   ← 思考内容\n" +
-            "  //     <hr>                                     ← 分界线\n" +
-            "  //     <p>...最终回复 (JSON-RPC)...</p>         ← 最终回复\n" +
+            "  // 深度思考适配（实际 DOM 结构）：\n" +
+            "  //   <span>已思考（用时 N 秒）</span>              ← 思考时间标记\n" +
+            "  //   <div class=\"ds-think-content\">              ← 思考内容容器（独立 div）\n" +
+            "  //     <div class=\"ds-markdown\"><p>思考过程</p></div>\n" +
             "  //   </div>\n" +
-            "  // 注意：.ds-markdown 和 .ds-assistant-message-main-content 是同一 div 的两个 class\n" +
-            "  // 策略：\n" +
-            "  //   1. 深度思考模式：若存在 <hr>，只取 <hr> 之后的内容（最终回复）\n" +
-            "  //   2. 深度思考模式且无 <hr>：说明还在思考阶段，返回空等最终回复出现\n" +
-            "  //   3. 非深度思考：原逻辑（抓取所有 p.ds-markdown-paragraph / pre）\n" +
+            "  //   <div class=\"ds-markdown ds-assistant-message-main-content\">  ← 最终回复（仅含回复，不含思考）\n" +
+            "  //     <pre>JSON-RPC</pre>\n" +
+            "  //   </div>\n" +
+            "  // 关键：.ds-assistant-message-main-content 只包含最终回复，不含思考内容\n" +
+            "  //       思考内容在 .ds-think-content 内，需要单独提取\n" +
+            "  // 因此 extractReply 无需特殊处理深度思考，直接用原逻辑提取 el 内的 p/pre\n" +
             "  var __thinkSent = false;  // 思考内容是否已回调（每个 requestId 只发一次）\n" +
             "  function extractReply(el) {\n" +
             "    if (!el) return '';\n" +
-            "    // 深度思考：用 <hr> 分界，取最终回复（hr 之后）\n" +
-            "    if (__deepThink) {\n" +
-            "      var hrs = el.querySelectorAll('hr');\n" +
-            "      if (hrs.length === 0) {\n" +
-            "        // 还在思考阶段（思考内容正在生成，最终回复尚未出现）\n" +
-            "        return '';\n" +
-            "      }\n" +
-            "      // 思考已完成，触发一次 think 回调（<hr> 之前的内容 + 用时）\n" +
-            "      if (!__thinkSent) {\n" +
-            "        __thinkSent = true;\n" +
-            "        try { sendThinkCallback(el, hrs[0]); } catch(e) { Android.log('[JS] sendThink 异常: ' + e); }\n" +
-            "      }\n" +
-            "      // 取最后一个 hr 之后的内容（防止最终回复中也出现 hr）\n" +
-            "      var lastHr = hrs[hrs.length - 1];\n" +
-            "      var out = [];\n" +
-            "      var node = lastHr.nextElementSibling;\n" +
-            "      while (node) {\n" +
-            "        var txt = '';\n" +
-            "        if (node.tagName === 'P' || node.tagName === 'PRE') {\n" +
-            "          var kids = node.childNodes;\n" +
-            "          for (var ki = 0; ki < kids.length; ki++) {\n" +
-            "            txt += (kids[ki].textContent || '');\n" +
-            "          }\n" +
-            "        } else {\n" +
-            "          // 其他元素（ul/ol/li 等）也提取文本\n" +
-            "          txt = (node.textContent || '').trim();\n" +
-            "        }\n" +
-            "        if (txt.trim()) out.push(txt.trim());\n" +
-            "        node = node.nextElementSibling;\n" +
-            "      }\n" +
-            "      return out.join('\\n');\n" +
-            "    }\n" +
-            "    // 非深度思考：原逻辑\n" +
             "    var blocks = el.querySelectorAll('p.ds-markdown-paragraph, pre');\n" +
             "    if (blocks.length === 0) {\n" +
             "      return (el.textContent || el.innerText || '').trim();\n" +
@@ -553,25 +519,29 @@ public class DeepSeekChatBridge {
             "    return out.join('\\n');\n" +
             "  }\n" +
             "\n" +
-            "  // 提取 <hr> 之前的思考内容并通过 Android 桥接回调传出\n" +
-            "  // 同时解析 \"已思考（用时 N 秒）\" 获取用时\n" +
-            "  function sendThinkCallback(el, firstHr) {\n" +
-            "    // 提取思考内容：第一个 <hr> 之前的所有兄弟元素文本\n" +
-            "    var thinkParts = [];\n" +
-            "    var n = el.firstElementChild;\n" +
-            "    while (n && n !== firstHr) {\n" +
-            "      var t = '';\n" +
-            "      if (n.tagName === 'P' || n.tagName === 'PRE') {\n" +
-            "        var kids = n.childNodes;\n" +
-            "        for (var i = 0; i < kids.length; i++) t += (kids[i].textContent || '');\n" +
+            "  // 提取深度思考内容并通过 Android 桥接回调传出\n" +
+            "  // 思考内容在 .ds-think-content 内，用时从 span 文本解析\n" +
+            "  // 触发时机：pollOnce 检测到最终回复出现时调用\n" +
+            "  function sendThinkCallback() {\n" +
+            "    // 提取思考内容：.ds-think-content 内的 p.ds-markdown-paragraph\n" +
+            "    var thinkText = '';\n" +
+            "    var thinkContainer = document.querySelector('.ds-think-content');\n" +
+            "    if (thinkContainer) {\n" +
+            "      var blocks = thinkContainer.querySelectorAll('p.ds-markdown-paragraph, pre');\n" +
+            "      if (blocks.length > 0) {\n" +
+            "        var parts = [];\n" +
+            "        for (var bi = 0; bi < blocks.length; bi++) {\n" +
+            "          var t = '';\n" +
+            "          var kids = blocks[bi].childNodes;\n" +
+            "          for (var ki = 0; ki < kids.length; ki++) t += (kids[ki].textContent || '');\n" +
+            "          if (t.trim()) parts.push(t.trim());\n" +
+            "        }\n" +
+            "        thinkText = parts.join('\\n');\n" +
             "      } else {\n" +
-            "        t = (n.textContent || '').trim();\n" +
+            "        thinkText = (thinkContainer.textContent || '').trim();\n" +
             "      }\n" +
-            "      if (t.trim()) thinkParts.push(t.trim());\n" +
-            "      n = n.nextElementSibling;\n" +
             "    }\n" +
-            "    var thinkText = thinkParts.join('\\n');\n" +
-            "    // 解析用时：查找页面上的 \"已思考（用时 N 秒）\" 文本\n" +
+            "    // 解析用时：查找 \"已思考（用时 N 秒）\" 文本\n" +
             "    var durationSec = 0;\n" +
             "    try {\n" +
             "      var spans = document.querySelectorAll('span');\n" +
@@ -744,6 +714,12 @@ public class DeepSeekChatBridge {
             "      }\n" +
             "    }\n" +
             "    if (!hasNewContent) return;\n" +
+            "\n" +
+            "    // 深度思考：检测到最终回复出现时，触发一次 think 回调（思考内容 + 用时）\n" +
+            "    if (__deepThink && !__thinkSent && rawText && rawText.length >= 2) {\n" +
+            "      __thinkSent = true;\n" +
+            "      try { sendThinkCallback(); } catch(e) { Android.log('[JS] sendThink 异常: ' + e); }\n" +
+            "    }\n" +
             "\n" +
             "    // 提取文本：从 p.ds-markdown-paragraph / pre 抓取，遍历 span/code 子节点保留原始内容\n" +
             "    if (!rawText || rawText.length < 2) return;\n" +
