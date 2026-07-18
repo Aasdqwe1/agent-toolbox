@@ -643,16 +643,20 @@
             font-size: 13px;
         }
         .message.server .message-bubble {
-            display: block;
             background: white;
             border: 1px solid #e9edf2;
-            border-top: none;
-            border-top-left-radius: 0;
-            border-top-right-radius: 0;
             border-bottom-left-radius: 4px;
+        }
+        /* 仅当思考卡片后紧跟回复气泡时才拼接：同宽、去顶部边框与圆角；
+           无深度思考（无 .think-card）时，气泡保持默认圆角样式 */
+        .think-card + .message-bubble {
+            display: block;
             width: 100%;
             box-sizing: border-box;
             margin-top: 0;
+            border-top: none;
+            border-top-left-radius: 0;
+            border-top-right-radius: 0;
         }
         /* 计划完成总结气泡：绿色强调，突出最终结果 */
         .message-bubble.complete {
