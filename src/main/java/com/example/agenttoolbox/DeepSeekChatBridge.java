@@ -557,7 +557,7 @@ public class DeepSeekChatBridge {
 "    // 关键修复：把思考内容/用时的查找限定在当前轮 AI 消息块内\n" +
 "    var scope = lastAiEl;\n" +
 "    while (scope && scope.parentElement &&\n" +
-           !(scope.classList && scope.classList.contains('ds-message'))) {\n" +
+"           !(scope.classList && scope.classList.contains('ds-message'))) {\n" +
 "      scope = scope.parentElement;\n" +
 "    }\n" +
 "    scope = scope || lastAiEl;\n" +
