@@ -782,6 +782,65 @@
             background: #b9c4d4;
             cursor: not-allowed;
         }
+        /* 深度思考切换按钮（输入框左侧，彩色交叉椭圆外圆图标，仿设计稿） */
+        .think-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            background-image: linear-gradient(#fff, #fff),
+                linear-gradient(45deg, #ff3333, #ffcc00, #33cc33, #0099ff, #6633ff, #ff3333);
+            background-origin: border-box;
+            background-clip: content-box, border-box;
+            position: relative;
+            cursor: pointer;
+            flex-shrink: 0;
+            padding: 0;
+            opacity: 0.35;
+            filter: grayscale(0.6);
+            transition: opacity 0.2s, filter 0.2s, box-shadow 0.2s, transform 0.1s;
+        }
+        .think-btn:hover {
+            opacity: 0.6;
+        }
+        .think-btn:active {
+            transform: scale(0.93);
+        }
+        .think-btn.active {
+            opacity: 1;
+            filter: none;
+            box-shadow: 0 0 0 3px rgba(0, 153, 255, 0.15);
+        }
+        .think-btn .think-inner {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            transform: rotate(45deg);
+        }
+        .think-btn .think-ellipse {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            border-style: solid;
+            border-radius: 50%;
+            border-width: 2px;
+        }
+        .think-btn .think-ellipse-h {
+            width: 30px; height: 13px;
+            border-color: #0066ff #9900ff #0066ff #9900ff;
+        }
+        .think-btn .think-ellipse-v {
+            width: 13px; height: 30px;
+            border-color: #ff3333 #ffcc00 #ff3333 #ffcc00;
+        }
+        .think-btn .think-dot {
+            position: absolute;
+            width: 4px; height: 4px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff);
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+        }
         /* 代理模式切换按钮（放在头部 status-group 中，尺寸与 .status-badge 一致） */
         .agent-toggle {
             background: #eef2f6;
@@ -1477,6 +1536,13 @@
                 </div>
 
                 <div class="input-area">
+                    <div class="think-btn" id="thinkBtn" onclick="toggleDeepThink()" title="深度思考">
+                        <div class="think-inner">
+                            <div class="think-ellipse think-ellipse-h"></div>
+                            <div class="think-ellipse think-ellipse-v"></div>
+                            <div class="think-dot"></div>
+                        </div>
+                    </div>
                     <textarea id="chatInput" placeholder="输入消息…" rows="1" onkeydown="handleKeyDown(event)"></textarea>
                     <button class="send-btn" id="sendBtn" onclick="sendMessage()">发送</button>
                 </div>
@@ -1521,6 +1587,7 @@
         let currentSessionId = null;
         let currentSessionTitle = '未命名';
         let autoMode = false; // 代理模式：开启后 AI 自主推进任务，无需逐步确认
+        let deepThink = false; // 深度思考：开启后发送前点击 DeepSeek 网页的"深度思考"按钮
 
         // ============================================================
         //  DOM 引用
@@ -3113,6 +3180,19 @@
         }
 
         // ============================================================
+        //  深度思考切换
+        // ============================================================
+        function toggleDeepThink() {
+            deepThink = !deepThink;
+            const btn = document.getElementById('thinkBtn');
+            if (deepThink) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        }
+
+        // ============================================================
         //  代理模式切换
         // ============================================================
         function toggleAgentMode() {
@@ -3166,7 +3246,7 @@
                 const res = await fetch(url + '/api/chat/send', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: text, autoMode: autoMode })
+                    body: JSON.stringify({ message: text, autoMode: autoMode, deepThink: deepThink })
                 });
 
                 const contentType = (res.headers.get('Content-Type') || '').toLowerCase();

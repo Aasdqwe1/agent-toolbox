@@ -81,6 +81,8 @@ public class DeepSeekChatBridge {
     private final ConcurrentHashMap<String, CountDownLatch> latchById = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicReference<String>> replyById = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicReference<String>> errorById = new ConcurrentHashMap<>();
+    // 每请求的深度思考开关：true 表示发送前需点击 DeepSeek 网页的"深度思考"按钮
+    private final ConcurrentHashMap<String, Boolean> deepThinkById = new ConcurrentHashMap<>();
 
     // 注册 / 注销
     public synchronized void register(WebView webView) {
@@ -161,6 +163,7 @@ public class DeepSeekChatBridge {
         latchById.remove(requestId);
         replyById.remove(requestId);
         errorById.remove(requestId);
+        deepThinkById.remove(requestId);
     }
 
     /**
@@ -212,6 +215,15 @@ public class DeepSeekChatBridge {
      * 发送消息并实时回调每一段回复（流式）
      */
     public void sendMessageStream(final String message, final StreamCallback callback) {
+        sendMessageStream(message, false, callback);
+    }
+
+    /**
+     * 发送消息并实时回调每一段回复（流式），支持深度思考开关。
+     * deepThink=true 时，sendScript 会在点击发送前先点击 DeepSeek 网页的"深度思考"按钮。
+     */
+    public void sendMessageStream(final String message, final boolean deepThink,
+                                   final StreamCallback callback) {
         final WebView wb;
         final Handler handler;
         synchronized (this) {
@@ -232,6 +244,7 @@ public class DeepSeekChatBridge {
         latchById.put(requestId, latch);
         replyById.put(requestId, replyRef);
         errorById.put(requestId, errorRef);
+        deepThinkById.put(requestId, deepThink);
 
         // 在当前线程（后台）构建 JS 脚本字符串，避免 UI 线程卡顿
         // injectChatScript 内部会把 evaluateJavascript 投递到 UI 线程执行
@@ -330,6 +343,9 @@ public class DeepSeekChatBridge {
             "  var __rid = " + JSONObject.quote(requestId) + ";\n" +
             "  var __prefix = 'ds_' + __rid + '_';\n" +
             "  window.__deepseekRid = __rid;\n" +
+            "  // 读取 sendScript 写入的深度思考开关（sendScript 在 observer 之后注入，\n" +
+            "  // 但轮询开始时 sendScript 已执行完毕，能正确读到）\n" +
+            "  var __deepThink = window.__deepSeekDeepThink || false;\n" +
             "  if (window[__prefix + 'poll']) clearInterval(window[__prefix + 'poll']);\n" +
             "  var finished = false;\n" +
             "  var pollCount = 0;\n" +
@@ -400,8 +416,49 @@ public class DeepSeekChatBridge {
             "  // 从 AI 回复元素中提取 JSON-RPC 内容：抓取渲染后的 markdown 原始内容\n" +
             "  // 定位 p.ds-markdown-paragraph（段落）与 pre（代码块），逐子节点拼接 span/code/文本，\n" +
             "  // 保留原始内容（code 内不做 markdown 改写，__name__ 等原样保留）\n" +
+            "  //\n" +
+            "  // 深度思考适配：DeepSeek 开启深度思考后，回复结构为:\n" +
+            "  //   <span>已思考（用时 N 秒）</span>          ← 思考时间标记（在回复 div 外）\n" +
+            "  //   <div class=\"ds-markdown ds-assistant-message-main-content\">\n" +
+            "  //     <p>...思考过程...</p>                   ← 思考内容\n" +
+            "  //     <hr>                                     ← 分界线\n" +
+            "  //     <p>...最终回复 (JSON-RPC)...</p>         ← 最终回复\n" +
+            "  //   </div>\n" +
+            "  // 注意：.ds-markdown 和 .ds-assistant-message-main-content 是同一 div 的两个 class\n" +
+            "  // 策略：\n" +
+            "  //   1. 深度思考模式：若存在 <hr>，只取 <hr> 之后的内容（最终回复）\n" +
+            "  //   2. 深度思考模式且无 <hr>：说明还在思考阶段，返回空等最终回复出现\n" +
+            "  //   3. 非深度思考：原逻辑（抓取所有 p.ds-markdown-paragraph / pre）\n" +
             "  function extractReply(el) {\n" +
             "    if (!el) return '';\n" +
+            "    // 深度思考：用 <hr> 分界，取最终回复（hr 之后）\n" +
+            "    if (__deepThink) {\n" +
+            "      var hrs = el.querySelectorAll('hr');\n" +
+            "      if (hrs.length === 0) {\n" +
+            "        // 还在思考阶段（思考内容正在生成，最终回复尚未出现）\n" +
+            "        return '';\n" +
+            "      }\n" +
+            "      // 取最后一个 hr 之后的内容（防止最终回复中也出现 hr）\n" +
+            "      var lastHr = hrs[hrs.length - 1];\n" +
+            "      var out = [];\n" +
+            "      var node = lastHr.nextElementSibling;\n" +
+            "      while (node) {\n" +
+            "        var txt = '';\n" +
+            "        if (node.tagName === 'P' || node.tagName === 'PRE') {\n" +
+            "          var kids = node.childNodes;\n" +
+            "          for (var ki = 0; ki < kids.length; ki++) {\n" +
+            "            txt += (kids[ki].textContent || '');\n" +
+            "          }\n" +
+            "        } else {\n" +
+            "          // 其他元素（ul/ol/li 等）也提取文本\n" +
+            "          txt = (node.textContent || '').trim();\n" +
+            "        }\n" +
+            "        if (txt.trim()) out.push(txt.trim());\n" +
+            "        node = node.nextElementSibling;\n" +
+            "      }\n" +
+            "      return out.join('\\n');\n" +
+            "    }\n" +
+            "    // 非深度思考：原逻辑\n" +
             "    var blocks = el.querySelectorAll('p.ds-markdown-paragraph, pre');\n" +
             "    if (blocks.length === 0) {\n" +
             "      return (el.textContent || el.innerText || '').trim();\n" +
@@ -649,6 +706,8 @@ public class DeepSeekChatBridge {
             "(function() {\n" +
             "  var msg = " + JSONObject.quote(message) + ";\n" +
             "  var __rid = " + JSONObject.quote(requestId) + ";\n" +
+            "  var __deepThink = " + Boolean.TRUE.equals(deepThinkById.get(requestId)) + ";\n" +
+            "  window.__deepSeekDeepThink = __deepThink;\n" +
             "  var attempts = 0;\n" +
             "  function trySend() {\n" +
             "    attempts++;\n" +
@@ -706,6 +765,34 @@ public class DeepSeekChatBridge {
             "        textarea.dispatchEvent(ie);\n" +
             "      }\n" +
             "    } catch(_e4) {}\n" +
+            "    // ===== 深度思考：发送前点击 DeepSeek 网页的\"深度思考\"按钮 =====\n" +
+            "    if (__deepThink) {\n" +
+            "      try {\n" +
+            "        var thinkBtn = null;\n" +
+            "        var toggleBtns = document.querySelectorAll('.ds-toggle-button');\n" +
+            "        for (var ti = 0; ti < toggleBtns.length; ti++) {\n" +
+            "          var tbText = (toggleBtns[ti].innerText || toggleBtns[ti].textContent || '').trim();\n" +
+            "          if (tbText.indexOf('深度思考') !== -1 || tbText.indexOf('Think') !== -1) {\n" +
+            "            thinkBtn = toggleBtns[ti];\n" +
+            "            break;\n" +
+            "          }\n" +
+            "        }\n" +
+            "        if (thinkBtn) {\n" +
+            "          var pressed = thinkBtn.getAttribute('aria-pressed');\n" +
+            "          Android.log('[DEBUG][' + __rid + '] 深度思考按钮: aria-pressed=' + pressed);\n" +
+            "          if (pressed === 'false' || pressed === null) {\n" +
+            "            thinkBtn.click();\n" +
+            "            Android.log('[DEBUG][' + __rid + '] 已点击深度思考按钮（开启）');\n" +
+            "          } else {\n" +
+            "            Android.log('[DEBUG][' + __rid + '] 深度思考已开启，无需重复点击');\n" +
+            "          }\n" +
+            "        } else {\n" +
+            "          Android.log('[DEBUG][' + __rid + '] 未找到深度思考按钮');\n" +
+            "        }\n" +
+            "      } catch(_te) {\n" +
+            "        Android.log('[DEBUG][' + __rid + '] 深度思考按钮点击异常: ' + _te.message);\n" +
+            "      }\n" +
+            "    }\n" +
             "    // ===== 点击发送按钮 =====\n" +
             "    var sendBtn = null;\n" +
             "    var sendBtnSource = '';\n" +

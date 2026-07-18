@@ -941,6 +941,8 @@ public class McpServer {
                         String currentMessage = message;
                         // 代理模式：前端通过 autoMode 字段开启，提高轮次上限并在普通回复后自动推进
                         boolean autoMode = body.optBoolean("autoMode", false);
+                        // 深度思考：前端通过 deepThink 字段开启，发送前点击 DeepSeek 网页的"深度思考"按钮
+                        final boolean deepThink = body.optBoolean("deepThink", false);
                         int maxRounds = autoMode ? 200 : 100;
                         int round = 0;
                         boolean finalDone = false;
@@ -1057,7 +1059,7 @@ public class McpServer {
                             final AtomicReference<String> roundReplyRef = new AtomicReference<>();
                             final AtomicReference<String> roundErrorRef = new AtomicReference<>();
 
-                            bridge.sendMessageStream(messageToSend,
+                            bridge.sendMessageStream(messageToSend, deepThink,
                                 new DeepSeekChatBridge.StreamCallback() {
                                     @Override
                                     public void onChunk(String chunk) {
