@@ -772,7 +772,8 @@ public class DeepSeekActivity extends Activity {
     }
 
     /**
-     * 新建会话
+     * 新建会话：统一走后端重定向逻辑，把 DeepSeek 主窗口(boundWebView)
+     * 重定向到 chat.deepseek.com（与 /api/chat/new 端点共用同一套 openDeepSeekUrl）
      */
     private void newChat() {
         if (!isLoggedIn) {
@@ -780,44 +781,14 @@ public class DeepSeekActivity extends Activity {
             return;
         }
 
-        setStatus("正在新建会话...");
-
         if (webView == null) {
             setStatus("WebView 已销毁，请重启应用");
             return;
         }
 
-        // 尝试通过 JavaScript 点击新会话按钮
-        // 如果失败，就重新加载页面
-        webView.evaluateJavascript(
-            "(function() {" +
-            "  // 策略1：点击导航栏中带 + 图标 / 新对话文本的按钮或可点击元素" +
-            "  var candidates = document.querySelectorAll('button, [role=\"button\"], a, [class*=\"new-chat\" i]');" +
-            "  for (var i = 0; i < candidates.length; i++) {" +
-            "    var txt = (candidates[i].innerText || candidates[i].textContent || '').trim();" +
-            "    if (txt.indexOf('新对话') === 0 || txt === '+' || txt === 'New chat' ||" +
-            "        txt.indexOf('New') === 0 || txt.indexOf('新建') === 0) {" +
-            "      candidates[i].click();" +
-            "      return 'clicked';" +
-            "    }" +
-            "  }" +
-            "  // 策略2：导航到主页自动开启新会话" +
-            "  var link = document.querySelector('a[href=\"/\"]');" +
-            "  if (link) { link.click(); return 'clicked'; }" +
-            "  return 'not_found';" +
-            "})()",
-            new android.webkit.ValueCallback<String>() {
-                @Override
-                public void onReceiveValue(String value) {
-                    if (value != null && value.contains("clicked")) {
-                        setStatus("已新建会话");
-                    } else {
-                        // 备用方案：重新加载页面
-                        loadDeepSeek();
-                    }
-                }
-            }
-        );
+        setStatus("正在新建会话...");
+        boolean ok = DeepSeekChatBridge.getInstance().openDeepSeekUrl(deepSeekUrl);
+        setStatus(ok ? "已重定向到新会话" : "重定向失败");
     }
 
     /**
