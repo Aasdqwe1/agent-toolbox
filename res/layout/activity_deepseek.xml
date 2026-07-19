@@ -7,7 +7,6 @@
 
     <!-- ======== 顶部工具栏（紧凑） ======== -->
     <LinearLayout
-        android:id="@+id/topBar"
         android:layout_width="match_parent"
         android:layout_height="40dp"
         android:orientation="horizontal"

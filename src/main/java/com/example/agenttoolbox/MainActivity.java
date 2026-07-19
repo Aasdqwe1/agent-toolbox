@@ -17,7 +17,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ScrollView;
@@ -69,9 +68,6 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
-        // 透明状态栏：状态栏不隐藏、不染色，App 浅灰背景(#f1f5f9)延展到状态栏区域
-        setupTransparentStatusBar();
 
         // 初始化视图
         tvStatus = (TextView) findViewById(R.id.tvStatus);
@@ -507,37 +503,5 @@ public class MainActivity extends Activity {
         super.onDestroy();
         stopServer();
     }
-
-    /**
-     * 透明状态栏：状态栏保持可见、不染色，App 浅色背景延展到状态栏区域。
-     * - setStatusBarColor(TRANSPARENT) + LAYOUT_FULLSCREEN：内容绘到状态栏下，背景透出
-     * - LIGHT_STATUS_BAR(API23+)：浅色背景上把状态栏图标变深，保证可读
-     * - 根布局顶部补「状态栏高度」，把标题/卡片推下，背景仍铺满该区域
-     */
-    private void setupTransparentStatusBar() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
-            getWindow().getDecorView().setSystemUiVisibility(
-                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            int vis = getWindow().getDecorView().getSystemUiVisibility();
-            vis |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
-            getWindow().getDecorView().setSystemUiVisibility(vis);
-        }
-        // 根布局（带 @color/background 背景）顶部补状态栏高度，背景自然填满状态栏
-        final ViewGroup content = (ViewGroup) findViewById(android.R.id.content);
-        final ViewGroup root = (ViewGroup) content.getChildAt(0);
-        root.post(new Runnable() {
-            @Override
-            public void run() {
-                int sb = UiUtils.getStatusBarHeight(MainActivity.this);
-                int pad = (int) (16 * getResources().getDisplayMetrics().density); // 原 padding 16dp
-                root.setPadding(root.getPaddingLeft(), sb + pad,
-                        root.getPaddingRight(), root.getPaddingBottom());
-            }
-        });
-    }
-
+    
 }

@@ -70,9 +70,6 @@ public class DeepSeekActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_deepseek);
 
-        // 透明状态栏：状态栏可见、不染色，App 背景延展到状态栏区域
-        setupTransparentStatusBar();
-
         // 初始化视图（不含 WebView，WebView 从 Bridge 全局单例取）
         initViews();
 
@@ -1449,39 +1446,5 @@ public class DeepSeekActivity extends Activity {
             DeepSeekChatBridge.getInstance().detachMcp();  // 仅记录，不释放
         }
         super.onDestroy();
-    }
-
-    /**
-     * 透明状态栏：状态栏保持可见、不染色，App 背景延展到状态栏区域。
-     * - setStatusBarColor(TRANSPARENT) + LAYOUT_FULLSCREEN：内容绘到状态栏下，背景透出
-     * - LIGHT_STATUS_BAR(API23+)：浅色背景上把状态栏图标变深，保证可读
-     * - 顶部白色工具栏增高「状态栏高度」并居中，使其吸收状态栏区域，
-     *   按钮不会被状态栏图标压住
-     */
-    private void setupTransparentStatusBar() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
-            getWindow().getDecorView().setSystemUiVisibility(
-                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN);
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            int vis = getWindow().getDecorView().getSystemUiVisibility();
-            vis |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
-            getWindow().getDecorView().setSystemUiVisibility(vis);
-        }
-        // 顶部工具栏增高以吸收状态栏区域（按钮已 gravity=center_vertical，自动下沉）
-        final View topBar = findViewById(R.id.topBar);
-        if (topBar != null) {
-            topBar.post(new Runnable() {
-                @Override
-                public void run() {
-                    int sb = UiUtils.getStatusBarHeight(DeepSeekActivity.this);
-                    int base = (int) (40 * getResources().getDisplayMetrics().density); // 原 40dp
-                    topBar.getLayoutParams().height = base + sb;
-                    topBar.requestLayout();
-                }
-            });
-        }
     }
 }
