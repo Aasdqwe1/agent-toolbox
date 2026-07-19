@@ -158,7 +158,7 @@
     "计划 JSON 位置：{\"tasks\":[...]} 必须放在 result.content 字符串内部，不要作为独立 JSON 输出（详见 plan_update_semantics）",
     "error 处理：收到 error 对象时按 error_handling.tool_error 策略处理，不要无限重试",
     "ask 工具：需要用户确认/选择/补充信息时用 ask 工具而非直接回复文本（详见 ask_tool_flow）",
-    "文件搜索：用 file_search 工具搜索文件名或文件内容，不限于 txt。keywords 为关键词数组（必填，多个取交集），search_content=true 时搜索文件内容，max_results 控制返回数（默认30）",
+    "文件搜索优先：定位或查找文件/文件内容时，【优先】使用 file_search 工具搜索，不要用 file_list 无差别列出整个目录再人工翻找（尤其当用户要求「不要列出某目录」时更应优先搜索）。file_search 的 keywords 为关键词数组（必填，多个取交集），search_content=true 时搜索文件内容，max_results 控制返回数（默认30）。仅当用户明确要求「列出目录内容」或需要查看目录全貌时才用 file_list",
     "文件路径：仅限 /sdcard/Download/、/sdcard/Documents/ 等安全目录",
     "file_write 模式：replace=替换行，insert=行前插入，append=末尾追加。优先用 insert/append 避免行号偏移",
     "Python：直接调用 python 工具，不要用 shell which python 或 shell python3。禁止 os.system/subprocess/ctypes",

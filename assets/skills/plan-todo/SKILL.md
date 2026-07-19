@@ -19,6 +19,7 @@ from: builtin
 1. **计划是你输出的 JSON**：在 `result.content` 字符串中放置 `{"tasks":[...]}`
 2. **系统会推进**：你不需要手动管理任务队列，只需在完成时发送 `plan_update`
 3. **一个任务只做一件事**：每个任务调用一个工具
+4. **优先文件搜索**：探索/定位文件时优先用 `file_search` 搜索目标文件，不要先用 `file_list` 无差别列出整个目录再翻找（尤其当用户要求「不要列出某目录」时）。仅当用户明确要求「列出目录」或需要查看目录全貌时才用 `file_list`
 
 ---
 
@@ -80,7 +81,7 @@ from: builtin
   "jsonrpc": "2.0",
   "result": {
     "type": "reply",
-    "content": "我将按以下计划执行：{\"tasks\":[{\"task_id\":\"T001\",\"content\":\"列出项目目录\",\"tool_needs\":[\"file_list\"]},{\"task_id\":\"T002\",\"content\":\"读取 README.md\",\"deps\":[\"T001\"],\"tool_needs\":[\"file_read\"]}]}"
+    "content": "我将按以下计划执行：{\"tasks\":[{\"task_id\":\"T001\",\"content\":\"搜索 README.md 等目标文件\",\"tool_needs\":[\"file_search\"]},{\"task_id\":\"T002\",\"content\":\"读取 README.md\",\"deps\":[\"T001\"],\"tool_needs\":[\"file_read\"]}]}"
   },
   "id": 1017
 }
@@ -98,16 +99,16 @@ from: builtin
   "result": {
     "type": "system",
     "action": "execute_task",
-    "task": {
-      "task_id": "T001",
-      "content": "列出项目目录",
-      "tool_needs": ["file_list"]
-    },
-    "plan": {
-      "total": 3,
-      "completed": 0
-    },
-    "instruction": "请调用 file_list 工具执行此任务"
+      "task": {
+        "task_id": "T001",
+        "content": "搜索目标文件",
+        "tool_needs": ["file_search"]
+      },
+      "plan": {
+        "total": 3,
+        "completed": 0
+      },
+      "instruction": "请调用 file_search 工具执行此任务"
   },
   "id": 1017
 }
@@ -125,12 +126,14 @@ from: builtin
 {
   "jsonrpc": "2.0",
   "method": "tools/call",
-  "params": {
-    "name": "file_list",
-    "arguments": {
-      "path": "/sdcard/Download/project"
-    }
-  },
+    "params": {
+      "name": "file_search",
+      "arguments": {
+        "keywords": ["README", "md"],
+        "path": "/sdcard/Download/project",
+        "search_content": false
+      }
+    },
   "result": {
     "plan_update": {
       "action": "complete_task",
