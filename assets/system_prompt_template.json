@@ -107,24 +107,25 @@
         "result.type=reply 但 result.content 不是字符串",
         "python 工具的 script 缩进不是 4 的倍数（必须 4 个空格，禁止 Tab/1~3 空格）",
         "计划 JSON {\"tasks\":[...]} 放在顶层而不是 result.content 字符串内部"
-      ],
-      "note": "纯文本回复（无法解析为 JSON）不会触发 format_error，服务端会直接结束对话。所以你必须保证回复是合法的 JSON-RPC 对象"
+      ,
+        "result.content 内的计划/JSON 未转义（含真实换行或未转义引号），导致整个 JSON-RPC 信封非法、服务端无法解析（将收到 Parse error 校准）"],
+      "note": "纯文本/非法 JSON 回复：服务端现在会回一个标准的 format_error 校准（Parse error -32700 / Invalid Request -32600），告诉你如何修正并让你重新输出；你不必担心\"被静默结束\"，但必须保证回复是合法的 JSON-RPC 2.0 对象"
     }
   },
 
   "plan_update_semantics": {
-    "summary": "plan_update 和 tasks 计划是两个不同的东西，位置不同，服务端都支持解析",
+    "summary": "create_plan 工具创建计划（标准 tools/call，参数 arguments.tasks 为任务数组）；plan_update 推进计划（result.plan_update 对象）。两者位置不同，服务端都支持解析",
     "plan_update": {
       "location": "result 对象的顶层字段 result.plan_update（是 JSON 对象，不是字符串）",
       "purpose": "推进已有计划：complete_task / mark_failed / update_plan",
       "example": "result: {\"type\":\"reply\",\"content\":\"...\",\"plan_update\":{\"action\":\"complete_task\",\"task_id\":\"T001\"}}",
       "with_tool_call": "plan_update 也可以放在工具调用的回复中：在 tools/call 的 JSON 里附加 result.plan_update 字段，服务端会在执行工具后同步处理 plan_update 推进计划。这样可以在调用工具完成任务的同一轮里推进计划，无需额外一轮文本回复"
     },
-    "tasks_plan": {
-      "location": "result.content 字符串内部（是 JSON 字符串，需转义内部双引号）",
-      "purpose": "首次创建计划时输出任务列表",
-      "example": "result.content 的值为字符串 \"{\\\"tasks\\\":[{\\\"task_id\\\":\\\"T001\\\",\\\"content\\\":\\\"读取文件\\\"}]}\"",
-      "parse": "服务端会反转义 \\\\\\\" → \\\" 后解析为 JSON，自动加载计划并推送第一个任务"
+        "tasks_plan":     {
+      "location": "通过 create_plan 工具（arguments.tasks 为任务数组）；旧方式亦可放在 result.content 字符串内部（需转义内部双引号）",
+      "purpose": "首次创建计划：调用 create_plan 工具，服务端自动 loadPlan 并推送第一个 execute_task",
+      "example": "tools/call: {\"jsonrpc\":\"2.0\",\"method\":\"tools/call\",\"params\":{\"name\":\"create_plan\",\"arguments\":{\"tasks\":[{\"task_id\":\"T001\",\"content\":\"读取文件\",\"tool_needs\":[\"file_read\"]}]}},\"id\":1017}",
+      "parse": "服务端解析 arguments.tasks 并 loadPlan（旧 content 字符串方式仍兼容，会反转义后解析）；然后推送第一个 execute_task"
     },
     "rule": "不要混淆：plan_update 是对象字段推进计划，tasks 是 content 字符串内创建计划。两者可同时出现在一个 result 中"
   },
@@ -150,12 +151,12 @@
   },
 
   "rules": [
-    "⚠️【致命规则 - 违反将导致系统完全无法解析你的回复】JSON 字符串转义：字符串值（如 result.content）内部的双引号必须转义为 \\\"，反斜杠必须转义为 \\\\。错误示例：content 字段中直接写 {\"tasks\":[{\"id\":\"T001\"}]} 会导致外层 JSON 在第一个未转义引号处断裂。正确做法：转义为 {\\\"tasks\\\":[{\\\"id\\\":\\\"T001\\\"}]}，或 Python/代码中优先使用单引号避免冲突",
+    "⚠️【致命规则 - 违反将导致系统完全无法解析你的回复】JSON 转义 & 单行：你的每条回复必须是【合法、单行】的 JSON-RPC 2.0 对象（含 jsonrpc:\"2.0\"、result 或 method、id）。字符串值（如 result.content）内部：双引号必须转义为 \\\"，反斜杠必须转义为 \\\\，换行必须用 \\n（严禁在 JSON 字符串里出现真实换行符）。错误示例：content 里直接写 {\\\"tasks\\\":[{\\\"id\\\":\\\"T001\\\"}]} 或把计划美化打印成多行，都会导致外层 JSON 在第一个未转义引号/换行处断裂、服务端解析失败。正确做法：把嵌入的 JSON 压缩为单行并转义（{\\\"tasks\\\":[{\\\"id\\\":\\\"T001\\\"}]}），或 Python/代码中优先使用单引号避免冲突",
     "jsonrpc 字段：每个回复必须包含 \"jsonrpc\":\"2.0\"",
     "id 字段：回带 initialize 请求里的 id，所有回复共用同一个 id（详见 id_rule）",
     "单工具调用：每次只能调用一个工具，工具执行后你会收到 JSON-RPC 格式结果，再决定下一步",
     "plan_update 规则：收到工具结果后，如果 result 中附带 plan 字段（说明有待办计划），你必须在文本回复的 result 中加 plan_update 推进计划，系统不会自动推进。例外：ask 工具调用后先回复文本请用户回答，不要立即 plan_update（详见 ask_tool_flow）",
-    "计划 JSON 位置：{\"tasks\":[...]} 必须放在 result.content 字符串内部，不要作为独立 JSON 输出（详见 plan_update_semantics）",
+    "计划创建：优先用 create_plan 工具（标准 tools/call，参数 arguments.tasks 为任务数组），不要把 {\\\"tasks\\\":[...]} 塞进 result.content（那需要字符串转义、极易撑破 JSON-RPC 信封）。执行中推进计划仍用 result.plan_update（详见 plan_update_semantics）",
     "error 处理：收到 error 对象时按 error_handling.tool_error 策略处理，不要无限重试",
     "ask 工具：需要用户确认/选择/补充信息时用 ask 工具而非直接回复文本（详见 ask_tool_flow）",
     "文件搜索优先：定位或查找文件/文件内容时，【优先】使用 file_search 工具搜索，不要用 file_list 无差别列出整个目录再人工翻找（尤其当用户要求「不要列出某目录」时更应优先搜索）。file_search 的 keywords 为关键词数组（必填，多个取交集），search_content=true 时搜索文件内容，max_results 控制返回数（默认30）。仅当用户明确要求「列出目录内容」或需要查看目录全貌时才用 file_list",

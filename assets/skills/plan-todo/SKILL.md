@@ -42,7 +42,10 @@ from: builtin
 
 ## 第一步：创建计划
 
-### 计划 JSON 格式（字段名必须完全匹配）
+> ✅ 标准做法（推荐）：调用 `create_plan` 工具（标准 MCP `tools/call`），参数 `arguments.tasks` 为任务数组。
+> 这比把 `{"tasks":[...]}` 塞进 `result.content` 更稳——不需要字符串转义，不会撑破 JSON-RPC 信封。
+
+### 计划 JSON 格式（字段名必须完全匹配，即 tasks 数组中每个任务的字段）
 
 ```json
 {
@@ -74,18 +77,26 @@ from: builtin
 | `priority` | ❌ | int | 1-5，默认3 |
 | `checkpoint` | ❌ | string | 验收标准 |
 
-### 示例回复（创建计划）
+### 示例回复（创建计划 · 标准工具调用形式）
 
 ```json
 {
   "jsonrpc": "2.0",
-  "result": {
-    "type": "reply",
-    "content": "我将按以下计划执行：{\"tasks\":[{\"task_id\":\"T001\",\"content\":\"搜索 README.md 等目标文件\",\"tool_needs\":[\"file_search\"]},{\"task_id\":\"T002\",\"content\":\"读取 README.md\",\"deps\":[\"T001\"],\"tool_needs\":[\"file_read\"]}]}"
+  "method": "tools/call",
+  "params": {
+    "name": "create_plan",
+    "arguments": {
+      "tasks": [
+        {"task_id":"T001","content":"搜索 README.md 等目标文件","tool_needs":["file_search"]},
+        {"task_id":"T002","content":"读取 README.md","deps":["T001"],"tool_needs":["file_read"]}
+      ]
+    }
   },
   "id": 1017
 }
 ```
+
+> 兼容旧方式（不推荐）：仍可在 `result.content` 中以转义字符串嵌入 `{"tasks":[...]}`，但必须压成单行并转义，易错。
 
 ---
 
@@ -319,6 +330,24 @@ from: builtin
 
 ✅ 正确：先调用 ask，等用户回答后再 plan_update
 
+### 错误4：在 content 里放美化/多行 JSON（致命，任务会不生成）
+
+❌ 错误（带真实换行的美化 JSON 直接塞进 content，整个 JSON-RPC 信封非法、服务端解析失败）：
+```json
+{"jsonrpc":"2.0","result":{"type":"reply","content":"计划：{
+  \"tasks\": [
+    {\"task_id\":\"T001\",\"content\":\"搜索\"}
+  ]
+}"},"id":1017}
+```
+
+✅ 正确（压缩为单行，内部双引号转义为 \"、换行转义为 \\n）：
+```json
+{"jsonrpc":"2.0","result":{"type":"reply","content":"计划：{\"tasks\":[{\"task_id\":\"T001\",\"content\":\"搜索\"}]}"},"id":1017}
+```
+
+> 记忆点：result.content 是【字符串值】，里面嵌 JSON 必须“压成一行 + 转义”，绝不能保留真实换行。
+
 ---
 
 ## 速查表
@@ -337,13 +366,20 @@ from: builtin
 
 用户："帮我列出目录，然后生成文档，最后推送"
 
-### 第1轮 - 创建
+### 第1轮 - 创建（create_plan 工具）
 ```json
 {
   "jsonrpc": "2.0",
-  "result": {
-    "type": "reply",
-    "content": "计划：{\"tasks\":[{\"task_id\":\"T001\",\"content\":\"列出目录\",\"tool_needs\":[\"file_list\"]},{\"task_id\":\"T002\",\"content\":\"生成文档\",\"tool_needs\":[\"python\"],\"deps\":[\"T001\"]},{\"task_id\":\"T003\",\"content\":\"推送\",\"tool_needs\":[\"shell\"],\"deps\":[\"T002\"]}]}"
+  "method": "tools/call",
+  "params": {
+    "name": "create_plan",
+    "arguments": {
+      "tasks": [
+        {"task_id":"T001","content":"列出目录","tool_needs":["file_list"]},
+        {"task_id":"T002","content":"生成文档","tool_needs":["python"],"deps":["T001"]},
+        {"task_id":"T003","content":"推送","tool_needs":["shell"],"deps":["T002"]}
+      ]
+    }
   },
   "id": 1017
 }

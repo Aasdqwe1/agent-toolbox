@@ -69,6 +69,9 @@ public class ToolManager {
         // 注册技能知识读取工具（始终可用，skill 内部懒加载）
         registerTool(new SkillReadTool());
 
+        // 注册计划创建工具（标准 MCP tools/call 形式，替代在 content 里塞转义 JSON）
+        registerTool(new PlanCreateTool());
+
         // 发现并接入 skills（assets 内置 + 运行时目录），注册其中的工具
         SkillManager.getInstance().init(context);
     }

@@ -1305,13 +1305,44 @@ public class McpServer {
                             // 提取并解析 JSON 回复（JSON-RPC 2.0）
                             JSONObject replyJson = extractJsonObject(reply);
                             if (replyJson == null) {
-                                log("[LLM] 无法提取JSON，作为纯文本回复处理");
-                                log("[LLM] 回复全文 (" + reply.length() + " 字符):\n" + reply);
-                                // 纯文本回复：直接结束对话，前端已从 done 事件获得内容
-                                // 不发送 format_error 回 LLM，避免额外轮次和混淆
-                                finalDone = true;
-                                log("[DONE] 纯文本回复");
-                                break;
+                                // —— 标准协议对齐（JSON-RPC 2.0 §5 / MCP 基础协议）——
+                                // 服务端收到“非法 JSON”时，必须回一个错误响应让对端自校准，
+                                // 而不能静默结束对话（否则 LLM 永远不会被纠正，任务也永不生成）。
+                                // 这里复用 format_error 校准通道，附带标准错误码语义：
+                                //   - 看起来像 JSON 但解析失败 → Parse error (-32700)
+                                //   - 完全不像 JSON-RPC 对象      → Invalid Request (-32600)
+                                boolean looksLikeJson = reply.contains("{")
+                                        || reply.contains("jsonrpc")
+                                        || reply.contains("\"result\"")
+                                        || reply.contains("\"method\"");
+                                final String calibration;
+                                if (looksLikeJson) {
+                                    calibration = "【格式错误 · JSON-RPC 2.0 Parse error(-32700)】"
+                                            + "你的回复不是合法的 JSON。最常见原因：result.content 是一个字符串值，"
+                                            + "你却在里面放了带【真实换行】或【未转义双引号】的 JSON"
+                                            + "（例如把 {\"tasks\":[...]} 美化打印、保留换行直接塞进 content），"
+                                            + "导致整个 JSON-RPC 信封在第一个非法字符处断裂。\n"
+                                            + "正确做法：输出【单行、合法】的 JSON-RPC 2.0。result.content 内部若需嵌入 JSON，"
+                                            + "必须先压缩为单行，并把内部双引号转义为 \\\"、换行转义为 \\n、反斜杠转义为 \\\\。"
+                                            + "示例：{\"jsonrpc\":\"2.0\",\"result\":{\"type\":\"reply\",\"content\":\"计划：{\\\"tasks\\\":[{\\\"task_id\\\":\\\"T001\\\",\\\"content\\\":\\\"读取配置\\\"}]}\"},\"id\":1001}\n"
+                                            + "请严格按上述标准重新输出你的回复。";
+                                } else {
+                                    calibration = "【格式错误 · JSON-RPC 2.0 Invalid Request(-32600)】"
+                                            + "你的回复不是合法的 JSON-RPC 2.0 对象。每条回复都必须是形如 "
+                                            + "{\"jsonrpc\":\"2.0\",\"result\":{\"type\":\"reply\",\"content\":\"...\"},\"id\":1001} "
+                                            + "或 {\"jsonrpc\":\"2.0\",\"method\":\"tools/call\",\"params\":{...},\"id\":1001} 的合法 JSON。"
+                                            + "请不要输出纯文本，必须输出标准 JSON-RPC 2.0。请重新输出。";
+                                }
+                                log("[LLM] 回复非合法 JSON，发送标准格式校准(format_error): "
+                                        + calibration.substring(0, Math.min(80, calibration.length())));
+                                String planMsg = buildPlanMessage("format_error", null, null, conversationId, calibration);
+                                if (planMsg != null) {
+                                    currentMessage = planMsg;
+                                } else {
+                                    currentMessage = "【系统反馈】\n" + calibration;
+                                }
+                                // 回灌校准指令，让 LLM 按标准重新输出（对齐 MCP 的“服务端必须响应错误”）
+                                continue;
                             }
 
                             // JSON-RPC 2.0 分支判断：method=工具调用，result=文本回复，error=错误
@@ -1558,6 +1589,45 @@ public class McpServer {
                                         toolIsError = true;
                                         log("[SECURITY] " + toolResult);
                                     }
+                                }
+                            }
+                            // —— 计划创建：标准 MCP 工具调用形式（替代在 content 里塞转义 JSON）——
+                            // 优先拦截 create_plan，直接加载计划到会话 PlanState，避免字符串转义/校准问题。
+                            if ("create_plan".equals(toolNameForLog) && cachedSession != null && paramsObj != null) {
+                                JSONObject args = paramsObj.optJSONObject("arguments");
+                                // 兼容 arguments={tasks:[...]} 与 arguments 顶层即含 tasks 两种写法
+                                JSONObject planJson = (args != null && args.has("tasks")) ? args : paramsObj;
+                                if (planJson != null && planJson.optJSONArray("tasks") != null) {
+                                    log("[PLAN] create_plan 工具调用：加载计划（" + planJson.optJSONArray("tasks").length() + " 个任务）");
+                                    cachedSession.taskManager.loadPlan(cachedSession.planState, planJson);
+                                    cachedSession.planState.confirmed = true;
+                                    log("[PLAN] " + cachedSession.planState.getSummary());
+                                    writePlanEvent(out, cachedSession.planState, "created");
+                                    Task firstTask = cachedSession.taskManager.selectNextTask(cachedSession.planState);
+                                    if (firstTask != null) {
+                                        log("[PLAN] 开始执行: [" + firstTask.taskId + "] " + firstTask.content);
+                                        String planMsg = buildPlanMessage("execute_task", firstTask, cachedSession.planState, conversationId,
+                                            "请按计划执行此任务，调用对应工具。完成后在回复中使用 plan_update 推进计划");
+                                        if (planMsg != null) {
+                                            currentMessage = planMsg;
+                                        } else {
+                                            currentMessage = cachedSession.planState.toPromptText() + "\n\n[系统指令] 请按计划执行第一个任务。任务: " + firstTask.content;
+                                        }
+                                        continue;
+                                    }
+                                    // 计划为空（无可选任务）：结束
+                                    log("[PLAN] create_plan 但无可选任务，结束");
+                                    finalDone = true;
+                                    break;
+                                } else {
+                                    // 参数缺失：回标准 format_error 校准，让 LLM 修正
+                                    String cal = "【格式错误】create_plan 工具参数缺失：arguments 必须包含 tasks 数组，"
+                                            + "形如 {\"tasks\":[{\"task_id\":\"T001\",\"content\":\"描述\",\"tool_needs\":[\"file_read\"]}]}。"
+                                            + "请重新调用 create_plan 工具。";
+                                    log("[PLAN] create_plan 参数缺失，发送校准");
+                                    String planMsg = buildPlanMessage("format_error", null, null, conversationId, cal);
+                                    currentMessage = (planMsg != null) ? planMsg : "create_plan 参数错误：缺少 tasks 数组";
+                                    continue;
                                 }
                             }
                             if (toolResult == null) {
@@ -2305,7 +2375,7 @@ public class McpServer {
             if (hasResult || hasMethod) return null;
             
             StringBuilder error = new StringBuilder();
-            error.append("【回复格式不合规】\n\n");
+            error.append("【回复格式不合规 · JSON-RPC 2.0 Invalid Request(-32600)】\n\n");
             
             if (!hasJsonrpc) {
                 error.append("- 缺少 \"jsonrpc\": \"2.0\" 字段\n");
@@ -2327,7 +2397,9 @@ public class McpServer {
                 error.append("- 计划 JSON（{\"tasks\":[...]}）必须放在文本回复的 result.content 字符串内部，不能作为顶层键\n");
             }
             
-            error.append("\n请仔细阅读系统提示词中的 reply_formats 定义，按照正确的 JSON-RPC 2.0 格式重新回复。");
+            error.append("\n请仔细阅读系统提示词中的 reply_formats 与 JSON 转义规则，按照正确的 JSON-RPC 2.0 格式重新回复。"
+                    + "注意：result.content 是字符串值，内部嵌入的 JSON 必须压缩为单行并转义（\\\" 、\\n、\\\\），"
+                    + "严禁把美化（带真实换行）的 JSON 直接放进 content，否则整个信封非法。");
             return error.toString();
         }
 
