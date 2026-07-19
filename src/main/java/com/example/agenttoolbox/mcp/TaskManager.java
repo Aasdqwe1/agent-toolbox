@@ -99,7 +99,8 @@ public class TaskManager {
         if (planState.activeTask != null) {
             // 当前有进行中任务，检查是否完成
             if (planState.activeTask.status == Task.Status.COMPLETED
-                || planState.activeTask.status == Task.Status.FAILED) {
+                || planState.activeTask.status == Task.Status.FAILED
+                || planState.activeTask.status == Task.Status.SKIPPED) {
                 planState.activeTask = null;
             } else {
                 return planState.activeTask; // 继续当前任务
@@ -134,6 +135,33 @@ public class TaskManager {
             if (planState.activeTask.canRetry()) {
                 planState.activeTask.resetToPending();
             }
+            planState.activeTask = null;
+            planState.resetRoundCount();
+        }
+    }
+
+    /**
+     * 标记指定 ID 的任务跳过（不重试、不计入失败）
+     */
+    public void markTaskSkipped(PlanState planState, String taskId, String reason) {
+        for (Task t : planState.tasks) {
+            if (t.taskId.equals(taskId)) {
+                t.markSkipped(reason);
+                if (planState.activeTask != null && planState.activeTask.taskId.equals(taskId)) {
+                    planState.activeTask = null;
+                }
+                planState.resetRoundCount();
+                break;
+            }
+        }
+    }
+
+    /**
+     * 标记当前活跃任务跳过
+     */
+    public void markCurrentSkipped(PlanState planState, String reason) {
+        if (planState.activeTask != null) {
+            planState.activeTask.markSkipped(reason);
             planState.activeTask = null;
             planState.resetRoundCount();
         }
@@ -194,14 +222,23 @@ public class TaskManager {
             }
             ctx.put("failed_tasks", failed);
 
-            // 未完成任务
-            JSONArray pending = new JSONArray();
-            for (Task t : planState.tasks) {
-                if (t.status == Task.Status.PENDING || t.status == Task.Status.IN_PROGRESS) {
-                    pending.put(t.toJson());
-                }
+        // 未完成任务
+        JSONArray pending = new JSONArray();
+        for (Task t : planState.tasks) {
+            if (t.status == Task.Status.PENDING || t.status == Task.Status.IN_PROGRESS) {
+                pending.put(t.toJson());
             }
-            ctx.put("pending_tasks", pending);
+        }
+        ctx.put("pending_tasks", pending);
+
+        // 跳过任务（供重规划参考，但不触发重试）
+        JSONArray skipped = new JSONArray();
+        for (Task t : planState.tasks) {
+            if (t.status == Task.Status.SKIPPED) {
+                skipped.put(t.toJson());
+            }
+        }
+        ctx.put("skipped_tasks", skipped);
 
             ctx.put("replan_reason", "部分任务失败需重规划");
         } catch (Exception e) {}
@@ -241,7 +278,8 @@ public class TaskManager {
             + "2. 标注任务ID、前置依赖、优先级(1紧急~5低优)、预估耗时\n"
             + "3. 识别并行任务（无依赖可同步执行）、串行任务\n"
             + "4. 标记风险检查点，执行失败后可单独重试单条任务\n"
-            + "5. 禁止遗漏需求，全部完成后统一汇总输出结果\n\n"
+            + "5. 禁止遗漏需求，全部完成后统一汇总输出结果\n"
+            + "6. 非必需或无法执行的步骤（如可选步骤、依赖不存在、用户取消）不要强行执行，执行阶段可用 plan_update action=skip_task 回报跳过（带 reason），下游依赖仍会继续\n\n"
             + "输出格式（仅返回JSON，无多余文字）：\n"
             + "{\n"
             + "  \"jsonrpc\": \"2.0\",\n"
@@ -267,15 +305,20 @@ public class TaskManager {
         sb.append("## 任务执行总结\n");
         sb.append("总任务: ").append(planState.totalTasks()).append(" 个\n");
         sb.append("已完成: ").append(planState.completedTasks()).append(" 个\n");
-        sb.append("失败: ").append(planState.failedTasks()).append(" 个\n\n");
+        sb.append("失败: ").append(planState.failedTasks()).append(" 个\n");
+        sb.append("跳过: ").append(planState.skippedTasks()).append(" 个\n\n");
 
         sb.append("详细清单:\n");
         for (Task t : planState.tasks) {
             String icon = t.status == Task.Status.COMPLETED ? "[x]" :
-                t.status == Task.Status.FAILED ? "[!]" : "[ ]";
+                t.status == Task.Status.FAILED ? "[!]" :
+                t.status == Task.Status.SKIPPED ? "[s]" : "[ ]";
             sb.append(icon).append(" ").append(t.taskId).append(": ").append(t.content);
             if (t.failReason != null) {
                 sb.append(" (").append(t.failReason).append(")");
+            }
+            if (t.status == Task.Status.SKIPPED && t.skipReason != null) {
+                sb.append(" (跳过: ").append(t.skipReason).append(")");
             }
             sb.append("\n");
         }

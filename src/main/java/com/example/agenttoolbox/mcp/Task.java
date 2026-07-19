@@ -18,7 +18,8 @@ public class Task {
         IN_PROGRESS("in_progress"),
         COMPLETED("completed"),
         FAILED("failed"),
-        PAUSED("paused");
+        PAUSED("paused"),
+        SKIPPED("skipped");
 
         private final String value;
         Status(String v) { this.value = v; }
@@ -38,6 +39,7 @@ public class Task {
     public String createTime;
     public String updateTime;
     public String failReason;
+    public String skipReason;      // 跳过原因
     public String checkpoint;       // 验收标准
     public int retryCount = 0;
     public static final int MAX_RETRY = 3;
@@ -56,7 +58,8 @@ public class Task {
         for (String depId : deps) {
             boolean found = false;
             for (Task t : allTasks) {
-                if (t.taskId.equals(depId) && t.status == Status.COMPLETED) {
+                if (t.taskId.equals(depId)
+                        && (t.status == Status.COMPLETED || t.status == Status.SKIPPED)) {
                     found = true;
                     break;
                 }
@@ -89,6 +92,13 @@ public class Task {
     /** 标记暂停 */
     public void markPaused() {
         status = Status.PAUSED;
+        updateTime = now();
+    }
+
+    /** 标记跳过（有意识地不执行，区别于失败） */
+    public void markSkipped(String reason) {
+        status = Status.SKIPPED;
+        skipReason = (reason != null && !reason.trim().isEmpty()) ? reason : "执行中决定跳过";
         updateTime = now();
     }
 
@@ -130,6 +140,7 @@ public class Task {
             if (createTime != null) json.put("create_time", createTime);
             if (updateTime != null) json.put("update_time", updateTime);
             if (failReason != null) json.put("fail_reason", failReason);
+            if (skipReason != null) json.put("skip_reason", skipReason);
             if (checkpoint != null) json.put("checkpoint", checkpoint);
         } catch (Exception e) {}
         return json;
@@ -158,6 +169,7 @@ public class Task {
         t.createTime = json.optString("create_time", null);
         t.updateTime = json.optString("update_time", null);
         t.failReason = json.optString("fail_reason", null);
+        t.skipReason = json.optString("skip_reason", null);
         t.checkpoint = json.optString("checkpoint", null);
         t.retryCount = json.optInt("retry_count", 0);
         return t;
@@ -170,6 +182,7 @@ public class Task {
             case "completed": return Status.COMPLETED;
             case "failed": return Status.FAILED;
             case "paused": return Status.PAUSED;
+            case "skipped": return Status.SKIPPED;
             default: return Status.PENDING;
         }
     }

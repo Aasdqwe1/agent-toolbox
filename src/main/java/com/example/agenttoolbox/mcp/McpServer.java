@@ -1444,6 +1444,16 @@ public class McpServer {
                                                 }
                                                 break;
                                             }
+                                            case "skip_task": {
+                                                String taskId = planUpdate.optString("task_id", "");
+                                                String reason = planUpdate.optString("reason", "执行中决定跳过");
+                                                if (!taskId.isEmpty()) {
+                                                    tm.markTaskSkipped(cachedSession.planState, taskId, reason);
+                                                } else if (cachedSession.planState.activeTask != null) {
+                                                    tm.markCurrentSkipped(cachedSession.planState, reason);
+                                                }
+                                                break;
+                                            }
                                         }
                                         
                                         writePlanEvent(out, cachedSession.planState, "progress");
@@ -1721,6 +1731,17 @@ public class McpServer {
                                                     }
                                                     break;
                                                 }
+                                                case "skip_task": {
+                                                    String taskId = planUpdate.optString("task_id", "");
+                                                    String reason = planUpdate.optString("reason", "执行中决定跳过");
+                                                    if (!taskId.isEmpty()) {
+                                                        tm.markTaskSkipped(cachedSession.planState, taskId, reason);
+                                                    } else if (cachedSession.planState.activeTask != null) {
+                                                        tm.markCurrentSkipped(cachedSession.planState, reason);
+                                                    }
+                                                    break;
+                                                }
+
                                             }
                                         }
                                     }
@@ -2208,6 +2229,7 @@ public class McpServer {
                 plan.put("total", planState.totalTasks());
                 plan.put("completed", planState.completedTasks());
                 plan.put("failed", planState.failedTasks());
+                plan.put("skipped", planState.skippedTasks());
                 plan.put("summary", planState.getSummary());
 
                 JSONArray tasks = new JSONArray();
@@ -2229,6 +2251,7 @@ public class McpServer {
                     }
                     if (t.checkpoint != null) tj.put("checkpoint", t.checkpoint);
                     if (t.failReason != null) tj.put("fail_reason", t.failReason);
+                    if (t.skipReason != null) tj.put("skip_reason", t.skipReason);
                     tasks.put(tj);
                 }
                 plan.put("tasks", tasks);

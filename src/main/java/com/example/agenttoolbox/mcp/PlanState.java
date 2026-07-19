@@ -58,6 +58,13 @@ public class PlanState {
         return count;
     }
 
+    /** 跳过任务数 */
+    public int skippedTasks() {
+        int count = 0;
+        for (Task t : tasks) if (t.status == Task.Status.SKIPPED) count++;
+        return count;
+    }
+
     /** 进行中任务数（应 <= 1） */
     public int inProgressTasks() {
         int count = 0;
@@ -65,10 +72,15 @@ public class PlanState {
         return count;
     }
 
-    /** 是否全部完成 */
+    /** 是否全部完成（无 pending / in_progress 即视为完结，SKIPPED 计入已处理，避免卡死） */
     public boolean allCompleted() {
         if (tasks.isEmpty()) return false;
-        return completedTasks() == tasks.size();
+        for (Task t : tasks) {
+            if (t.status == Task.Status.PENDING || t.status == Task.Status.IN_PROGRESS) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** 是否需要刷新计划 */
@@ -98,7 +110,7 @@ public class PlanState {
     public String getSummary() {
         StringBuilder sb = new StringBuilder();
         sb.append("任务进度: ").append(completedTasks()).append("/").append(totalTasks());
-        sb.append(" 完成, ").append(failedTasks()).append(" 失败");
+        sb.append(" 完成, ").append(failedTasks()).append(" 失败, ").append(skippedTasks()).append(" 跳过");
         if (activeTask != null) {
             sb.append(" | 当前: ").append(activeTask.content);
         }
@@ -143,6 +155,7 @@ public class PlanState {
             json.put("total", totalTasks());
             json.put("completed", completedTasks());
             json.put("failed", failedTasks());
+            json.put("skipped", skippedTasks());
             if (createTime != null) json.put("create_time", createTime);
         } catch (Exception e) {}
         return json;
@@ -177,20 +190,24 @@ public class PlanState {
         for (Task t : tasks) {
             String icon;
             switch (t.status) {
-                case COMPLETED: icon = "[x]"; break;
-                case IN_PROGRESS: icon = "[>]"; break;
-                case FAILED: icon = "[!]"; break;
-                case PAUSED: icon = "[||]"; break;
-                default: icon = "[ ]";
-            }
-            sb.append(icon).append(" ").append(t.taskId).append(": ").append(t.content);
-            if (!t.deps.isEmpty()) {
-                sb.append(" (依赖: ").append(String.join(",", t.deps)).append(")");
-            }
-            if (t.failReason != null) {
-                sb.append(" [失败原因: ").append(t.failReason).append("]");
-            }
-            sb.append("\n");
+            case COMPLETED: icon = "[x]"; break;
+            case IN_PROGRESS: icon = "[>]"; break;
+            case FAILED: icon = "[!]"; break;
+            case PAUSED: icon = "[||]"; break;
+            case SKIPPED: icon = "[s]"; break;
+            default: icon = "[ ]";
+        }
+        sb.append(icon).append(" ").append(t.taskId).append(": ").append(t.content);
+        if (!t.deps.isEmpty()) {
+            sb.append(" (依赖: ").append(String.join(",", t.deps)).append(")");
+        }
+        if (t.failReason != null) {
+            sb.append(" [失败原因: ").append(t.failReason).append("]");
+        }
+        if (t.status == Task.Status.SKIPPED && t.skipReason != null) {
+            sb.append(" [跳过原因: ").append(t.skipReason).append("]");
+        }
+        sb.append("\n");
         }
         return sb.toString();
     }

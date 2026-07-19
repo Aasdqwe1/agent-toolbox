@@ -33,7 +33,7 @@ from: builtin
 | 任务对象 | `tool_needs` | string[] | 需要的工具名列表 |
 | 任务对象 | `priority` | int | 1-5，默认3 |
 | 任务对象 | `checkpoint` | string | 验收标准（可选） |
-| plan_update | `action` | string | complete_task / mark_failed / update_plan |
+| plan_update | `action` | string | complete_task / mark_failed / skip_task / update_plan |
 | plan_update | `task_id` | string | 要操作的任务 ID |
 | plan_update | `reason` | string | 失败原因（mark_failed 时使用） |
 | plan_update | `plan` | object | 新计划（update_plan 时使用） |
@@ -178,13 +178,16 @@ from: builtin
 }
 ```
 
-### 三种 action
+### 四种 action
 
 | action | 必填字段 | 说明 |
 |--------|----------|------|
 | `complete_task` | `task_id` | 标记任务完成（别名 `mark_done` 同样生效） |
 | `mark_failed` | `task_id`, `reason` | 标记任务失败，可在 MAX_RETRY 内重试 |
+| `skip_task` | `task_id`, `reason` | 标记任务**跳过**（有意识地不执行，区别于失败，不重试）。下游依赖任务仍可继续执行（跳过视为依赖已满足）。不填 `task_id` 则跳过当前活跃任务 |
 | `update_plan` | `plan` | 替换整个计划 |
+
+> 非必需或无法执行的任务（如可选步骤、依赖不存在、用户取消）用 `skip_task` 回报跳过，而非 `mark_failed`；这样计划不会为空耗重试，下游依赖也能继续推进。
 
 ### 示例（完成任务）
 
@@ -358,6 +361,7 @@ from: builtin
 | 任务完成 | `complete_task` | `action`, `task_id` |
 | 任务失败 | `mark_failed` | `action`, `task_id`, `reason` |
 | 替换计划 | `update_plan` | `action`, `plan` |
+| 任务跳过 | `skip_task` | `action`, `task_id`, `reason` |
 | 用户确认 | 调用 ask，等回答后再 `complete_task` | - |
 
 ---
