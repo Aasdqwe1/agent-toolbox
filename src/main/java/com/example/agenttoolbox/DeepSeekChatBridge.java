@@ -1336,60 +1336,42 @@ public class DeepSeekChatBridge {
     }
 
     /**
-     * 创建新会话：点击新建按钮后等待 URL 变化
+     * 统一的「新建会话」逻辑：把 DeepSeek 主窗口（boundWebView）重定向到指定 URL。
+     * 不论是 MCP 浏览器里的「新建」按钮，还是上下文哨兵弹窗的「新建会话」，
+     * 后端都只做这一件事——让 DeepSeek 窗口跳到目标地址（默认 chat.deepseek.com），
+     * 与 DeepSeek 自己点「新建」等价；MCP 悬浮窗浏览器本身不被导航。
      */
-    public boolean newSession() {
+    public boolean openDeepSeekUrl(final String url) {
         this.deepseekInitialized = false;
-        String js =
-            "(function() {\n" +
-            "  try {\n" +
-            "    var currentPath = location.pathname;\n" +
-            "    if (currentPath.indexOf('/chat') === -1) {\n" +
-            "      location.href = '/chat';\n" +
-            "      return 'ok_navigate';\n" +
-            "    }\n" +
-            "  } catch(e) {}\n" +
-            "  // 策略：侧边栏新建 / plus按钮 / 链接\n" +
-            "  var allClickable = document.querySelectorAll('button, a, [role=\"button\"], div[onclick]');\n" +
-            "  for (var i = 0; i < allClickable.length; i++) {\n" +
-            "    var txt = (allClickable[i].innerText || allClickable[i].textContent || '').trim().toLowerCase();\n" +
-            "    var aria = (allClickable[i].getAttribute('aria-label') || '').toLowerCase();\n" +
-            "    var title = (allClickable[i].getAttribute('title') || '').toLowerCase();\n" +
-            "    if (txt.indexOf('新建') !== -1 || txt.indexOf('新对话') !== -1 ||\n" +
-            "        txt.indexOf('new chat') !== -1 || txt.indexOf('new conversation') !== -1 ||\n" +
-            "        aria.indexOf('new chat') !== -1 || aria.indexOf('新建') !== -1 ||\n" +
-            "        title.indexOf('new chat') !== -1 || title.indexOf('新建') !== -1) {\n" +
-            "      var rect = allClickable[i].getBoundingClientRect();\n" +
-            "      if (rect.left < (window.innerWidth * 0.3) ||\n" +
-            "          allClickable[i].tagName === 'A' ||\n" +
-            "          txt.length < 10) {\n" +
-            "        allClickable[i].click();\n" +
-            "        return 'ok_sidebar';\n" +
-            "      }\n" +
-            "    }\n" +
-            "  }\n" +
-            "  var svgs = document.querySelectorAll('svg');\n" +
-            "  for (var k = 0; k < svgs.length; k++) {\n" +
-            "    var sp = svgs[k].closest('button, a, [role=\"button\"], div');\n" +
-            "    if (sp) {\n" +
-            "      var r2 = sp.getBoundingClientRect();\n" +
-            "      if (r2.left < window.innerWidth * 0.3 && r2.top < window.innerHeight * 0.3) {\n" +
-            "        sp.click();\n" +
-            "        return 'ok_svg_plus';\n" +
-            "      }\n" +
-            "    }\n" +
-            "  }\n" +
-            "  try { location.pathname = '/chat'; return 'ok_path_change'; } catch(e) {}\n" +
-            "  return 'not_found';\n" +
-            "})()";
-
-        String raw = evaluateJsSync(js, 10);
-        if (raw == null) return false;
-
-        // 等待最多 3 秒让页面完成跳转
-        for (int attempt = 0; attempt < 6; attempt++) {
-            try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+        final WebView wb;
+        final Handler handler;
+        synchronized (this) {
+            wb = boundWebView;
+            handler = mainHandler;
         }
-        return raw.contains("ok");
+        if (wb == null || handler == null) return false;
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<Boolean> resultRef = new AtomicReference<>(false);
+        handler.post(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    wb.loadUrl(url);
+                    resultRef.set(true);
+                } catch (Exception e) {
+                    AppLogger.e("DeepSeekChatBridge", "openDeepSeekUrl 失败: " + e.getMessage());
+                    resultRef.set(false);
+                } finally {
+                    latch.countDown();
+                }
+            }
+        });
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+        return resultRef.get();
     }
 }

@@ -837,11 +837,13 @@ public class McpServer {
                             .put("error", "DeepSeek 未连接")
                             .toString();
                     } else {
-                        log("DeepSeek 新建会话");
-                        boolean ok = bridge.newSession();
+                        // 统一的「新建会话」逻辑：后端把 DeepSeek 主窗口(boundWebView)重定向到 chat.deepseek.com
+                        // 不论触发来源是 MCP 浏览器「新建」按钮还是上下文哨兵弹窗，都走这一套重定向
+                        log("DeepSeek 新建会话：重定向 DeepSeek 窗口到 https://chat.deepseek.com");
+                        boolean ok = bridge.openDeepSeekUrl("https://chat.deepseek.com");
                         responseBody = new JSONObject()
                             .put("success", ok)
-                            .put("message", ok ? "已创建新会话" : "无法创建新会话")
+                            .put("message", ok ? "已重定向 DeepSeek 窗口到新对话" : "无法重定向 DeepSeek 窗口")
                             .toString();
                     }
                 } else if ("/api/chat/send".equals(action)) {
