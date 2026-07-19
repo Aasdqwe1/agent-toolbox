@@ -3063,6 +3063,59 @@
             }
         }
 
+        // ============================================================
+        //  上下文窗口哨兵弹窗
+        //  当后端检测到 LLM 因上下文被压缩（系统提示词丢失）而输出自然语言或缺少 id 字段时，
+        //  通过 SSE context_compressed 事件触发本弹窗，提示用户“上下文已被压缩，推荐新建会话”。
+        // ============================================================
+        let contextCompressedModalEl = null;
+        function showContextCompressedModal(obj) {
+            if (contextCompressedModalEl) return; // 避免重复弹窗
+            const data = obj || {};
+            const reason = data.missingId
+                ? '回复缺少必要的 id 字段（系统提示词可能已丢失）'
+                : (data.naturalLanguage
+                    ? '模型输出了自然语言而非标准 JSON-RPC（系统提示词可能已丢失）'
+                    : '上下文压缩征兆');
+            const overlay = document.createElement('div');
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;'
+                + 'justify-content:center;background:rgba(15,23,42,0.55);font-family:inherit;';
+            overlay.innerHTML =
+                '<div role="dialog" aria-modal="true" style="width:380px;max-width:90vw;background:#fff;'
+                + 'border-radius:14px;padding:24px;box-shadow:0 12px 40px rgba(0,0,0,0.3);">'
+                + '  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">'
+                + '    <span style="font-size:22px;line-height:1;">⚠️</span>'
+                + '    <div style="font-size:16px;font-weight:600;color:#111827;">上下文已被压缩</div>'
+                + '  </div>'
+                + '  <div style="font-size:13px;line-height:1.6;color:#4b5563;margin-bottom:6px;">'
+                + '    检测到本轮对话上下文已被压缩（' + escapeHtml(reason) + '）。'
+                + '  </div>'
+                + '  <div style="font-size:13px;line-height:1.6;color:#4b5563;margin-bottom:18px;">'
+                + '    推荐新建一个会话以恢复完整上下文。'
+                + '  </div>'
+                + '  <div style="display:flex;gap:10px;justify-content:flex-end;">'
+                + '    <button id="ctxModalCancel" style="padding:8px 16px;border:1px solid #d1d5db;'
+                + 'background:#fff;color:#374151;border-radius:8px;cursor:pointer;font-size:13px;">取消</button>'
+                + '    <button id="ctxModalNew" style="padding:8px 16px;border:none;background:#3964fe;'
+                + 'color:#fff;border-radius:8px;cursor:pointer;font-size:13px;">新建会话</button>'
+                + '  </div>'
+                + '</div>';
+            document.body.appendChild(overlay);
+            contextCompressedModalEl = overlay;
+
+            function closeModal() {
+                if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+                contextCompressedModalEl = null;
+            }
+            overlay.querySelector('#ctxModalCancel').addEventListener('click', closeModal);
+            overlay.querySelector('#ctxModalNew').addEventListener('click', function() {
+                closeModal();
+                newDeepSeekSession();
+            });
+            // 点击遮罩区域关闭
+            overlay.addEventListener('click', function(e) { if (e.target === overlay) closeModal(); });
+        }
+
         function isTruncated(text) {
             if (!text || text.length < 50) return false;
             var t = text.trim();
@@ -3195,6 +3248,16 @@
                         }
                         if (obj && obj.canContinue === true) {
                             finalCanContinue = true;
+                        }
+                    } else if (eventName === 'context_compressed') {
+                        // 上下文窗口哨兵：继续生成路径同样弹出压缩提示
+                        try {
+                            var detail = (obj && typeof obj === 'object') ? obj : {};
+                            console.log('[SENTINEL] 收到 context_compressed 事件(继续生成):',
+                                'missingId=' + detail.missingId, 'naturalLanguage=' + detail.naturalLanguage);
+                            showContextCompressedModal(detail);
+                        } catch (e) {
+                            console.error('[SENTINEL] 处理 context_compressed 事件异常:', e);
                         }
                     }
                     eventName = '';
@@ -3678,6 +3741,18 @@
                         const errText = (obj && obj.error) ? obj.error : payload;
                         addSystemMessage('流式回复失败: ' + escapeHtml(errText));
                         setState('错误');
+                    } else if (eventName === 'context_compressed') {
+                        // 上下文窗口哨兵：弹出“上下文已被压缩，推荐新建会话”对话框
+                        try {
+                            const detail = (obj && typeof obj === 'object') ? obj : {};
+                            console.log('[SENTINEL] 收到 context_compressed 事件:',
+                                'missingId=' + detail.missingId, 'naturalLanguage=' + detail.naturalLanguage,
+                                'canRecover=' + detail.canRecover, 'attempt=' + detail.attempt);
+                            showContextCompressedModal(detail);
+                            setState('上下文压缩');
+                        } catch (e) {
+                            console.error('[SENTINEL] 处理 context_compressed 事件异常:', e);
+                        }
                     }
                     } catch (e) {
                         console.error('[SSE] flushEvent 处理异常:', e, 'event=' + eventName);

@@ -52,6 +52,16 @@ public class McpServer {
     // Timeout for waiting on heartbeat thread shutdown during exception recovery
     private static final long HEARTBEAT_THREAD_JOIN_TIMEOUT_MS = 2000L;
 
+    // ===== 上下文窗口哨兵（Context Window Sentinel）=====
+    // 不设次数上限：只要检测到上下文压缩征兆（自然语言输出 / 回复缺少 id 字段），
+    // 就立即重发完整系统提示词并通知前端弹窗，直到 LLM 恢复正常协议输出为止。
+    // 自动恢复时回灌给 LLM 的提示：告知其上下文可能已被压缩、需严格按协议回显 id
+    private static final String SENTINEL_REMINDER =
+        "【系统提示】检测到上一轮回复丢失了必要的 id 字段或不是合法 JSON-RPC，"
+        + "这通常意味着对话上下文已被压缩（系统提示词丢失）。"
+        + "现已重新发送完整系统提示词，请严格按 JSON-RPC 2.0 协议回复，"
+        + "并务必在每条回复中回显 \"id\" 字段（与请求中的 id 保持一致）。";
+
     private int port;
     private String bindAddress = "0.0.0.0";  // 默认监听所有网卡
     private ServerSocket serverSocket;
@@ -947,6 +957,10 @@ public class McpServer {
                         int round = 0;
                         boolean finalDone = false;
                         int toolCallCount = 0; // 防止工具调用循环
+                        // 上下文窗口哨兵状态：上一轮检测到上下文压缩时，下一轮强制重发完整系统提示词
+                        final java.util.concurrent.atomic.AtomicBoolean sentinelForceResend =
+                            new java.util.concurrent.atomic.AtomicBoolean(false);
+                        int sentinelResendCount = 0; // 已触发哨兵次数（用于限次自动恢复）
                         // 新会话：创建缓存
                         if (isNewSession) {
                             String systemPrompt = ToolManager.getInstance().getSystemPrompt();
@@ -992,6 +1006,33 @@ public class McpServer {
                             final int currentRound = round;
                             
                             String messageToSend = currentMessage;
+
+                            // ===== 上下文窗口哨兵：上一轮检测到上下文压缩，本轮回退重发完整系统提示词 =====
+                            // 把 method=initialize 的完整系统提示词（params.system + params.user）重新发给 LLM，
+                            // 以恢复被 DeepSeek 自动压缩截断而丢失的上下文与协议记忆。
+                            if (sentinelForceResend.compareAndSet(true, false)) {
+                                if (cachedSession != null) {
+                                    try {
+                                        JSONObject rpc = new JSONObject();
+                                        rpc.put("jsonrpc", "2.0");
+                                        rpc.put("method", "initialize");
+                                        JSONObject params = new JSONObject();
+                                        params.put("system", cachedSession.systemObj);
+                                        params.put("user", messageToSend);
+                                        rpc.put("params", params);
+                                        rpc.put("id", conversationId);
+                                        messageToSend = rpc.toString();
+                                        log("[SENTINEL] 本轮回退重新发送完整系统提示词以恢复被压缩的上下文 ("
+                                            + messageToSend.length() + " 字符)");
+                                    } catch (JSONException je) {
+                                        log("[SENTINEL] 重建 initialize 消息失败，退回纯系统提示词: " + je.getMessage());
+                                        messageToSend = cachedSession.systemPrompt;
+                                    }
+                                } else {
+                                    log("[SENTINEL] 无会话缓存，无法重发系统提示词，使用原始消息");
+                                }
+                            }
+
                             if (round == 1 && cachedSession != null && cachedSession.isFirstMessage && !bridge.isDeepseekInitialized()) {
                                 // 首次消息：发送完整 system + tools + user
                                 try {
@@ -1304,35 +1345,41 @@ public class McpServer {
 
                             // 提取并解析 JSON 回复（JSON-RPC 2.0）
                             JSONObject replyJson = extractJsonObject(reply);
+                            // 粗略判断是否“像 JSON”：仅在 replyJson 解析失败时用于区分自然语言与残缺 JSON
+                            boolean looksLikeJson = reply.contains("{")
+                                    || reply.contains("jsonrpc")
+                                    || reply.contains("\"result\"")
+                                    || reply.contains("\"method\"");
                             if (replyJson == null) {
-                                // —— 标准协议对齐（JSON-RPC 2.0 §5 / MCP 基础协议）——
-                                // 服务端收到“非法 JSON”时，必须回一个错误响应让对端自校准，
-                                // 而不能静默结束对话（否则 LLM 永远不会被纠正，任务也永不生成）。
-                                // 这里复用 format_error 校准通道，附带标准错误码语义：
-                                //   - 看起来像 JSON 但解析失败 → Parse error (-32700)
-                                //   - 完全不像 JSON-RPC 对象      → Invalid Request (-32600)
-                                boolean looksLikeJson = reply.contains("{")
-                                        || reply.contains("jsonrpc")
-                                        || reply.contains("\"result\"")
-                                        || reply.contains("\"method\"");
-                                final String calibration;
-                                if (looksLikeJson) {
-                                    calibration = "【格式错误 · JSON-RPC 2.0 Parse error(-32700)】"
-                                            + "你的回复不是合法的 JSON。最常见原因：result.content 是一个字符串值，"
-                                            + "你却在里面放了带【真实换行】或【未转义双引号】的 JSON"
-                                            + "（例如把 {\"tasks\":[...]} 美化打印、保留换行直接塞进 content），"
-                                            + "导致整个 JSON-RPC 信封在第一个非法字符处断裂。\n"
-                                            + "正确做法：输出【单行、合法】的 JSON-RPC 2.0。result.content 内部若需嵌入 JSON，"
-                                            + "必须先压缩为单行，并把内部双引号转义为 \\\"、换行转义为 \\n、反斜杠转义为 \\\\。"
-                                            + "示例：{\"jsonrpc\":\"2.0\",\"result\":{\"type\":\"reply\",\"content\":\"计划：{\\\"tasks\\\":[{\\\"task_id\\\":\\\"T001\\\",\\\"content\\\":\\\"读取配置\\\"}]}\"},\"id\":1001}\n"
-                                            + "请严格按上述标准重新输出你的回复。";
-                                } else {
-                                    calibration = "【格式错误 · JSON-RPC 2.0 Invalid Request(-32600)】"
-                                            + "你的回复不是合法的 JSON-RPC 2.0 对象。每条回复都必须是形如 "
-                                            + "{\"jsonrpc\":\"2.0\",\"result\":{\"type\":\"reply\",\"content\":\"...\"},\"id\":1001} "
-                                            + "或 {\"jsonrpc\":\"2.0\",\"method\":\"tools/call\",\"params\":{...},\"id\":1001} 的合法 JSON。"
-                                            + "请不要输出纯文本，必须输出标准 JSON-RPC 2.0。请重新输出。";
+                                if (!looksLikeJson) {
+                                    // ===== 上下文窗口哨兵：自然语言输出（非 JSON-RPC）=====
+                                    // 系统提示词要求 LLM 必须输出 JSON-RPC 2.0；直接回复自然语言，
+                                    // 说明对话上下文已被压缩（系统提示词丢失）、协议记忆丢失。
+                                    // 触发哨兵：①通过 SSE 通知前端弹窗 ②下一轮重发完整系统提示词（无次数上限）。
+                                    sentinelResendCount++;
+                                    sentinelNotifyAndDecide(out, conversationId,
+                                            sentinelForceResend, sentinelResendCount, true, false);
+                                    log("[SENTINEL] 检测到自然语言输出（上下文压缩征兆），已触发 "
+                                            + sentinelResendCount + " 次，重发完整系统提示词");
+                                    currentMessage = SENTINEL_REMINDER + "\n\n" + currentMessage;
+                                    // 继续循环：下一轮由 sentinelForceResend 强制重发完整系统提示词
+                                    continue;
                                 }
+                                // —— 标准协议对齐（JSON-RPC 2.0 §5 / MCP 基础协议）——
+                                // 看起来像 JSON 但解析失败：服务端必须回一个错误响应让对端自校准，
+                                // 而不能静默结束对话（否则 LLM 永远不会被纠正，任务也永不生成）。
+                                // 这里复用 format_error 校准通道，附带标准错误码语义：Parse error (-32700)
+                                // 自然语言输出已在上面的哨兵分支处理；能走到这里说明“像 JSON 但解析失败”
+                                // （Parse error -32700）。直接复用原有 Parse error 校准文案。
+                                final String calibration = "【格式错误 · JSON-RPC 2.0 Parse error(-32700)】"
+                                        + "你的回复不是合法的 JSON。最常见原因：result.content 是一个字符串值，"
+                                        + "你却在里面放了带【真实换行】或【未转义双引号】的 JSON"
+                                        + "（例如把 {\"tasks\":[...]} 美化打印、保留换行直接塞进 content），"
+                                        + "导致整个 JSON-RPC 信封在第一个非法字符处断裂。\n"
+                                        + "正确做法：输出【单行、合法】的 JSON-RPC 2.0。result.content 内部若需嵌入 JSON，"
+                                        + "必须先压缩为单行，并把内部双引号转义为 \\\"、换行转义为 \\n、反斜杠转义为 \\\\。"
+                                        + "示例：{\"jsonrpc\":\"2.0\",\"result\":{\"type\":\"reply\",\"content\":\"计划：{\\\"tasks\\\":[{\\\"task_id\\\":\\\"T001\\\",\\\"content\\\":\\\"读取配置\\\"}]}\"},\"id\":1001}\n"
+                                        + "请严格按上述标准重新输出你的回复。";
                                 log("[LLM] 回复非合法 JSON，发送标准格式校准(format_error): "
                                         + calibration.substring(0, Math.min(80, calibration.length())));
                                 String planMsg = buildPlanMessage("format_error", null, null, conversationId, calibration);
@@ -1373,6 +1420,21 @@ public class McpServer {
                                 log("[DONE] LLM 返回错误");
                                 finalDone = true;
                                 break;
+                            }
+
+                            // ===== 上下文窗口哨兵：合法 JSON 但缺少 id 字段 =====
+                            // 系统提示词要求 LLM 每条回复必须回显 id；缺失 id 且非 error/validation_error，
+                            // 说明上下文已被压缩、协议记忆丢失。触发哨兵：通知前端弹窗 + 重发完整系统提示词（无上限）。
+                            if (!replyJson.has("id")) {
+                                sentinelResendCount++;
+                                sentinelNotifyAndDecide(out, conversationId,
+                                        sentinelForceResend, sentinelResendCount, false, true);
+                                log("[SENTINEL] 检测到回复缺少 id 字段（上下文压缩征兆），已触发 "
+                                        + sentinelResendCount + " 次，重发完整系统提示词"
+                                        + " method=" + method + " hasResult=" + hasResult);
+                                currentMessage = SENTINEL_REMINDER + "\n\n" + currentMessage;
+                                // 继续循环：下一轮由 sentinelForceResend 强制重发完整系统提示词
+                                continue;
                             }
 
                             if (hasResult && !"tools/call".equals(method)) {
@@ -2068,6 +2130,43 @@ public class McpServer {
                     log("[SSE-WRITE] SSE写入跳过: type=" + type + " 原因=Socket已关闭");
                 }
             }
+        }
+
+        /**
+         * 上下文窗口哨兵 — 向前端推送“上下文已被压缩”提示事件。
+         * 前端据此弹出「上下文已被压缩，推荐新建会话」对话框（取消 / 新建会话）。
+         */
+        private void writeContextCompressedEvent(OutputStream out, long conversationId,
+                boolean naturalLanguage, boolean missingId, boolean canRecover, int attempt) {
+            try {
+                JSONObject j = new JSONObject();
+                j.put("type", "context_compressed");
+                j.put("message", "上下文已被压缩，推荐新建会话");
+                j.put("naturalLanguage", naturalLanguage);
+                j.put("missingId", missingId);
+                j.put("canRecover", canRecover);
+                j.put("attempt", attempt);
+                writeEventChunk(out, "context_compressed", j.toString());
+                log("[SENTINEL] 已向前端推送 context_compressed 事件 (attempt=" + attempt
+                        + ", canRecover=" + canRecover + ")");
+            } catch (Exception e) {
+                log("[SENTINEL] 写入 context_compressed 事件失败: " + e.getMessage());
+            }
+        }
+
+        /**
+         * 上下文窗口哨兵 — 命中即触发：置位重发标志并推送前端弹窗事件。
+         * 无次数上限：只要检测到压缩征兆就重发完整系统提示词（下一轮），直到 LLM 恢复正常。
+         *
+         * @param forceResendFlag 命中时置位，下一轮主循环会强制重发完整系统提示词
+         * @param attempt         本次为第几次触发哨兵（调用方已自增，仅用于日志/事件）
+         */
+        private void sentinelNotifyAndDecide(OutputStream out, long conversationId,
+                AtomicBoolean forceResendFlag, int attempt,
+                boolean naturalLanguage, boolean missingId) {
+            // canRecover 恒为 true：只要触发就自动恢复 + 弹窗，不设上限
+            writeContextCompressedEvent(out, conversationId, naturalLanguage, missingId, true, attempt);
+            forceResendFlag.set(true);
         }
 
         /**

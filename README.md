@@ -29,8 +29,23 @@
 - `event: done` → LLM 完成一轮回复（含 `canContinue`、`planComplete` 标记）
 - `event: plan` → 计划事件（created/updated/complete）
 - `event: error` → 错误通知
+- `event: context_compressed` → **上下文窗口哨兵**事件：检测到 LLM 因上下文被压缩而输出自然语言或回复缺少 `id` 字段时触发，前端据此弹出「上下文已被压缩，推荐新建会话」对话框（取消 / 新建会话）
 - 心跳检测：30s 无活动自动发送 `status` 保活
 - `writeHandler` (HandlerThread) 异步写入 + `flushWriteHandler()` + `endChunked()` 确保完整交付
+
+### 上下文窗口哨兵（Context Window Sentinel）
+长对话下 DeepSeek 会自动压缩/截断上下文，导致 LLM 丢失系统提示词与协议记忆。哨兵在主循环每轮解析 LLM 回复时检测以下两种「上下文压缩征兆」：
+
+1. **输出自然语言**（回复无法解析为 JSON-RPC，且明显不像 JSON）→ 系统提示词已丢失，LLM 退回普通聊天。
+2. **JSON 缺少 `id` 字段**（回复是合法 JSON-RPC，但没有 `id`）→ LLM 忘了回显会话 `id`，协议记忆丢失。
+
+命中后的处理流程：
+
+- **自动恢复（无次数上限）**：只要检测到压缩征兆，立即向 LLM 重新发送完整系统提示词（`method: initialize`，携带 `params.system` + `params.user`，即首轮注入的那份），并回灌一句提醒，要求 LLM 严格按 JSON-RPC 2.0 协议回复、务必回显 `id`。不设重试次数上限，持续恢复直到 LLM 重新输出合规的 `id`（`McpServer.java`）。
+- **前端弹窗**：同时通过 SSE `event: context_compressed` 推送事件，前端（`test_client.html`）弹出模态对话框，文案为「上下文已被压缩，推荐新建会话」，提供两个按钮：
+  - **取消** → 关闭弹窗，继续当前会话（下一轮若仍异常会再次弹窗）。
+  - **新建会话** → 调用 `newDeepSeekSession()` 创建全新会话恢复完整上下文，彻底摆脱被压缩的旧上下文。
+- **循环终止**：恢复本身不设上限，但整个对话受 `maxRounds`（普通 100 / 代理模式 200）约束；若 LLM 始终无法恢复正常协议输出，对话会在轮次耗尽后自然结束。用户也可随时点击弹窗的「新建会话」主动跳出。
 
 ### 多线程与性能优化
 - `ExecutorService.newCachedThreadPool()` 管理 HTTP 连接线程
